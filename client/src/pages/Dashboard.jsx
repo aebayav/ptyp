@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { fmtMoney, fmtDate, StatusBadge, QUOTE_STATUS } from '../utils';
+import { fmtMoney, fmtDate, StatusBadge, MATERIAL_STATUS } from '../utils';
 
 export default function Dashboard() {
   const [overview, setOverview] = useState(null);
@@ -124,7 +124,7 @@ export default function Dashboard() {
                       <td className="muted">{m.code}</td>
                       <td>{m.name}</td>
                       <td>
-                        <StatusBadge meta={{ open: QUOTE_STATUS.received, evaluating: QUOTE_STATUS.requested, ordered: QUOTE_STATUS.selected, delivered: QUOTE_STATUS.received }[m.status] || QUOTE_STATUS.received} />
+                        <StatusBadge meta={MATERIAL_STATUS[m.status]} />
                       </td>
                       <td className="num">{fmtMoney(m.target_price)}</td>
                     </tr>

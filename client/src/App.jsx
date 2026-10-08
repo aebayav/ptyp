@@ -1,4 +1,4 @@
-import { NavLink, Outlet, Navigate, Routes, Route } from 'react-router-dom';
+import { NavLink, Navigate, Routes, Route } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import Materials from './pages/Materials';
 import Suppliers from './pages/Suppliers';
@@ -53,7 +53,6 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
-      <Outlet />
     </div>
   );
 }
