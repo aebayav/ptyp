@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
+import Modal from '../components/Modal';
 
 const EMPTY_FORM = {
   name: '',
