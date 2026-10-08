@@ -675,3 +675,116 @@ tr.best td {
     padding: 20px 16px;
   }
 }
+
+/* ---------- Giriş sayfası ---------- */
+.layout-login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #0d1f3c 0%, #16315a 60%, #1b3a6b 100%);
+  padding: 20px;
+}
+
+.auth-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 36px 32px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.45);
+}
+
+.auth-brand {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.auth-brand span {
+  font-size: 36px;
+  color: var(--accent);
+}
+
+.auth-brand h1 {
+  font-size: 26px;
+  letter-spacing: 3px;
+  margin-top: 6px;
+}
+
+.auth-brand p {
+  color: var(--muted);
+  font-size: 12.5px;
+  margin-top: 2px;
+}
+
+.auth-note {
+  text-align: center;
+  color: var(--muted);
+  font-size: 11.5px;
+  margin-top: 18px;
+}
+
+.btn-block {
+  width: 100%;
+  justify-content: center;
+  padding: 11px;
+}
+
+.loading-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  color: var(--muted);
+  background: var(--bg);
+}
+
+/* ---------- Sidebar kullanıcı bilgisi ---------- */
+.sidebar-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.sidebar-user .user-ico {
+  font-size: 18px;
+}
+
+.sidebar-user .user-name {
+  font-weight: 600;
+  color: #fff;
+  font-size: 12.5px;
+}
+
+.sidebar-user .user-role {
+  font-size: 11px;
+  color: #8fa3bd;
+}
+
+.logout-btn {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: none;
+  color: #c4d1e0;
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+
+.logout-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+/* ---------- Başarı bildirimi ---------- */
+.notice-banner {
+  background: #e2f5ea;
+  border: 1px solid #bfe6cd;
+  color: #1e6f45;
+  padding: 10px 14px;
+  border-radius: 10px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}

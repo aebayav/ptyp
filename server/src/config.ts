@@ -13,4 +13,8 @@ export const config = {
     password: process.env.PGPASSWORD || '',
     database: process.env.PGDATABASE || 'ptyp',
   },
+  jwtSecret: process.env.JWT_SECRET || 'ptyp-dev-gizli-anahtar-degistirin',
+  jwtExpires: process.env.JWT_EXPIRES || '12h',
+  adminUsername: process.env.PTYP_ADMIN_USERNAME || 'admin',
+  adminPassword: process.env.PTYP_ADMIN_PASSWORD || 'admin123',
 };

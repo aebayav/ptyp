@@ -1,6 +1,29 @@
+const TOKEN_KEY = 'ptyp_token';
+
+export function getToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setToken(t) {
+  try {
+    if (t) localStorage.setItem(TOKEN_KEY, t);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* localStorage kapalıysa sessiz geç */
+  }
+}
+
 async function request(path, options = {}) {
+  const token = getToken();
   const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: 'Bearer ' + token } : {}),
+    },
     ...options,
   });
   if (!res.ok) {
@@ -10,6 +33,11 @@ async function request(path, options = {}) {
       if (data && data.error) msg = data.error;
     } catch {
       /* yanıt JSON değilse varsayılan mesaj kalır */
+    }
+    // Oturum geçersizse (ama aktif giriş varsa) giriş sayfasına yönlendir
+    if (res.status === 401 && getToken()) {
+      setToken(null);
+      if (!window.location.pathname.startsWith('/login')) window.location.href = '/login';
     }
     throw new Error(msg);
   }

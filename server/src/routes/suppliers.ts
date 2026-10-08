@@ -1,7 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db';
+import { requireAuth, requireRole } from '../auth';
 
 const router = Router();
+
+// Satıcı yönetimi yalnızca iş sahibine açık
+router.use(requireAuth, requireRole('owner'));
 
 // Tüm satıcılar (teklif sayısıyla)
 router.get('/', async (_req: Request, res: Response) => {

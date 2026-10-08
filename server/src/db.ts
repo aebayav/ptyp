@@ -1,4 +1,5 @@
 import { Pool, types } from 'pg';
+import bcrypt from 'bcryptjs';
 import { config } from './config';
 
 // NUMERIC (OID 1700) değerleri string yerine number olarak gelsin (price, quantity, target_price)
@@ -52,7 +53,32 @@ export async function initSchema(): Promise<void> {
       updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
+    CREATE TABLE IF NOT EXISTS users (
+      id            SERIAL PRIMARY KEY,
+      username      TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role          TEXT NOT NULL DEFAULT 'owner',
+      display_name  TEXT NOT NULL DEFAULT '',
+      supplier_id   INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
     CREATE INDEX IF NOT EXISTS idx_quotes_material ON quotes(material_id);
     CREATE INDEX IF NOT EXISTS idx_quotes_supplier ON quotes(supplier_id);
   `);
+  await seedAdmin();
+}
+
+// İlk açılışta hiç kullanıcı yoksa yönetici hesabı oluştur
+async function seedAdmin(): Promise<void> {
+  const { rows } = await pool.query('SELECT COUNT(*)::int AS c FROM users');
+  if (rows[0].c > 0) return;
+  await pool.query(
+    `INSERT INTO users (username, password_hash, role, display_name) VALUES ($1, $2, 'owner', 'Yönetici')`,
+    [config.adminUsername, bcrypt.hashSync(config.adminPassword, 10)]
+  );
+  console.log(`[PTYP] İlk yönetici hesabı oluşturuldu: "${config.adminUsername}"`);
+  if (!process.env.PTYP_ADMIN_PASSWORD) {
+    console.warn('[PTYP] UYARI: PTYP_ADMIN_PASSWORD .env\'de ayarlı değil — varsayılan şifre kullanılıyor. Giriş yaptıktan sonra değiştirin!');
+  }
 }

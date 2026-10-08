@@ -1,9 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db';
+import { requireAuth, requireRole } from '../auth';
 
 const router = Router();
 
-// Genel bakış özeti
+// Genel bakış özeti yalnızca iş sahibine açık (bütçe verileri içerir)
+router.use(requireAuth, requireRole('owner'));
+
 router.get('/overview', async (_req: Request, res: Response) => {
   const [m, s, q, rq, wq, bt] = await Promise.all([
     pool.query('SELECT COUNT(*)::int AS c FROM materials'),

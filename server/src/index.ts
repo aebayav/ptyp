@@ -4,6 +4,8 @@ import fs from 'fs';
 import os from 'os';
 import { initSchema } from './db';
 import { config } from './config';
+import authRouter from './routes/auth';
+import usersRouter from './routes/users';
 import materialsRouter from './routes/materials';
 import suppliersRouter from './routes/suppliers';
 import quotesRouter from './routes/quotes';
@@ -13,6 +15,8 @@ const app = express();
 app.use(express.json());
 
 // ---------- API modülleri ----------
+app.use('/api/auth', authRouter);
+app.use('/api/users', usersRouter);
 app.use('/api/materials', materialsRouter);
 app.use('/api/suppliers', suppliersRouter);
 app.use('/api/quotes', quotesRouter);
