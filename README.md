@@ -67,6 +67,21 @@ Sunucu `http://localhost:3000` adresinde açılır. Aynı ağdaki diğer bilgisa
 başlangıç ekranında yazılan `Ağ:` adresi kullanılır (ilk açılışta Windows güvenlik
 duvarı izni sorarsa **Allow** deyin, yoksa ağdan erişim sessizce başarısız olur).
 
+## Veritabanını Ubuntu'da tutmak
+
+Veritabanını Ubuntu sunucuda kuracaksanız:
+
+1. PostgreSQL kurun (yoksa): `sudo apt update && sudo apt install postgresql`
+2. `scripts/setup-db.sql` içindeki `DEGISTIRIN` şifresini değiştirin, dosyayı sunucuya kopyalayın
+   (Windows'tan: `scp scripts/setup-db.sql kullanici@sunucu-ip:~/`)
+3. Çalıştırın: `sudo -u postgres psql -f ~/setup-db.sql`
+4. Uzak bağlantıyı açın:
+   - `/etc/postgresql/<sürüm>/main/postgresql.conf` → `listen_addresses = '*'`
+   - `/etc/postgresql/<sürüm>/main/pg_hba.conf` sonuna:
+     `host ptyp ptyp_app <uygulamanin_ip>/32 scram-sha-256`
+   - `sudo systemctl restart postgresql`
+5. Windows tarafında `server/.env` → `PGHOST` alanına Ubuntu'nun IP'sini yazın.
+
 ## Geliştirme modu
 
 ```
