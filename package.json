@@ -1,0 +1,15 @@
+{
+  "name": "ptyp-main",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PTYP - Elektrik Nakil Hattı & Trafo Merkezi Proje Yönetim Sistemi",
+  "scripts": {
+    "setup": "npm --prefix server install --no-audit --no-fund && npm --prefix client install --no-audit --no-fund",
+    "build": "npm --prefix server run build && npm --prefix client run build",
+    "start": "node server/dist/index.js",
+    "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
