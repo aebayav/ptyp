@@ -5,6 +5,7 @@ import fs from 'fs';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
 import { parseKmz, parseKmlText, routeLengthKm } from '../kmz-parser';
+import { importPolesForProject } from '../pole-importer';
 
 const router = Router();
 
@@ -83,42 +84,16 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       /* disk hatası kritik değil */
     }
 
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query('DELETE FROM poles WHERE project_id = $1', [projectId]);
-      for (let i = 0; i < result.poles.length; i++) {
-        const po = result.poles[i];
-        await client.query(
-          'INSERT INTO poles (name, lat, lon, alt, idx, project_id) VALUES ($1, $2, $3, $4, $5, $6)',
-          [po.name || `Direk ${i + 1}`, po.lat, po.lon, po.alt, i, projectId]
-        );
-      }
-      await client.query(
-        `UPDATE projects SET route = $1, file_name = $2, uploaded_at = $3, point_total = $4 WHERE id = $5`,
-        [
-          JSON.stringify(result.route || []),
-          req.file.originalname,
-          new Date().toISOString(),
-          result.placemarkCount,
-          projectId,
-        ]
-      );
-      await client.query('COMMIT');
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
-
     const poleCoords: [number, number][] = result.poles.map((p) => [p.lat, p.lon]);
+    const connectionKm = poleCoords.length >= 2 ? routeLengthKm(poleCoords) : null;
+    await importPolesForProject(projectId, result.poles, result.route, req.file.originalname, result.placemarkCount, connectionKm);
+
     res.json({
       saved: result.poles.length,
       point_total: result.placemarkCount,
       route_points: result.route ? result.route.length : 0,
       route_km: result.route ? routeLengthKm(result.route) : null,
-      connection_km: poleCoords.length >= 2 ? routeLengthKm(poleCoords) : null,
+      connection_km: connectionKm,
       file_name: req.file.originalname,
     });
   } catch (e) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, apiDownload } from '../api';
+import { api, apiDownload, getToken } from '../api';
 import { fmtDate } from '../utils';
 
 let leafletLoaded = false;
@@ -125,7 +125,10 @@ export default function RouteMap({ embedded = false, projectId = null }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState(null);
+  const [genMode, setGenMode] = useState(false);
+  const [genFile, setGenFile] = useState(null);
   const [uploadMsg, setUploadMsg] = useState(null);
+  const [genResult, setGenResult] = useState(null);
 
   async function load() {
     if (projectId == null) {
@@ -152,7 +155,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
   }, []);
 
   async function upload() {
-    if (!file) return setUploadMsg({ type: 'error', text: 'Lütfen önce KMZ dosyası seçin.' });
+    if (!file) return;
     setBusy(true);
     setUploadMsg(null);
     const fd = new FormData();
@@ -161,23 +164,56 @@ export default function RouteMap({ embedded = false, projectId = null }) {
     try {
       const res = await fetch('/api/poles/upload', {
         method: 'POST',
-        headers: { Authorization: 'Bearer ' + (await import('../api')).getToken() },
+        headers: { Authorization: 'Bearer ' + getToken() },
         body: fd,
       });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d?.error || 'Yükleme başarısız.');
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || 'Yükleme başarısız.');
       setUploadMsg({
         type: 'ok',
         text:
           `${d.saved} direk kaydedildi` +
           (d.connection_km != null ? ` · hat uzunluğu ${d.connection_km} km` : '') +
-          (d.route_points ? ` · KMZ güzergahı ${d.route_points} nokta (${d.route_km} km)` : '') +
-          (d.point_total > d.saved ? ` · ${d.point_total - d.saved} yakın etiket birleştirildi` : ''),
+          (d.route_points ? ` · güzergah hattı ${d.route_points} nokta (${d.route_km} km)` : ''),
       });
       setFile(null);
       await load();
     } catch (e) {
-      setUploadMsg({ type: 'error', text: e.message });
+      setUploadMsg({ type: 'err', text: e.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Excel/PDF → otomatik KMZ üret + projeye aktar
+  async function uploadGen() {
+    if (!genFile) return;
+    setBusy(true);
+    setUploadMsg(null);
+    setGenResult(null);
+    const fd = new FormData();
+    fd.append('project_id', projectId);
+    fd.append('file', genFile);
+    try {
+      const res = await fetch('/api/kmz-generator/parse', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + getToken() },
+        body: fd,
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || 'Dönüştürme başarısız.');
+      setGenResult(d);
+      setUploadMsg({
+        type: 'ok',
+        text:
+          `${d.count} direk bulundu, KMZ üretildi` +
+          (d.connection_km != null ? ` · hat ${d.connection_km} km` : '') +
+          (d.saved > 0 ? ` · projeye aktarıldı (${d.saved})` : ''),
+      });
+      setGenFile(null);
+      await load();
+    } catch (e) {
+      setUploadMsg({ type: 'err', text: e.message });
     } finally {
       setBusy(false);
     }
@@ -232,6 +268,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
           </div>
           {poles.length > 0 && (
             <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn" onClick={() => apiDownload('/api/kmz-generator/from-project?project_id=' + projectId, 'guzergah.kmz')}>⬇️ KMZ İndir</button>
               <button className="btn" onClick={() => apiDownload('/api/export/poles?project_id=' + projectId, 'ptyp-direkler.xlsx')}>⬇️ Excel İndir</button>
               <button className="btn" onClick={exportCsv}>⬇️ CSV İndir</button>
               <button className="btn btn-danger" onClick={clearAll}>🗑️ Temizle</button>
@@ -241,35 +278,70 @@ export default function RouteMap({ embedded = false, projectId = null }) {
       )}
       {embedded && poles.length > 0 && (
         <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+          <button className="btn" onClick={() => apiDownload('/api/kmz-generator/from-project?project_id=' + projectId, 'guzergah.kmz')}>⬇️ KMZ İndir</button>
           <button className="btn" onClick={() => apiDownload('/api/export/poles?project_id=' + projectId, 'ptyp-direkler.xlsx')}>⬇️ Excel İndir</button>
           <button className="btn" onClick={exportCsv}>⬇️ CSV İndir</button>
           <button className="btn btn-danger" onClick={clearAll}>🗑️ Temizle</button>
         </div>
       )}
-
       <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+          <button
+            className={genMode ? 'tab-chip' : 'tab-chip on'}
+            onClick={() => { setGenMode(false); setUploadMsg(null); }}
+          >
+            🗺️ KMZ / KML Yükle
+          </button>
+          <button
+            className={genMode ? 'tab-chip on' : 'tab-chip'}
+            onClick={() => { setGenMode(true); setUploadMsg(null); setGenResult(null); }}
+          >
+            📄 Excel / PDF → KMZ Üret
+          </button>
+        </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <label className="file-drop" style={{ flex: 1, minWidth: 240, padding: '14px 16px', flexDirection: 'row', gap: 10 }}>
+          <label
+            className="file-drop"
+            style={{ flex: 1, minWidth: 240, display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', border: '1.5px dashed var(--border)', borderRadius: 10, cursor: 'pointer' }}
+          >
             <input
               type="file"
-              accept=".kmz,.kml"
+              accept={genMode ? '.xlsx,.xls,.pdf' : '.kmz,.kml'}
               onChange={(e) => {
-                setFile(e.target.files?.[0] || null);
+                if (genMode) setGenFile(e.target.files?.[0] || null);
+                else setFile(e.target.files?.[0] || null);
                 setUploadMsg(null);
               }}
             />
             <span className="file-drop-ico">📄</span>
             <span className="file-drop-text" style={{ flex: 1, textAlign: 'left' }}>
-              {file ? file.name : 'KMZ dosyası seçin (Google Earth)…'}
+              {genMode
+                ? (genFile ? genFile.name : 'Excel (.xlsx/.xls) veya PDF seçin — koordinatlar otomatik algılanır…')
+                : (file ? file.name : 'KMZ dosyası seçin (Google Earth)…')}
             </span>
           </label>
-          <button className="btn btn-accent" onClick={upload} disabled={busy || !file}>
-            {busy ? 'Analiz ediliyor…' : '⬆️ Yükle ve Analiz Et'}
-          </button>
+          {genMode ? (
+            <button className="btn btn-accent" onClick={uploadGen} disabled={busy || !genFile}>
+              {busy ? 'Dönüştürülüyor…' : '⚙️ KMZ Üret ve Aktar'}
+            </button>
+          ) : (
+            <button className="btn btn-accent" onClick={upload} disabled={busy || !file}>
+              {busy ? 'Analiz ediliyor…' : '⬆️ Yükle ve Analiz Et'}
+            </button>
+          )}
         </div>
         {uploadMsg && (
           <div className={uploadMsg.type === 'ok' ? 'notice-banner' : 'form-error'} style={{ marginTop: 10, marginBottom: 0 }}>
             {uploadMsg.text}
+            {genResult && uploadMsg.type === 'ok' && (
+              <button
+                className="btn btn-sm"
+                style={{ marginLeft: 10 }}
+                onClick={() => apiDownload(genResult.kmz, (genResult.file_name || 'guzergah').replace(/\.(xlsx|xls|pdf)$/i, '') + '.kmz')}
+              >
+                ⬇️ KMZ'yi İndir
+              </button>
+            )}
           </div>
         )}
         {data?.file_name && (
