@@ -118,7 +118,7 @@ function MapView({ poles, route, segments }) {
   return <div ref={divRef} className="map-box" />;
 }
 
-export default function RouteMap({ embedded = false }) {
+export default function RouteMap({ embedded = false, projectId = null }) {
   const [data, setData] = useState(null);
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -128,9 +128,16 @@ export default function RouteMap({ embedded = false }) {
   const [uploadMsg, setUploadMsg] = useState(null);
 
   async function load() {
+    if (projectId == null) {
+      setLoading(false);
+      return;
+    }
     try {
       setError(null);
-      const [poles, g] = await Promise.all([api.get('/api/poles'), api.get('/api/workgroups')]);
+      const [poles, g] = await Promise.all([
+        api.get(`/api/poles?project_id=${projectId}`),
+        api.get(`/api/workgroups?project_id=${projectId}`),
+      ]);
       setData(poles);
       setGroups(g);
     } catch (e) {
@@ -149,6 +156,7 @@ export default function RouteMap({ embedded = false }) {
     setBusy(true);
     setUploadMsg(null);
     const fd = new FormData();
+    fd.append('project_id', projectId);
     fd.append('file', file);
     try {
       const res = await fetch('/api/poles/upload', {
@@ -176,9 +184,9 @@ export default function RouteMap({ embedded = false }) {
   }
 
   async function clearAll() {
-    if (!window.confirm('Tüm direkler ve güzergah silinecek. Emin misiniz?')) return;
+    if (!window.confirm('Bu projenin tüm direkleri ve güzergahı silinecek. Emin misiniz?')) return;
     try {
-      await api.del('/api/poles');
+      await api.del(`/api/poles?project_id=${projectId}`);
       await load();
     } catch (e) {
       alert('Silme başarısız: ' + e.message);
@@ -224,7 +232,7 @@ export default function RouteMap({ embedded = false }) {
           </div>
           {poles.length > 0 && (
             <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn" onClick={() => apiDownload('/api/export/poles', 'ptyp-direkler.xlsx')}>⬇️ Excel İndir</button>
+              <button className="btn" onClick={() => apiDownload('/api/export/poles?project_id=' + projectId, 'ptyp-direkler.xlsx')}>⬇️ Excel İndir</button>
               <button className="btn" onClick={exportCsv}>⬇️ CSV İndir</button>
               <button className="btn btn-danger" onClick={clearAll}>🗑️ Temizle</button>
             </div>
@@ -233,7 +241,7 @@ export default function RouteMap({ embedded = false }) {
       )}
       {embedded && poles.length > 0 && (
         <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-          <button className="btn" onClick={() => apiDownload('/api/export/poles', 'ptyp-direkler.xlsx')}>⬇️ Excel İndir</button>
+          <button className="btn" onClick={() => apiDownload('/api/export/poles?project_id=' + projectId, 'ptyp-direkler.xlsx')}>⬇️ Excel İndir</button>
           <button className="btn" onClick={exportCsv}>⬇️ CSV İndir</button>
           <button className="btn btn-danger" onClick={clearAll}>🗑️ Temizle</button>
         </div>

@@ -75,6 +75,7 @@ export async function initSchema(): Promise<void> {
       notes         TEXT NOT NULL DEFAULT '',
       segment_from  INTEGER,
       segment_to    INTEGER,
+      project_id    INTEGER REFERENCES projects(id) ON DELETE CASCADE,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
@@ -108,6 +109,16 @@ export async function initSchema(): Promise<void> {
       value JSONB NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS projects (
+      id          SERIAL PRIMARY KEY,
+      name        TEXT NOT NULL,
+      route       JSONB,
+      file_name   TEXT,
+      uploaded_at TEXT,
+      point_total INTEGER,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
     CREATE INDEX IF NOT EXISTS idx_quotes_material ON quotes(material_id);
     CREATE INDEX IF NOT EXISTS idx_quotes_supplier ON quotes(supplier_id);
   `);
@@ -120,6 +131,62 @@ export async function initSchema(): Promise<void> {
   if (!wgCols.rows.some((r: any) => r.column_name === 'segment_from')) {
     await pool.query('ALTER TABLE work_groups ADD COLUMN segment_from INTEGER');
     await pool.query('ALTER TABLE work_groups ADD COLUMN segment_to INTEGER');
+  }
+
+  // Migrasyon: çoklu proje desteği — varsayılan proje + mevcut verileri ona bağla
+  const projCount = await pool.query('SELECT COUNT(*)::int AS c FROM projects');
+  if (projCount.rows[0].c === 0) {
+    await pool.query(`INSERT INTO projects (name) VALUES ('Şantiye 1')`);
+  }
+  const firstProj = await pool.query('SELECT MIN(id) AS id FROM projects');
+
+  const poleCols = await pool.query(
+    `SELECT column_name FROM information_schema.columns WHERE table_name = 'poles'`
+  );
+  if (!poleCols.rows.some((r: any) => r.column_name === 'project_id')) {
+    await pool.query('ALTER TABLE poles ADD COLUMN project_id INTEGER');
+  }
+  await pool.query('UPDATE poles SET project_id = $1 WHERE project_id IS NULL', [firstProj.rows[0].id]);
+  await pool.query('ALTER TABLE poles ALTER COLUMN project_id SET NOT NULL');
+  try {
+    await pool.query(
+      'ALTER TABLE poles ADD CONSTRAINT poles_project_fk FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE'
+    );
+  } catch {
+    /* kısıt zaten var */
+  }
+
+  if (!wgCols.rows.some((r: any) => r.column_name === 'project_id')) {
+    await pool.query('ALTER TABLE work_groups ADD COLUMN project_id INTEGER');
+  }
+  await pool.query('UPDATE work_groups SET project_id = $1 WHERE project_id IS NULL', [firstProj.rows[0].id]);
+  await pool.query('ALTER TABLE work_groups ALTER COLUMN project_id SET NOT NULL');
+  try {
+    await pool.query(
+      'ALTER TABLE work_groups ADD CONSTRAINT work_groups_project_fk FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE'
+    );
+  } catch {
+    /* kısıt zaten var */
+  }
+
+  // Eski kmz_meta verisini varsayılan projeye taşı (bir kez)
+  try {
+    const meta = await pool.query(
+      `SELECT key, value FROM kmz_meta WHERE key IN ('route', 'file_name', 'uploaded_at', 'point_total')`
+    );
+    if (meta.rows.length > 0) {
+      const m: Record<string, any> = {};
+      for (const r of meta.rows) m[r.key] = r.value;
+      const cur = await pool.query('SELECT route FROM projects WHERE id = $1', [firstProj.rows[0].id]);
+      if (cur.rows[0].route == null) {
+        await pool.query(
+          'UPDATE projects SET route = $1, file_name = $2, uploaded_at = $3, point_total = $4 WHERE id = $5',
+          [m.route || null, m.file_name || null, m.uploaded_at || null, m.point_total || null, firstProj.rows[0].id]
+        );
+      }
+    }
+  } catch {
+    /* kmz_meta yoksa önemsiz */
   }
 }
 

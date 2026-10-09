@@ -13,6 +13,7 @@ import quotesRouter from './routes/quotes';
 import workgroupsRouter from './routes/workgroups';
 import tasksRouter from './routes/tasks';
 import polesRouter from './routes/poles';
+import projectsRouter from './routes/projects';
 import exportRouter from './routes/export';
 import overviewRouter from './routes/overview';
 
@@ -31,6 +32,7 @@ app.use('/api/quotes', quotesRouter);
 app.use('/api/workgroups', workgroupsRouter);
 app.use('/api/tasks', tasksRouter);
 app.use('/api/poles', polesRouter);
+app.use('/api/projects', projectsRouter);
 app.use('/api/export', exportRouter);
 app.use('/api', overviewRouter);
 

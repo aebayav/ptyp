@@ -58,17 +58,36 @@ export default function WorkTracking() {
   const [groupModal, setGroupModal] = useState(null);
   const [taskModal, setTaskModal] = useState(null);
   const [tab, setTab] = useState('plan');
+  const [projects, setProjects] = useState([]);
+  const [projectId, setProjectId] = useState(null);
+  const [projModal, setProjModal] = useState(null);
+  const [projName, setProjName] = useState('');
   const [gForm, setGForm] = useState(EMPTY_GROUP);
   const [tForm, setTForm] = useState(EMPTY_TASK);
   const [formError, setFormError] = useState(null);
   const [saving, setSaving] = useState(false);
 
+  async function loadProjects() {
+    try {
+      const p = await api.get('/api/projects');
+      setProjects(p);
+      setProjectId((prev) => (p.some((x) => x.id === prev) ? prev : (p[0]?.id ?? null)));
+    } catch (e) {
+      setError(e.message);
+      setLoading(false);
+    }
+  }
+
   async function load() {
+    if (projectId == null) {
+      setLoading(false);
+      return;
+    }
     try {
       setError(null);
       const [g, t, u] = await Promise.all([
-        api.get('/api/workgroups'),
-        api.get('/api/tasks'),
+        api.get(`/api/workgroups?project_id=${projectId}`),
+        api.get(`/api/tasks?project_id=${projectId}`),
         api.get('/api/users'),
       ]);
       setGroups(g);
@@ -83,8 +102,49 @@ export default function WorkTracking() {
   }
 
   useEffect(() => {
-    load();
+    loadProjects();
   }, []);
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  async function submitProject(e) {
+    e.preventDefault();
+    setSaving(true);
+    setFormError(null);
+    try {
+      if (projModal.mode === 'new') {
+        const created = await api.post('/api/projects', { name: projName });
+        await loadProjects();
+        setProjectId(created.id);
+      } else {
+        await api.put(`/api/projects/${projModal.proj.id}`, { name: projName });
+        await loadProjects();
+      }
+      setProjModal(null);
+      setProjName('');
+    } catch (err) {
+      setFormError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeProject() {
+    const proj = projects.find((p) => p.id === projectId);
+    const ok = window.confirm(
+      `"${proj?.name}" projesi SİLİNECEK — direkleri, iş grupları ve görevleri dahil. Emin misiniz?`
+    );
+    if (!ok) return;
+    try {
+      await api.del(`/api/projects/${projectId}`);
+      await loadProjects();
+    } catch (e) {
+      alert('Silme başarısız: ' + e.message);
+    }
+  }
 
   const groupTasks = useMemo(
     () => (selGroup ? tasks.filter((t) => t.work_group_id === selGroup.id) : []),
@@ -152,6 +212,7 @@ export default function WorkTracking() {
       progress: Number(gForm.progress),
       segment_from: sf,
       segment_to: st,
+      project_id: projectId,
     };
     try {
       if (groupModal.mode === 'new') {
@@ -261,14 +322,45 @@ export default function WorkTracking() {
       <div className="page-head">
         <div>
           <h1>🔧 İş Takibi &amp; Güzergah</h1>
-          <p className="sub">İş grupları, görevler, ağırlıklı ilerleme ve güzergah kesimleri</p>
+          <p className="sub">Proje bazlı iş grupları, görevler, ağırlıklı ilerleme ve güzergah kesimleri</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button className="btn" onClick={() => apiDownload('/api/export/worktracking', 'ptyp-is-takibi.xlsx')}>⬇️ Excel</button>
-          {tab === 'plan' && (
+          {tab === 'plan' && projectId != null && (
             <button className="btn btn-accent" onClick={openNewGroup}>＋ Yeni İş Grubu</button>
           )}
         </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>PROJE:</span>
+        <select value={projectId ?? ''} onChange={(e) => setProjectId(Number(e.target.value))}>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} — {p.pole_count} direk · {p.group_count} grup
+            </option>
+          ))}
+        </select>
+        <button className="btn btn-sm" onClick={() => { setProjName(''); setFormError(null); setProjModal({ mode: 'new' }); }}>
+          ＋ Yeni Proje
+        </button>
+        {projectId != null && (
+          <button
+            className="btn btn-sm"
+            title="Proje adını değiştir"
+            onClick={() => {
+              const p = projects.find((x) => x.id === projectId);
+              setProjName(p?.name || '');
+              setFormError(null);
+              setProjModal({ mode: 'rename', proj: p });
+            }}
+          >
+            ✏️ Ad Değiştir
+          </button>
+        )}
+        {projects.length > 1 && (
+          <button className="btn btn-sm btn-danger" onClick={removeProject} title="Projeyi sil">🗑️ Sil</button>
+        )}
       </div>
 
       <div className="tabs">
@@ -281,7 +373,7 @@ export default function WorkTracking() {
       </div>
 
       {tab === 'guzergah' ? (
-        <RouteMap embedded />
+        projectId != null ? <RouteMap embedded projectId={projectId} key={projectId} /> : null
       ) : (
         <>
       {error && (
@@ -438,6 +530,33 @@ export default function WorkTracking() {
       )}
 
         </>
+      )}
+
+      {projModal && (
+        <Modal
+          title={projModal.mode === 'new' ? 'Yeni Proje (Şantiye)' : 'Proje Adını Değiştir'}
+          onClose={() => setProjModal(null)}
+        >
+          <form onSubmit={submitProject}>
+            {formError && <div className="form-error">{formError}</div>}
+            <div className="field">
+              <label>Proje Adı *</label>
+              <input
+                value={projName}
+                onChange={(e) => setProjName(e.target.value)}
+                required
+                autoFocus
+                placeholder="Örn: Şantiye 2"
+              />
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn" onClick={() => setProjModal(null)}>Vazgeç</button>
+              <button type="submit" className="btn btn-accent" disabled={saving}>
+                {saving ? 'Kaydediliyor…' : 'Kaydet'}
+              </button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {groupModal && (

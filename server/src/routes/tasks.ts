@@ -10,12 +10,14 @@ router.use(requireAuth, requireRole('owner'));
 const VALID_STATUSES = ['todo', 'in_progress', 'done'];
 const VALID_PRIORITIES = ['low', 'normal', 'high'];
 
-// Tüm görevler (grup ve atanan bilgileriyle) — ?work_group_id= filtresi
+// Tüm görevler (grup ve atanan bilgileriyle) — ?work_group_id= / ?project_id= filtreleri
 router.get('/', async (req: Request, res: Response) => {
   const gid = req.query.work_group_id;
+  const pid = req.query.project_id;
   const params: any[] = [];
+  const conds: string[] = [];
   let sql = `
-    SELECT t.*, w.name AS group_name, w.code AS group_code,
+    SELECT t.*, w.name AS group_name, w.code AS group_code, w.project_id,
            u.display_name AS assignee_name, u.username AS assignee_username
     FROM tasks t
     JOIN work_groups w ON w.id = t.work_group_id
@@ -23,8 +25,13 @@ router.get('/', async (req: Request, res: Response) => {
   `;
   if (gid) {
     params.push(Number(gid));
-    sql += ` WHERE t.work_group_id = $${params.length}`;
+    conds.push(`t.work_group_id = $${params.length}`);
   }
+  if (pid) {
+    params.push(Number(pid));
+    conds.push(`w.project_id = $${params.length}`);
+  }
+  if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
   sql += ' ORDER BY t.due_date ASC, t.priority DESC, t.id DESC';
   const { rows } = await pool.query(sql, params);
   res.json(rows);

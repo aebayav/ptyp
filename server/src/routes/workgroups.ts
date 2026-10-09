@@ -9,8 +9,15 @@ router.use(requireAuth, requireRole('owner'));
 
 const VALID_STATUSES = ['pending', 'active', 'completed'];
 
-// İş grupları (görev sayılarıyla)
-router.get('/', async (_req: Request, res: Response) => {
+// İş grupları (görev sayılarıyla) — ?project_id= filtresi
+router.get('/', async (req: Request, res: Response) => {
+  const pid = req.query.project_id;
+  const params: any[] = [];
+  let where = '';
+  if (pid) {
+    params.push(Number(pid));
+    where = ` WHERE w.project_id = $${params.length}`;
+  }
   const { rows } = await pool.query(`
     SELECT w.*,
            COUNT(t.id)::int AS task_count,
@@ -18,9 +25,10 @@ router.get('/', async (_req: Request, res: Response) => {
            COUNT(t.id) FILTER (WHERE t.status != 'done' AND t.due_date != '' AND t.due_date < to_char(now(), 'YYYY-MM-DD'))::int AS late_count
     FROM work_groups w
     LEFT JOIN tasks t ON t.work_group_id = w.id
+    ${where}
     GROUP BY w.id
     ORDER BY w.code
-  `);
+  `, params);
   res.json(rows);
 });
 
@@ -45,12 +53,16 @@ function normalize(body: any) {
     notes: String(body.notes || '').trim(),
     segment_from: sf,
     segment_to: st,
+    project_id: Number(body.project_id),
   };
 }
 
-function validate(g: any): string | null {
+async function validate(g: any): Promise<string | null> {
   if (!g.name) return 'İş grubu adı zorunludur.';
   if (!VALID_STATUSES.includes(g.status)) return 'Geçersiz iş grubu durumu.';
+  if (!Number.isInteger(g.project_id) || g.project_id <= 0) return 'Geçerli bir proje seçin.';
+  const p = await pool.query('SELECT 1 FROM projects WHERE id = $1', [g.project_id]);
+  if (p.rowCount === 0) return 'Seçilen proje bulunamadı.';
   const sf = g.segment_from;
   const st = g.segment_to;
   if ((sf == null) !== (st == null)) {
@@ -68,7 +80,7 @@ function validate(g: any): string | null {
 // Yeni iş grubu
 router.post('/', async (req: Request, res: Response) => {
   const g = normalize(req.body || {});
-  const err = validate(g);
+  const err = await validate(g);
   if (err) return res.status(400).json({ error: err });
 
   const code = g.code || (await nextCode());
@@ -76,9 +88,9 @@ router.post('/', async (req: Request, res: Response) => {
   if (dup.rowCount) return res.status(400).json({ error: `"${code}" kodu zaten kullanılıyor.` });
 
   const { rows } = await pool.query(
-    `INSERT INTO work_groups (code, name, weight, progress, planned_start, planned_end, status, notes, segment_from, segment_to)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-    [code, g.name, g.weight, g.progress, g.planned_start, g.planned_end, g.status, g.notes, g.segment_from, g.segment_to]
+    `INSERT INTO work_groups (code, name, weight, progress, planned_start, planned_end, status, notes, segment_from, segment_to, project_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+    [code, g.name, g.weight, g.progress, g.planned_start, g.planned_end, g.status, g.notes, g.segment_from, g.segment_to, g.project_id]
   );
   res.status(201).json({ ...rows[0], task_count: 0, done_count: 0, late_count: 0 });
 });
@@ -90,7 +102,7 @@ router.put('/:id', async (req: Request, res: Response) => {
   if (existing.rowCount === 0) return res.status(404).json({ error: 'İş grubu bulunamadı.' });
 
   const g = normalize(req.body || {});
-  const err = validate(g);
+  const err = await validate(g);
   if (err) return res.status(400).json({ error: err });
 
   const code = g.code || existing.rows[0].code;
@@ -99,9 +111,9 @@ router.put('/:id', async (req: Request, res: Response) => {
 
   const { rows } = await pool.query(
     `UPDATE work_groups SET code=$1, name=$2, weight=$3, progress=$4, planned_start=$5, planned_end=$6, status=$7, notes=$8,
-            segment_from=$9, segment_to=$10
-     WHERE id=$11 RETURNING *`,
-    [code, g.name, g.weight, g.progress, g.planned_start, g.planned_end, g.status, g.notes, g.segment_from, g.segment_to, id]
+            segment_from=$9, segment_to=$10, project_id=$11
+     WHERE id=$12 RETURNING *`,
+    [code, g.name, g.weight, g.progress, g.planned_start, g.planned_end, g.status, g.notes, g.segment_from, g.segment_to, g.project_id, id]
   );
   const cnt = await pool.query(
     `SELECT COUNT(*)::int AS c,

@@ -19,29 +19,46 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 },
 });
 
-// Direk listesi + güzergah hattı + bağlantı hattı
-router.get('/', async (_req: Request, res: Response) => {
-  const [poles, meta] = await Promise.all([
-    pool.query('SELECT id, name, lat, lon, alt, idx FROM poles ORDER BY idx'),
-    pool.query(`SELECT key, value FROM kmz_meta WHERE key IN ('route', 'file_name', 'uploaded_at', 'point_total')`),
-  ]);
-  const m: Record<string, unknown> = {};
-  for (const r of meta.rows) m[r.key] = r.value;
-  const poleCoords: [number, number][] = poles.rows.map((p: any) => [p.lat, p.lon]);
+async function projectExists(id: number): Promise<boolean> {
+  const r = await pool.query('SELECT 1 FROM projects WHERE id = $1', [id]);
+  return r.rowCount === 1;
+}
+
+// Projenin direk listesi + güzergah hattı + bağlantı hattı
+router.get('/', async (req: Request, res: Response) => {
+  const projectId = Number(req.query.project_id);
+  if (!Number.isInteger(projectId) || projectId <= 0) {
+    return res.status(400).json({ error: 'Geçerli bir proje seçin (project_id).' });
+  }
+  const proj = await pool.query('SELECT * FROM projects WHERE id = $1', [projectId]);
+  if (proj.rowCount === 0) return res.status(404).json({ error: 'Proje bulunamadı.' });
+
+  const poles = await pool.query(
+    'SELECT id, name, lat, lon, alt, idx FROM poles WHERE project_id = $1 ORDER BY idx',
+    [projectId]
+  );
+  const p = proj.rows[0];
+  const poleCoords: [number, number][] = poles.rows.map((x: any) => [x.lat, x.lon]);
   res.json({
+    project_id: projectId,
     poles: poles.rows,
-    route: m.route || null,
-    file_name: m.file_name || null,
-    uploaded_at: m.uploaded_at || null,
-    point_total: m.point_total || poles.rows.length,
-    route_km: Array.isArray(m.route) ? routeLengthKm(m.route as [number, number][]) : null,
+    route: p.route || null,
+    file_name: p.file_name || null,
+    uploaded_at: p.uploaded_at || null,
+    point_total: p.point_total || poles.rows.length,
+    route_km: Array.isArray(p.route) ? routeLengthKm(p.route as [number, number][]) : null,
     connection_km: poleCoords.length >= 2 ? routeLengthKm(poleCoords) : null,
   });
 });
 
-// KMZ yükle → parse et → mevcut direkleri değiştir
+// KMZ yükle → parse et → seçili projenin mevcut direklerini değiştir
 router.post('/upload', upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const projectId = Number(req.body?.project_id);
+    if (!Number.isInteger(projectId) || projectId <= 0) {
+      return res.status(400).json({ error: 'Geçerli bir proje seçin.' });
+    }
+    if (!(await projectExists(projectId))) return res.status(404).json({ error: 'Proje bulunamadı.' });
     if (!req.file) return res.status(400).json({ error: 'KMZ dosyası yüklenmedi.' });
     const ext = path.extname(req.file.originalname).toLowerCase();
     if (ext !== '.kmz' && ext !== '.kml') {
@@ -59,9 +76,9 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       return res.status(400).json({ error: 'Dosyada koordinatlı nokta bulunamadı.' });
     }
 
-    // Son yüklenen dosyayı analiz/debug için sakla (yalnızca son dosya)
+    // Son yüklenen dosyayı analiz/debug için sakla (proje başına son dosya)
     try {
-      fs.writeFileSync(path.join(UPLOADS_DIR, 'latest.kmz'), req.file.buffer);
+      fs.writeFileSync(path.join(UPLOADS_DIR, `latest-p${projectId}.kmz`), req.file.buffer);
     } catch {
       /* disk hatası kritik değil */
     }
@@ -69,23 +86,22 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query('DELETE FROM poles');
+      await client.query('DELETE FROM poles WHERE project_id = $1', [projectId]);
       for (let i = 0; i < result.poles.length; i++) {
-        const p = result.poles[i];
+        const po = result.poles[i];
         await client.query(
-          'INSERT INTO poles (name, lat, lon, alt, idx) VALUES ($1, $2, $3, $4, $5)',
-          [p.name || `Direk ${i + 1}`, p.lat, p.lon, p.alt, i]
+          'INSERT INTO poles (name, lat, lon, alt, idx, project_id) VALUES ($1, $2, $3, $4, $5, $6)',
+          [po.name || `Direk ${i + 1}`, po.lat, po.lon, po.alt, i, projectId]
         );
       }
       await client.query(
-        `INSERT INTO kmz_meta (key, value) VALUES
-           ('route', $1::jsonb), ('file_name', $2::jsonb), ('uploaded_at', $3::jsonb), ('point_total', $4::jsonb)
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        `UPDATE projects SET route = $1, file_name = $2, uploaded_at = $3, point_total = $4 WHERE id = $5`,
         [
           JSON.stringify(result.route || []),
-          JSON.stringify(req.file.originalname),
-          JSON.stringify(new Date().toISOString()),
-          JSON.stringify(result.placemarkCount),
+          req.file.originalname,
+          new Date().toISOString(),
+          result.placemarkCount,
+          projectId,
         ]
       );
       await client.query('COMMIT');
@@ -110,10 +126,17 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
   }
 });
 
-// Güzergahı temizle
-router.delete('/', async (_req: Request, res: Response) => {
-  await pool.query('DELETE FROM poles');
-  await pool.query(`DELETE FROM kmz_meta WHERE key IN ('route', 'file_name', 'uploaded_at', 'point_total')`);
+// Projenin güzergahını temizle
+router.delete('/', async (req: Request, res: Response) => {
+  const projectId = Number(req.query.project_id);
+  if (!Number.isInteger(projectId) || projectId <= 0) {
+    return res.status(400).json({ error: 'Geçerli bir proje seçin (project_id).' });
+  }
+  await pool.query('DELETE FROM poles WHERE project_id = $1', [projectId]);
+  await pool.query(
+    'UPDATE projects SET route = NULL, file_name = NULL, uploaded_at = NULL, point_total = NULL WHERE id = $1',
+    [projectId]
+  );
   res.status(204).end();
 });
 

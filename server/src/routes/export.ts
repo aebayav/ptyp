@@ -130,9 +130,16 @@ router.get('/quotes', async (_req: Request, res: Response) => {
   sendXlsx(res, wb, 'ptyp-teklifler.xlsx');
 });
 
-// ---------- Direkler (KMZ güzergah) ----------
-router.get('/poles', async (_req: Request, res: Response) => {
-  const { rows } = await pool.query('SELECT name, lat, lon, idx FROM poles ORDER BY idx');
+// ---------- Direkler (KMZ güzergah) — ?project_id= filtresi ----------
+router.get('/poles', async (req: Request, res: Response) => {
+  const pid = req.query.project_id;
+  const params: any[] = [];
+  let where = '';
+  if (pid) {
+    params.push(Number(pid));
+    where = ` WHERE project_id = $${params.length}`;
+  }
+  const { rows } = await pool.query(`SELECT name, lat, lon, idx FROM poles${where} ORDER BY idx`, params);
   const data: (string | number | null)[][] = [
     ['Sıra', 'Direk', 'Enlem', 'Boylam'],
     ...rows.map((p: any, i: number) => [i + 1, p.name, p.lat, p.lon]),
@@ -142,37 +149,52 @@ router.get('/poles', async (_req: Request, res: Response) => {
   sendXlsx(res, wb, 'ptyp-direkler.xlsx');
 });
 
-// ---------- İş takibi (gruplar + görevler) ----------
-router.get('/worktracking', async (_req: Request, res: Response) => {
+// ---------- İş takibi (gruplar + görevler) — ?project_id= filtresi ----------
+router.get('/worktracking', async (req: Request, res: Response) => {
+  const pid = req.query.project_id;
+  const params: any[] = [];
+  let where = '';
+  if (pid) {
+    params.push(Number(pid));
+    where = ` WHERE w.project_id = $${params.length}`;
+  }
   const groups = await pool.query(`
     SELECT w.code, w.name, w.weight, w.progress, w.status, w.planned_start, w.planned_end, w.notes,
+           w.segment_from, w.segment_to, p.name AS project_name,
            COUNT(t.id)::int AS task_count,
            COUNT(t.id) FILTER (WHERE t.status = 'done')::int AS done_count
-    FROM work_groups w LEFT JOIN tasks t ON t.work_group_id = w.id
-    GROUP BY w.id ORDER BY w.code
-  `);
+    FROM work_groups w
+    JOIN projects p ON p.id = w.project_id
+    LEFT JOIN tasks t ON t.work_group_id = w.id
+    ${where}
+    GROUP BY w.id, p.name
+    ORDER BY p.name, w.code
+  `, params);
   const tasks = await pool.query(`
-    SELECT w.code AS group_code, t.title, t.description, u.display_name AS assignee,
+    SELECT w.code AS group_code, w.project_id, p.name AS project_name,
+           t.title, t.description, u.display_name AS assignee,
            t.due_date, t.priority, t.status
     FROM tasks t
     JOIN work_groups w ON w.id = t.work_group_id
+    JOIN projects p ON p.id = w.project_id
     LEFT JOIN users u ON u.id = t.assignee_id
-    ORDER BY w.code, t.due_date
-  `);
+    ${where ? where.replace('w.project_id', 'w.project_id') : ''}
+    ORDER BY p.name, w.code, t.due_date
+  `, params);
 
   const groupRows: (string | number | null)[][] = [
-    ['Kod', 'İş Grubu', 'Direk Kesimi', 'Ağırlık %', 'İlerleme %', 'Durum', 'Başlangıç', 'Bitiş', 'Görev (tamam/toplam)', 'Not'],
+    ['Kod', 'İş Grubu', 'Proje', 'Direk Kesimi', 'Ağırlık %', 'İlerleme %', 'Durum', 'Başlangıç', 'Bitiş', 'Görev (tamam/toplam)', 'Not'],
     ...groups.rows.map((g: any) => [
-      g.code, g.name,
+      g.code, g.name, g.project_name,
       g.segment_from != null ? `D${g.segment_from} → D${g.segment_to}` : '',
       g.weight, g.progress, GROUP_STATUS_TR[g.status] || g.status,
       g.planned_start, g.planned_end, `${g.done_count}/${g.task_count}`, g.notes,
     ]),
   ];
   const taskRows: (string | number | null)[][] = [
-    ['Grup', 'Görev', 'Açıklama', 'Atanan', 'Termin', 'Öncelik', 'Durum'],
+    ['Grup', 'Proje', 'Görev', 'Açıklama', 'Atanan', 'Termin', 'Öncelik', 'Durum'],
     ...tasks.rows.map((t: any) => [
-      t.group_code, t.title, t.description, t.assignee || '', t.due_date,
+      t.group_code, t.project_name, t.title, t.description, t.assignee || '', t.due_date,
       PRIORITY_TR[t.priority] || t.priority, TASK_STATUS_TR[t.status] || t.status,
     ]),
   ];
