@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api';
+import { api, apiDownload } from '../api';
 import { CATEGORY_SUGGESTIONS, MATERIAL_STATUS, UNITS, fmtMoney, StatusBadge } from '../utils';
 import Modal from '../components/Modal';
 
@@ -139,7 +139,10 @@ export default function Materials() {
           <h1>📦 Malzeme Listesi</h1>
           <p className="sub">Proje malzemeleri ve tedarik durumu</p>
         </div>
-        <button className="btn btn-accent" onClick={openNew}>＋ Yeni Malzeme</button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn" onClick={() => apiDownload('/api/export/materials', 'ptyp-malzemeler.xlsx')}>⬇️ Excel</button>
+          <button className="btn btn-accent" onClick={openNew}>＋ Yeni Malzeme</button>
+        </div>
       </div>
 
       {error && (

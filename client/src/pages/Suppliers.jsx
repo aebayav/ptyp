@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '../api';
+import { api, apiDownload } from '../api';
 import Modal from '../components/Modal';
 
 const EMPTY_FORM = {
@@ -111,7 +111,10 @@ export default function Suppliers() {
           <h1>🏢 Satıcılar</h1>
           <p className="sub">Fiyat teklifi alınan tedarikçi ve firmalar</p>
         </div>
-        <button className="btn btn-accent" onClick={openNew}>＋ Yeni Satıcı</button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn" onClick={() => apiDownload('/api/export/suppliers', 'ptyp-saticilar.xlsx')}>⬇️ Excel</button>
+          <button className="btn btn-accent" onClick={openNew}>＋ Yeni Satıcı</button>
+        </div>
       </div>
 
       {error && (

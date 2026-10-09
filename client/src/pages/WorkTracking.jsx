@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '../api';
+import { api, apiDownload } from '../api';
 import { fmtDate, StatusBadge } from '../utils';
 import Modal from '../components/Modal';
 
@@ -240,7 +240,10 @@ export default function WorkTracking() {
           <h1>🔧 İş Takibi</h1>
           <p className="sub">İş grupları, görevler ve ağırlıklı fiziki ilerleme</p>
         </div>
-        <button className="btn btn-accent" onClick={openNewGroup}>＋ Yeni İş Grubu</button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn" onClick={() => apiDownload('/api/export/worktracking', 'ptyp-is-takibi.xlsx')}>⬇️ Excel</button>
+          <button className="btn btn-accent" onClick={openNewGroup}>＋ Yeni İş Grubu</button>
+        </div>
       </div>
 
       {error && (

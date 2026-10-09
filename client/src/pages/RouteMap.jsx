@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api } from '../api';
+import { api, apiDownload } from '../api';
 import { fmtDate } from '../utils';
 
 let leafletLoaded = false;
@@ -178,6 +178,7 @@ export default function RouteMap() {
         </div>
         {poles.length > 0 && (
           <div style={{ display: 'flex', gap: 10 }}>
+            <button className="btn" onClick={() => apiDownload('/api/export/poles', 'ptyp-direkler.xlsx')}>⬇️ Excel İndir</button>
             <button className="btn" onClick={exportCsv}>⬇️ CSV İndir</button>
             <button className="btn btn-danger" onClick={clearAll}>🗑️ Temizle</button>
           </div>

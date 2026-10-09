@@ -51,3 +51,29 @@ export const api = {
   put: (p, body) => request(p, { method: 'PUT', body: JSON.stringify(body) }),
   del: (p) => request(p, { method: 'DELETE' }),
 };
+
+// Excel/ikili dosya indirme (Bearer token ile)
+export async function apiDownload(path, filename) {
+  const token = getToken();
+  const res = await fetch(path, {
+    headers: token ? { Authorization: 'Bearer ' + token } : {},
+  });
+  if (!res.ok) {
+    let msg = `İndirme başarısız (HTTP ${res.status}).`;
+    try {
+      const data = await res.json();
+      if (data && data.error) msg = data.error;
+    } catch {
+      /* ikili yanıt */
+    }
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}

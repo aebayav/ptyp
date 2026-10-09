@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { api } from '../api';
+import { api, apiDownload } from '../api';
 import { CURRENCIES, QUOTE_STATUS, fmtMoney, fmtDate, StatusBadge } from '../utils';
 import Modal from '../components/Modal';
 
@@ -242,9 +242,12 @@ export default function Quotes() {
           <h1>💰 Teklif &amp; Karşılaştırma</h1>
           <p className="sub">Satıcılardan fiyat toplayın, en uygun teklifi seçin</p>
         </div>
-        <button className="btn" onClick={copyUploadLink} title="Satıcıya gönderilecek teklif yükleme linkini kopyala">
-          {copied ? '✓ Kopyalandı' : '🔗 Satıcı Yükleme Linki'}
-        </button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button className="btn" onClick={() => apiDownload('/api/export/quotes', 'ptyp-teklifler.xlsx')}>⬇️ Excel (Teklifler + Karşılaştırma)</button>
+          <button className="btn" onClick={copyUploadLink} title="Satıcıya gönderilecek teklif yükleme linkini kopyala">
+            {copied ? '✓ Kopyalandı' : '🔗 Satıcı Yükleme Linki'}
+          </button>
+        </div>
       </div>
 
       <div className="tabs">
