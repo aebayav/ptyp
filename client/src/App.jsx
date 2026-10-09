@@ -5,6 +5,7 @@ import Materials from './pages/Materials';
 import Suppliers from './pages/Suppliers';
 import Quotes from './pages/Quotes';
 import Users from './pages/Users';
+import WorkTracking from './pages/WorkTracking';
 import Login from './pages/Login';
 import SupplierMaterials from './pages/SupplierMaterials';
 import SupplierQuotes from './pages/SupplierQuotes';
@@ -42,13 +43,17 @@ function Sidebar() {
               <span className="nav-ico">💰</span> Teklif &amp; Karşılaştırma
             </NavLink>
 
+            <div className="nav-group">PROJE</div>
+            <NavLink to="/is-takibi" className={({ isActive }) => (isActive ? 'active' : '')}>
+              <span className="nav-ico">🔧</span> İş Takibi
+            </NavLink>
+
             <div className="nav-group">YÖNETİM</div>
             <NavLink to="/kullanicilar" className={({ isActive }) => (isActive ? 'active' : '')}>
               <span className="nav-ico">👥</span> Kullanıcılar
             </NavLink>
 
             <div className="nav-group">YAKINDA</div>
-            <div className="nav-soon"><span className="nav-ico">🔧</span> İş Takibi</div>
             <div className="nav-soon"><span className="nav-ico">🧾</span> Muhasebe</div>
             <div className="nav-soon"><span className="nav-ico">📁</span> Dokümanlar</div>
           </>
@@ -110,6 +115,7 @@ function Shell() {
               <Route path="/malzemeler" element={<Materials />} />
               <Route path="/saticilar" element={<Suppliers />} />
               <Route path="/teklifler" element={<Quotes />} />
+              <Route path="/is-takibi" element={<WorkTracking />} />
               <Route path="/kullanicilar" element={<Users />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </>

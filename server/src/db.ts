@@ -63,6 +63,35 @@ export async function initSchema(): Promise<void> {
       created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
+    CREATE TABLE IF NOT EXISTS work_groups (
+      id            SERIAL PRIMARY KEY,
+      code          TEXT NOT NULL UNIQUE,
+      name          TEXT NOT NULL,
+      weight        NUMERIC(5,2) NOT NULL DEFAULT 0,
+      progress      NUMERIC(5,2) NOT NULL DEFAULT 0,
+      planned_start TEXT NOT NULL DEFAULT '',
+      planned_end   TEXT NOT NULL DEFAULT '',
+      status        TEXT NOT NULL DEFAULT 'pending',
+      notes         TEXT NOT NULL DEFAULT '',
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS tasks (
+      id            SERIAL PRIMARY KEY,
+      work_group_id INTEGER NOT NULL REFERENCES work_groups(id) ON DELETE CASCADE,
+      title         TEXT NOT NULL,
+      description   TEXT NOT NULL DEFAULT '',
+      assignee_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      due_date      TEXT NOT NULL DEFAULT '',
+      status        TEXT NOT NULL DEFAULT 'todo',
+      priority      TEXT NOT NULL DEFAULT 'normal',
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tasks_group ON tasks(work_group_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee_id);
+
     CREATE INDEX IF NOT EXISTS idx_quotes_material ON quotes(material_id);
     CREATE INDEX IF NOT EXISTS idx_quotes_supplier ON quotes(supplier_id);
   `);

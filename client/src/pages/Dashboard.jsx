@@ -101,6 +101,23 @@ export default function Dashboard() {
           <div className="stat-value">{overview.withoutQuotes}</div>
           <div className="stat-label">Henüz Teklif Alınmamış Malzeme</div>
         </div>
+        <Link to="/is-takibi" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <div className="stat-card" style={{ cursor: 'pointer' }}>
+            <div className="stat-ico">🔧</div>
+            <div className="stat-value">%{overview.overallProgress ?? 0}</div>
+            <div className="progress-track mini" style={{ marginTop: 8, marginBottom: 4 }}>
+              <div className="progress-fill" style={{ width: `${overview.overallProgress ?? 0}%` }} />
+            </div>
+            <div className="stat-label">Genel Fiziki İlerleme</div>
+          </div>
+        </Link>
+        <Link to="/is-takibi" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <div className="stat-card warn" style={{ cursor: 'pointer' }}>
+            <div className="stat-ico">⏰</div>
+            <div className="stat-value">{overview.lateTasks ?? 0}</div>
+            <div className="stat-label">Geciken Görev · {overview.openTasks ?? 0} açık</div>
+          </div>
+        </Link>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, flexWrap: 'wrap' }} className="two-col">

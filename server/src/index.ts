@@ -10,6 +10,8 @@ import quoteUploadRouter from './routes/quote-upload';
 import materialsRouter from './routes/materials';
 import suppliersRouter from './routes/suppliers';
 import quotesRouter from './routes/quotes';
+import workgroupsRouter from './routes/workgroups';
+import tasksRouter from './routes/tasks';
 import overviewRouter from './routes/overview';
 
 const app = express();
@@ -24,6 +26,8 @@ app.use('/api/users', usersRouter);
 app.use('/api/materials', materialsRouter);
 app.use('/api/suppliers', suppliersRouter);
 app.use('/api/quotes', quotesRouter);
+app.use('/api/workgroups', workgroupsRouter);
+app.use('/api/tasks', tasksRouter);
 app.use('/api', overviewRouter);
 
 // ---------- İstemci (build edilmiş SPA) ----------
