@@ -16,6 +16,20 @@ const EMPTY_FORM = {
 
 export default function Quotes() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const [copied, setCopied] = useState(false);
+
+  function copyUploadLink() {
+    const url = window.location.origin + '/teklif-yukle';
+    const done = () => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    };
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(done).catch(() => window.prompt('Linki kopyalayın:', url));
+    } else {
+      window.prompt('Linki kopyalayın:', url);
+    }
+  }
   const [materials, setMaterials] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [quotes, setQuotes] = useState([]);
@@ -228,6 +242,9 @@ export default function Quotes() {
           <h1>💰 Teklif &amp; Karşılaştırma</h1>
           <p className="sub">Satıcılardan fiyat toplayın, en uygun teklifi seçin</p>
         </div>
+        <button className="btn" onClick={copyUploadLink} title="Satıcıya gönderilecek teklif yükleme linkini kopyala">
+          {copied ? '✓ Kopyalandı' : '🔗 Satıcı Yükleme Linki'}
+        </button>
       </div>
 
       <div className="tabs">

@@ -6,6 +6,7 @@ import { initSchema } from './db';
 import { config } from './config';
 import authRouter from './routes/auth';
 import usersRouter from './routes/users';
+import quoteUploadRouter from './routes/quote-upload';
 import materialsRouter from './routes/materials';
 import suppliersRouter from './routes/suppliers';
 import quotesRouter from './routes/quotes';
@@ -14,8 +15,11 @@ import overviewRouter from './routes/overview';
 const app = express();
 app.use(express.json());
 
-// ---------- API modülleri ----------
+// ---------- Açık uç (giriş gerektirmez) ----------
 app.use('/api/auth', authRouter);
+app.use('/api/public', quoteUploadRouter); // satıcı teklif dosyası yükleme (herkese açık)
+
+// ---------- Buradan sonrası kimlik doğrulama ister (route dosyalarında requireAuth) ----------
 app.use('/api/users', usersRouter);
 app.use('/api/materials', materialsRouter);
 app.use('/api/suppliers', suppliersRouter);
@@ -40,7 +44,10 @@ app.use((_req, res) => {
 
 // ---------- Hata yakalama (Türkçe, açıklayıcı) ----------
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-app.use((err: Error & { code?: string }, _req: Request, res: Response, _next: NextFunction) => {
+app.use((err: Error & { code?: string; name?: string }, _req: Request, res: Response, _next: NextFunction) => {
+  if (err && err.name === 'MulterError') {
+    return res.status(400).json({ error: 'Dosya yükleme hatası: dosya çok büyük olabilir (en fazla 10 MB).' });
+  }
   if (err && err.code === '23505') {
     return res.status(400).json({ error: 'Bu kayıt zaten mevcut (benzersiz alan çakışması).' });
   }

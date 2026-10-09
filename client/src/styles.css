@@ -788,3 +788,143 @@ tr.best td {
   margin-bottom: 14px;
   font-size: 13px;
 }
+
+/* ---------- Teklif yükleme sayfası (herkese açık) ---------- */
+.upload-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #0d1f3c 0%, #14356b 60%, #1b4a8f 100%);
+  padding: 32px 20px;
+}
+
+.upload-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  color: #fff;
+}
+
+.upload-head h1 {
+  font-size: 19px;
+  letter-spacing: 0.5px;
+}
+
+.upload-head p {
+  font-size: 12.5px;
+  color: #8fa3bd;
+}
+
+.upload-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 30px;
+  width: 100%;
+  max-width: 560px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+}
+
+.upload-card h2 {
+  font-size: 18px;
+  margin-bottom: 6px;
+}
+
+.upload-sub {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 18px;
+  line-height: 1.5;
+}
+
+.file-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 22px 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.file-drop:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.file-drop input[type='file'] {
+  display: none;
+}
+
+.file-drop-ico {
+  font-size: 26px;
+}
+
+.file-drop-text {
+  font-size: 13.5px;
+  font-weight: 600;
+  word-break: break-all;
+  text-align: center;
+}
+
+.file-drop-hint {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.upload-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 16px;
+}
+
+.upload-table th {
+  text-align: left;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  background: #f8fafc;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.upload-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid #eef2f7;
+  font-size: 13px;
+}
+
+.unmatched-box {
+  background: #fdf6e3;
+  border: 1px solid #f0e0b8;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.unmatched-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #8a6a1f;
+  margin-bottom: 6px;
+}
+
+.unmatched-line {
+  font-size: 12px;
+  color: #6b5a2e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 1px 0;
+}
+
+.upload-foot {
+  margin-top: 16px;
+  font-size: 11.5px;
+  color: #5f7694;
+}

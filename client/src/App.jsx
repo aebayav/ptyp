@@ -8,6 +8,7 @@ import Users from './pages/Users';
 import Login from './pages/Login';
 import SupplierMaterials from './pages/SupplierMaterials';
 import SupplierQuotes from './pages/SupplierQuotes';
+import QuoteUpload from './pages/QuoteUpload';
 
 function Sidebar() {
   const { user, logout } = useAuth();
@@ -92,15 +93,17 @@ function Shell() {
   if (!ready) return <div className="loading-screen">⏳ Yükleniyor…</div>;
 
   const isLogin = location.pathname === '/login';
-  if (!user && !isLogin) return <Navigate to="/login" replace />;
-  if (user && isLogin) return <Navigate to={user.role === 'owner' ? '/' : '/malzemeler'} replace />;
+  const isPublic = location.pathname === '/teklif-yukle';
+  if (!user && !isLogin && !isPublic) return <Navigate to="/login" replace />;
+  if (user && (isLogin || isPublic)) return <Navigate to={user.role === 'owner' ? '/' : '/malzemeler'} replace />;
 
   return (
-    <div className={isLogin ? 'layout-login' : 'layout'}>
-      {!isLogin && <Sidebar />}
-      <main className={isLogin ? 'main-login' : 'main'}>
+    <div className={isLogin || isPublic ? 'layout-login' : 'layout'}>
+      {!isLogin && !isPublic && <Sidebar />}
+      <main className={isLogin || isPublic ? 'main-login' : 'main'}>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/teklif-yukle" element={<QuoteUpload />} />
           {user && user.role === 'owner' ? (
             <>
               <Route path="/" element={<Dashboard />} />
