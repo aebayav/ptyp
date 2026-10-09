@@ -132,10 +132,10 @@ router.get('/quotes', async (_req: Request, res: Response) => {
 
 // ---------- Direkler (KMZ güzergah) ----------
 router.get('/poles', async (_req: Request, res: Response) => {
-  const { rows } = await pool.query('SELECT name, lat, lon, alt, idx FROM poles ORDER BY idx');
+  const { rows } = await pool.query('SELECT name, lat, lon, idx FROM poles ORDER BY idx');
   const data: (string | number | null)[][] = [
-    ['Sıra', 'Direk', 'Enlem', 'Boylam', 'Rakım (m)'],
-    ...rows.map((p: any, i: number) => [i + 1, p.name, p.lat, p.lon, p.alt]),
+    ['Sıra', 'Direk', 'Enlem', 'Boylam'],
+    ...rows.map((p: any, i: number) => [i + 1, p.name, p.lat, p.lon]),
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, sheet(data), 'Direkler');

@@ -244,7 +244,6 @@ export default function RouteMap() {
                   <th>Direk</th>
                   <th className="num">Enlem</th>
                   <th className="num">Boylam</th>
-                  <th className="num">Rakım (m)</th>
                 </tr>
               </thead>
               <tbody>
@@ -254,7 +253,6 @@ export default function RouteMap() {
                     <td style={{ fontWeight: 600 }}>{p.name}</td>
                     <td className="num">{p.lat.toFixed(6)}</td>
                     <td className="num">{p.lon.toFixed(6)}</td>
-                    <td className="num">{p.alt != null ? Math.round(p.alt) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
