@@ -72,6 +72,14 @@ function MapView({ poles, route }) {
           bounds.push(...route);
           L.polyline(route, { color: '#f5a623', weight: 4, opacity: 0.85 }).addTo(map);
         }
+        // Direkler arası bağlantı hattı (sıralı direkler üzerinden)
+        if (poles.length >= 2) {
+          bounds.push(...poles.map((p) => [p.lat, p.lon]));
+          L.polyline(
+            poles.map((p) => [p.lat, p.lon]),
+            { color: '#0d1f3c', weight: 2.5, dashArray: '6 6', opacity: 0.75 }
+          ).addTo(map);
+        }
         if (bounds.length > 0) map.fitBounds(bounds, { padding: [30, 30] });
       })
       .catch((e) => {
@@ -133,7 +141,11 @@ export default function RouteMap() {
       if (!res.ok) throw new Error(d?.error || 'Yükleme başarısız.');
       setUploadMsg({
         type: 'ok',
-        text: `${d.saved} direk kaydedildi${d.route_points ? ` · güzergah hattı ${d.route_points} nokta (${d.route_km} km)` : ''}`,
+        text:
+          `${d.saved} direk kaydedildi` +
+          (d.connection_km != null ? ` · hat uzunluğu ${d.connection_km} km` : '') +
+          (d.route_points ? ` · KMZ güzergahı ${d.route_points} nokta (${d.route_km} km)` : '') +
+          (d.point_total > d.saved ? ` · ${d.point_total - d.saved} yakın etiket birleştirildi` : ''),
       });
       setFile(null);
       await load();
@@ -213,8 +225,17 @@ export default function RouteMap() {
         {data?.file_name && (
           <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
             Son yükleme: <strong>{data.file_name}</strong> · {fmtDate(data.uploaded_at)} · {poles.length} direk
-            {data.route_km != null && <> · güzergah {data.route_km} km</>}
+            {data.connection_km != null && <> · hat {data.connection_km} km</>}
+            {data.route_km != null && data.route_km > 0 && <> · KMZ güzergahı {data.route_km} km</>}
             {data.point_total > poles.length && <> · (dosyada toplam {data.point_total} nokta)</>}
+          </div>
+        )}
+        {poles.length > 0 && (
+          <div className="muted" style={{ marginTop: 6, fontSize: 11.5 }}>
+            <span style={{ display: 'inline-block', width: 26, height: 3, background: '#f5a623', verticalAlign: 'middle', marginRight: 6 }} />
+            KMZ güzergahı&nbsp;&nbsp;
+            <span style={{ display: 'inline-block', width: 26, height: 0, borderTop: '2px dashed #0d1f3c', verticalAlign: 'middle', marginRight: 6 }} />
+            direkler arası bağlantı hattı
           </div>
         )}
       </div>
