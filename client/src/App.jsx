@@ -6,7 +6,6 @@ import Suppliers from './pages/Suppliers';
 import Quotes from './pages/Quotes';
 import Users from './pages/Users';
 import WorkTracking from './pages/WorkTracking';
-import RouteMap from './pages/RouteMap';
 import Login from './pages/Login';
 import SupplierMaterials from './pages/SupplierMaterials';
 import SupplierQuotes from './pages/SupplierQuotes';
@@ -46,10 +45,7 @@ function Sidebar() {
 
             <div className="nav-group">PROJE</div>
             <NavLink to="/is-takibi" className={({ isActive }) => (isActive ? 'active' : '')}>
-              <span className="nav-ico">🔧</span> İş Takibi
-            </NavLink>
-            <NavLink to="/guzergah" className={({ isActive }) => (isActive ? 'active' : '')}>
-              <span className="nav-ico">🗺️</span> Güzergah &amp; Direkler
+              <span className="nav-ico">🔧</span> İş Takibi &amp; Güzergah
             </NavLink>
 
             <div className="nav-group">YÖNETİM</div>
@@ -120,7 +116,7 @@ function Shell() {
               <Route path="/saticilar" element={<Suppliers />} />
               <Route path="/teklifler" element={<Quotes />} />
               <Route path="/is-takibi" element={<WorkTracking />} />
-              <Route path="/guzergah" element={<RouteMap />} />
+              <Route path="/guzergah" element={<Navigate to="/is-takibi" replace />} />
               <Route path="/kullanicilar" element={<Users />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </>

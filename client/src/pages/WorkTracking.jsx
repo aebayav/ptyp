@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, apiDownload } from '../api';
 import { fmtDate, StatusBadge } from '../utils';
 import Modal from '../components/Modal';
+import RouteMap from './RouteMap';
 
 const GROUP_STATUS = {
   pending: { label: 'Başlamadı', cls: 'badge-gray' },
@@ -24,6 +25,7 @@ const PRIORITY = {
 const EMPTY_GROUP = {
   code: '', name: '', weight: '0', progress: '0',
   planned_start: '', planned_end: '', status: 'pending', notes: '',
+  segment_from: '', segment_to: '',
 };
 
 const EMPTY_TASK = {
@@ -55,6 +57,7 @@ export default function WorkTracking() {
   const [selGroup, setSelGroup] = useState(null);
   const [groupModal, setGroupModal] = useState(null);
   const [taskModal, setTaskModal] = useState(null);
+  const [tab, setTab] = useState('plan');
   const [gForm, setGForm] = useState(EMPTY_GROUP);
   const [tForm, setTForm] = useState(EMPTY_TASK);
   const [formError, setFormError] = useState(null);
@@ -117,6 +120,8 @@ export default function WorkTracking() {
       code: g.code, name: g.name, weight: String(g.weight ?? 0), progress: String(g.progress ?? 0),
       planned_start: g.planned_start || '', planned_end: g.planned_end || '',
       status: g.status, notes: g.notes || '',
+      segment_from: g.segment_from == null ? '' : String(g.segment_from),
+      segment_to: g.segment_to == null ? '' : String(g.segment_to),
     });
     setFormError(null);
     setGroupModal({ mode: 'edit', group: g });
@@ -129,7 +134,25 @@ export default function WorkTracking() {
     e.preventDefault();
     setSaving(true);
     setFormError(null);
-    const payload = { ...gForm, weight: Number(gForm.weight), progress: Number(gForm.progress) };
+    const sf = gForm.segment_from === '' ? null : Number(gForm.segment_from);
+    const st = gForm.segment_to === '' ? null : Number(gForm.segment_to);
+    if ((sf == null) !== (st == null)) {
+      setFormError('Direk kesimi için başlangıç VE bitiş direğini birlikte girin.');
+      setSaving(false);
+      return;
+    }
+    if (sf != null && (!Number.isInteger(sf) || !Number.isInteger(st) || sf < 1 || st < 1 || sf > st)) {
+      setFormError('Geçersiz direk aralığı (1 ≤ başlangıç ≤ bitiş).');
+      setSaving(false);
+      return;
+    }
+    const payload = {
+      ...gForm,
+      weight: Number(gForm.weight),
+      progress: Number(gForm.progress),
+      segment_from: sf,
+      segment_to: st,
+    };
     try {
       if (groupModal.mode === 'new') {
         const created = await api.post('/api/workgroups', payload);
@@ -237,15 +260,30 @@ export default function WorkTracking() {
     <div>
       <div className="page-head">
         <div>
-          <h1>🔧 İş Takibi</h1>
-          <p className="sub">İş grupları, görevler ve ağırlıklı fiziki ilerleme</p>
+          <h1>🔧 İş Takibi &amp; Güzergah</h1>
+          <p className="sub">İş grupları, görevler, ağırlıklı ilerleme ve güzergah kesimleri</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button className="btn" onClick={() => apiDownload('/api/export/worktracking', 'ptyp-is-takibi.xlsx')}>⬇️ Excel</button>
-          <button className="btn btn-accent" onClick={openNewGroup}>＋ Yeni İş Grubu</button>
+          {tab === 'plan' && (
+            <button className="btn btn-accent" onClick={openNewGroup}>＋ Yeni İş Grubu</button>
+          )}
         </div>
       </div>
 
+      <div className="tabs">
+        <button className={tab === 'plan' ? 'active' : ''} onClick={() => setTab('plan')}>
+          📋 İş Planı
+        </button>
+        <button className={tab === 'guzergah' ? 'active' : ''} onClick={() => setTab('guzergah')}>
+          🗺️ Güzergah &amp; Harita
+        </button>
+      </div>
+
+      {tab === 'guzergah' ? (
+        <RouteMap embedded />
+      ) : (
+        <>
       {error && (
         <div className="error-banner">
           <span>Veriler yüklenemedi: {error}</span>
@@ -281,6 +319,7 @@ export default function WorkTracking() {
               <tr>
                 <th>Kod</th>
                 <th>İş Grubu</th>
+                <th>Direk Kesimi</th>
                 <th className="num">Ağırlık</th>
                 <th>İlerleme</th>
                 <th className="num">Görev</th>
@@ -299,6 +338,13 @@ export default function WorkTracking() {
                 >
                   <td className="muted">{g.code}</td>
                   <td style={{ fontWeight: 600 }}>{g.name}</td>
+                  <td>
+                    {g.segment_from != null ? (
+                      <span className="badge badge-blue">D{g.segment_from} → D{g.segment_to}</span>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
+                  </td>
                   <td className="num">{g.weight}%</td>
                   <td style={{ minWidth: 130 }}><ProgressBar value={g.progress} mini /></td>
                   <td className="num">
@@ -391,6 +437,9 @@ export default function WorkTracking() {
         </div>
       )}
 
+        </>
+      )}
+
       {groupModal && (
         <Modal
           title={groupModal.mode === 'new' ? 'Yeni İş Grubu' : `İş Grubu Düzenle — ${groupModal.group.code}`}
@@ -418,6 +467,19 @@ export default function WorkTracking() {
                 <label>Fiziki İlerleme (%)</label>
                 <input type="number" min="0" max="100" step="any" value={gForm.progress} onChange={gSet('progress')} />
               </div>
+            </div>
+            <div className="form-row">
+              <div className="field">
+                <label>Başlangıç Direği</label>
+                <input type="number" min="1" step="1" value={gForm.segment_from} onChange={gSet('segment_from')} placeholder="Boş = kesim yok" />
+              </div>
+              <div className="field">
+                <label>Bitiş Direği</label>
+                <input type="number" min="1" step="1" value={gForm.segment_to} onChange={gSet('segment_to')} placeholder="Boş = kesim yok" />
+              </div>
+            </div>
+            <div className="form-hint" style={{ marginTop: -6, marginBottom: 12 }}>
+              Güzergah yüklüyse direk sıra numarası girin (örn. 1 → 30). Bu kesim haritada iş grubunun rengiyle boyanır.
             </div>
             <div className="form-row">
               <div className="field">

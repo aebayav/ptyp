@@ -73,6 +73,8 @@ export async function initSchema(): Promise<void> {
       planned_end   TEXT NOT NULL DEFAULT '',
       status        TEXT NOT NULL DEFAULT 'pending',
       notes         TEXT NOT NULL DEFAULT '',
+      segment_from  INTEGER,
+      segment_to    INTEGER,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
@@ -110,6 +112,15 @@ export async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_quotes_supplier ON quotes(supplier_id);
   `);
   await seedAdmin();
+
+  // Migrasyon: eski veritabanlarına güzergah kesim alanlarını ekle
+  const wgCols = await pool.query(
+    `SELECT column_name FROM information_schema.columns WHERE table_name = 'work_groups'`
+  );
+  if (!wgCols.rows.some((r: any) => r.column_name === 'segment_from')) {
+    await pool.query('ALTER TABLE work_groups ADD COLUMN segment_from INTEGER');
+    await pool.query('ALTER TABLE work_groups ADD COLUMN segment_to INTEGER');
+  }
 }
 
 // İlk açılışta hiç kullanıcı yoksa yönetici hesabı oluştur

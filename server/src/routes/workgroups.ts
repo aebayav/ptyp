@@ -32,6 +32,8 @@ async function nextCode(): Promise<string> {
 function normalize(body: any) {
   const weight = Number(body.weight);
   const progress = Number(body.progress);
+  const sf = body.segment_from === '' || body.segment_from == null ? null : Number(body.segment_from);
+  const st = body.segment_to === '' || body.segment_to == null ? null : Number(body.segment_to);
   return {
     code: String(body.code || '').trim(),
     name: String(body.name || '').trim(),
@@ -41,12 +43,25 @@ function normalize(body: any) {
     planned_end: String(body.planned_end || '').trim(),
     status: String(body.status || 'pending'),
     notes: String(body.notes || '').trim(),
+    segment_from: sf,
+    segment_to: st,
   };
 }
 
 function validate(g: any): string | null {
   if (!g.name) return 'İş grubu adı zorunludur.';
   if (!VALID_STATUSES.includes(g.status)) return 'Geçersiz iş grubu durumu.';
+  const sf = g.segment_from;
+  const st = g.segment_to;
+  if ((sf == null) !== (st == null)) {
+    return 'Direk kesimi için başlangıç VE bitiş direğini birlikte girin.';
+  }
+  if (sf != null) {
+    if (!Number.isInteger(sf) || !Number.isInteger(st) || sf < 1 || st < 1) {
+      return 'Direk numaraları 1 veya daha büyük tam sayı olmalıdır.';
+    }
+    if (sf > st) return 'Başlangıç direği bitiş direğinden büyük olamaz.';
+  }
   return null;
 }
 
@@ -61,9 +76,9 @@ router.post('/', async (req: Request, res: Response) => {
   if (dup.rowCount) return res.status(400).json({ error: `"${code}" kodu zaten kullanılıyor.` });
 
   const { rows } = await pool.query(
-    `INSERT INTO work_groups (code, name, weight, progress, planned_start, planned_end, status, notes)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-    [code, g.name, g.weight, g.progress, g.planned_start, g.planned_end, g.status, g.notes]
+    `INSERT INTO work_groups (code, name, weight, progress, planned_start, planned_end, status, notes, segment_from, segment_to)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    [code, g.name, g.weight, g.progress, g.planned_start, g.planned_end, g.status, g.notes, g.segment_from, g.segment_to]
   );
   res.status(201).json({ ...rows[0], task_count: 0, done_count: 0, late_count: 0 });
 });
@@ -83,9 +98,10 @@ router.put('/:id', async (req: Request, res: Response) => {
   if (dup.rowCount) return res.status(400).json({ error: `"${code}" kodu başka bir grupta kullanılıyor.` });
 
   const { rows } = await pool.query(
-    `UPDATE work_groups SET code=$1, name=$2, weight=$3, progress=$4, planned_start=$5, planned_end=$6, status=$7, notes=$8
-     WHERE id=$9 RETURNING *`,
-    [code, g.name, g.weight, g.progress, g.planned_start, g.planned_end, g.status, g.notes, id]
+    `UPDATE work_groups SET code=$1, name=$2, weight=$3, progress=$4, planned_start=$5, planned_end=$6, status=$7, notes=$8,
+            segment_from=$9, segment_to=$10
+     WHERE id=$11 RETURNING *`,
+    [code, g.name, g.weight, g.progress, g.planned_start, g.planned_end, g.status, g.notes, g.segment_from, g.segment_to, id]
   );
   const cnt = await pool.query(
     `SELECT COUNT(*)::int AS c,

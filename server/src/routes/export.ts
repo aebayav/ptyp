@@ -161,9 +161,11 @@ router.get('/worktracking', async (_req: Request, res: Response) => {
   `);
 
   const groupRows: (string | number | null)[][] = [
-    ['Kod', 'İş Grubu', 'Ağırlık %', 'İlerleme %', 'Durum', 'Başlangıç', 'Bitiş', 'Görev (tamam/toplam)', 'Not'],
+    ['Kod', 'İş Grubu', 'Direk Kesimi', 'Ağırlık %', 'İlerleme %', 'Durum', 'Başlangıç', 'Bitiş', 'Görev (tamam/toplam)', 'Not'],
     ...groups.rows.map((g: any) => [
-      g.code, g.name, g.weight, g.progress, GROUP_STATUS_TR[g.status] || g.status,
+      g.code, g.name,
+      g.segment_from != null ? `D${g.segment_from} → D${g.segment_to}` : '',
+      g.weight, g.progress, GROUP_STATUS_TR[g.status] || g.status,
       g.planned_start, g.planned_end, `${g.done_count}/${g.task_count}`, g.notes,
     ]),
   ];
