@@ -10,6 +10,8 @@ const GROUP_STATUS = {
   completed: { label: 'Tamamlandı', cls: 'badge-green' },
 };
 
+const PROJ_ICONS = { enh: '⚡', tm: '🏭', ges: '☀️', res: '💨' };
+
 const TASK_STATUS = {
   todo: { label: 'Yapılacak', cls: 'badge-gray' },
   in_progress: { label: 'Devam Ediyor', cls: 'badge-blue' },
@@ -62,6 +64,12 @@ export default function WorkTracking() {
   const [projectId, setProjectId] = useState(null);
   const [projModal, setProjModal] = useState(null);
   const [projName, setProjName] = useState('');
+  const [projType, setProjType] = useState('enh');
+  const [projCapacity, setProjCapacity] = useState('');
+  const [projEmployer, setProjEmployer] = useState('');
+  const [projContractNo, setProjContractNo] = useState('');
+  const [projStartDate, setProjStartDate] = useState('');
+  const [projEndDate, setProjEndDate] = useState('');
   const [gForm, setGForm] = useState(EMPTY_GROUP);
   const [tForm, setTForm] = useState(EMPTY_TASK);
   const [formError, setFormError] = useState(null);
@@ -110,21 +118,62 @@ export default function WorkTracking() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
+  function resetProjForm() {
+    setProjName('');
+    setProjType('enh');
+    setProjCapacity('');
+    setProjEmployer('');
+    setProjContractNo('');
+    setProjStartDate('');
+    setProjEndDate('');
+    setFormError(null);
+  }
+
   async function submitProject(e) {
     e.preventDefault();
     setSaving(true);
     setFormError(null);
+    const payload = {
+      name: projName,
+      type: projType,
+      capacity: projCapacity,
+      employer: projEmployer,
+      contract_no: projContractNo,
+      start_date: projStartDate,
+      end_date: projEndDate
+    };
+
     try {
       if (projModal.mode === 'new') {
-        const created = await api.post('/api/projects', { name: projName });
+        const created = await api.post('/api/projects', payload);
         await loadProjects();
         setProjectId(created.id);
+        
+        const templates = {
+          enh: ['Aplikasyon', 'Temel Kazısı', 'Beton Dökümü', 'Direk Montajı', 'İzolatör Montajı', 'Tel Çekimi', 'Devreye Alma'],
+          tm: ['Saha Hazırlık', 'Temel/Bina İnşaat', 'Topraklama Şebekesi', 'Bara Montajı', 'Trafo Montajı', 'Koruma/Otomasyon', 'Test & Devreye Alma'],
+          ges: ['Saha Temizlik & Çit', 'Kazık/Montaj Yapısı', 'Panel Montajı', 'DC Kablaj', 'İnvertör Montajı', 'AC Bağlantı & TM', 'Devreye Alma & Test'],
+          res: ['Yol Yapımı', 'Temel Kazısı', 'Beton & Temel', 'Türbin Montajı', 'Kablo Bağlantısı', 'Devreye Alma & Test']
+        };
+        const tpl = templates[projType] || [];
+        if (tpl.length > 0) {
+          const weight = Math.round(100 / tpl.length);
+          for (let i = 0; i < tpl.length; i++) {
+            await api.post('/api/workgroups', {
+              project_id: created.id,
+              name: tpl[i],
+              weight: weight,
+              progress: 0,
+              status: 'pending'
+            });
+          }
+        }
       } else {
-        await api.put(`/api/projects/${projModal.proj.id}`, { name: projName });
+        await api.put(`/api/projects/${projModal.proj.id}`, payload);
         await loadProjects();
       }
       setProjModal(null);
-      setProjName('');
+      resetProjForm();
     } catch (err) {
       setFormError(err.message);
     } finally {
@@ -337,11 +386,11 @@ export default function WorkTracking() {
         <select value={projectId ?? ''} onChange={(e) => setProjectId(Number(e.target.value))}>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.name} — {p.pole_count} direk · {p.group_count} grup
+              {PROJ_ICONS[p.type] || '⚡'} {p.name} — {p.pole_count} direk · {p.group_count} grup
             </option>
           ))}
         </select>
-        <button className="btn btn-sm" onClick={() => { setProjName(''); setFormError(null); setProjModal({ mode: 'new' }); }}>
+        <button className="btn btn-sm" onClick={() => { resetProjForm(); setProjModal({ mode: 'new' }); }}>
           ＋ Yeni Proje
         </button>
         {projectId != null && (
@@ -351,6 +400,12 @@ export default function WorkTracking() {
             onClick={() => {
               const p = projects.find((x) => x.id === projectId);
               setProjName(p?.name || '');
+              setProjType(p?.type || 'enh');
+              setProjCapacity(p?.capacity || '');
+              setProjEmployer(p?.employer || '');
+              setProjContractNo(p?.contract_no || '');
+              setProjStartDate(p?.start_date || '');
+              setProjEndDate(p?.end_date || '');
               setFormError(null);
               setProjModal({ mode: 'rename', proj: p });
             }}
@@ -539,15 +594,55 @@ export default function WorkTracking() {
         >
           <form onSubmit={submitProject}>
             {formError && <div className="form-error">{formError}</div>}
-            <div className="field">
-              <label>Proje Adı *</label>
-              <input
-                value={projName}
-                onChange={(e) => setProjName(e.target.value)}
-                required
-                autoFocus
-                placeholder="Örn: Şantiye 2"
-              />
+            <div className="form-row">
+              <div className="field">
+                <label>Proje Adı *</label>
+                <input
+                  value={projName}
+                  onChange={(e) => setProjName(e.target.value)}
+                  required
+                  autoFocus
+                  placeholder="Örn: Şantiye 2"
+                />
+              </div>
+              <div className="field">
+                <label>Proje Tipi</label>
+                <select value={projType} onChange={(e) => setProjType(e.target.value)}>
+                  <option value="enh">⚡ ENH (Enerji Nakil Hattı)</option>
+                  <option value="tm">🏭 TM (Trafo Merkezi)</option>
+                  <option value="ges">☀️ GES (Güneş Enerji Santrali)</option>
+                  <option value="res">💨 RES (Rüzgar Enerji Santrali)</option>
+                </select>
+              </div>
+            </div>
+            
+            <div className="form-row">
+              <div className="field">
+                <label>İşveren</label>
+                <input value={projEmployer} onChange={(e) => setProjEmployer(e.target.value)} placeholder="Örn: TEİAŞ" />
+              </div>
+              <div className="field">
+                <label>Kapasite</label>
+                <input value={projCapacity} onChange={(e) => setProjCapacity(e.target.value)} placeholder="Örn: 154 kV / 50 MW" />
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="field">
+                <label>Sözleşme No</label>
+                <input value={projContractNo} onChange={(e) => setProjContractNo(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="field">
+                <label>Başlangıç Tarihi</label>
+                <input type="date" value={projStartDate} onChange={(e) => setProjStartDate(e.target.value)} />
+              </div>
+              <div className="field">
+                <label>Bitiş Tarihi</label>
+                <input type="date" value={projEndDate} onChange={(e) => setProjEndDate(e.target.value)} />
+              </div>
             </div>
             <div className="modal-actions">
               <button type="button" className="btn" onClick={() => setProjModal(null)}>Vazgeç</button>

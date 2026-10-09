@@ -112,6 +112,12 @@ export async function initSchema(): Promise<void> {
     CREATE TABLE IF NOT EXISTS projects (
       id          SERIAL PRIMARY KEY,
       name        TEXT NOT NULL,
+      type        TEXT NOT NULL DEFAULT 'enh',
+      capacity    TEXT NOT NULL DEFAULT '',
+      employer    TEXT NOT NULL DEFAULT '',
+      contract_no TEXT NOT NULL DEFAULT '',
+      start_date  TEXT NOT NULL DEFAULT '',
+      end_date    TEXT NOT NULL DEFAULT '',
       route       JSONB,
       file_name   TEXT,
       uploaded_at TEXT,
@@ -119,8 +125,67 @@ export async function initSchema(): Promise<void> {
       created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
+    CREATE TABLE IF NOT EXISTS daily_reports (
+      id            SERIAL PRIMARY KEY,
+      project_id    INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      report_date   DATE NOT NULL,
+      weather       TEXT NOT NULL DEFAULT '',
+      temperature   NUMERIC(4,1),
+      work_summary  TEXT NOT NULL DEFAULT '',
+      issues        TEXT NOT NULL DEFAULT '',
+      created_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE(project_id, report_date)
+    );
+
+    CREATE TABLE IF NOT EXISTS daily_report_crew (
+      id          SERIAL PRIMARY KEY,
+      report_id   INTEGER NOT NULL REFERENCES daily_reports(id) ON DELETE CASCADE,
+      role        TEXT NOT NULL,
+      company     TEXT NOT NULL DEFAULT '',
+      count       INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS daily_report_equipment (
+      id              SERIAL PRIMARY KEY,
+      report_id       INTEGER NOT NULL REFERENCES daily_reports(id) ON DELETE CASCADE,
+      equipment_type  TEXT NOT NULL,
+      description     TEXT NOT NULL DEFAULT '',
+      count           INTEGER NOT NULL DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS progress_payments (
+      id            SERIAL PRIMARY KEY,
+      project_id    INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      period_no     INTEGER NOT NULL,
+      period_label  TEXT NOT NULL,
+      status        TEXT NOT NULL DEFAULT 'draft',
+      submitted_at  TIMESTAMPTZ,
+      approved_at   TIMESTAMPTZ,
+      notes         TEXT NOT NULL DEFAULT '',
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS progress_payment_items (
+      id              SERIAL PRIMARY KEY,
+      payment_id      INTEGER NOT NULL REFERENCES progress_payments(id) ON DELETE CASCADE,
+      work_group_id   INTEGER REFERENCES work_groups(id) ON DELETE SET NULL,
+      item_name       TEXT NOT NULL,
+      unit            TEXT NOT NULL DEFAULT 'adet',
+      contract_qty    NUMERIC(12,2) NOT NULL DEFAULT 0,
+      previous_qty    NUMERIC(12,2) NOT NULL DEFAULT 0,
+      current_qty     NUMERIC(12,2) NOT NULL DEFAULT 0,
+      unit_price      NUMERIC(14,2) NOT NULL DEFAULT 0,
+      notes           TEXT NOT NULL DEFAULT ''
+    );
+
     CREATE INDEX IF NOT EXISTS idx_quotes_material ON quotes(material_id);
     CREATE INDEX IF NOT EXISTS idx_quotes_supplier ON quotes(supplier_id);
+    CREATE INDEX IF NOT EXISTS idx_daily_reports_project ON daily_reports(project_id);
+    CREATE INDEX IF NOT EXISTS idx_daily_report_crew_report ON daily_report_crew(report_id);
+    CREATE INDEX IF NOT EXISTS idx_daily_report_equip_report ON daily_report_equipment(report_id);
+    CREATE INDEX IF NOT EXISTS idx_progress_payments_project ON progress_payments(project_id);
+    CREATE INDEX IF NOT EXISTS idx_progress_payment_items_payment ON progress_payment_items(payment_id);
   `);
   await seedAdmin();
 
@@ -187,6 +252,19 @@ export async function initSchema(): Promise<void> {
     }
   } catch {
     /* kmz_meta yoksa önemsiz */
+  }
+
+  // Migrasyon: projeler tablosuna tip/kapasite/işveren/sözleşme alanlarını ekle
+  const projCols = await pool.query(
+    `SELECT column_name FROM information_schema.columns WHERE table_name = 'projects'`
+  );
+  if (!projCols.rows.some((r: any) => r.column_name === 'type')) {
+    await pool.query(`ALTER TABLE projects ADD COLUMN type TEXT NOT NULL DEFAULT 'enh'`);
+    await pool.query(`ALTER TABLE projects ADD COLUMN capacity TEXT NOT NULL DEFAULT ''`);
+    await pool.query(`ALTER TABLE projects ADD COLUMN employer TEXT NOT NULL DEFAULT ''`);
+    await pool.query(`ALTER TABLE projects ADD COLUMN contract_no TEXT NOT NULL DEFAULT ''`);
+    await pool.query(`ALTER TABLE projects ADD COLUMN start_date TEXT NOT NULL DEFAULT ''`);
+    await pool.query(`ALTER TABLE projects ADD COLUMN end_date TEXT NOT NULL DEFAULT ''`);
   }
 }
 

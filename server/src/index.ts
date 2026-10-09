@@ -16,6 +16,8 @@ import polesRouter from './routes/poles';
 import projectsRouter from './routes/projects';
 import exportRouter from './routes/export';
 import overviewRouter from './routes/overview';
+import progressPaymentsRouter from './routes/progress-payments';
+import dailyReportsRouter from './routes/daily-reports';
 
 const app = express();
 app.use(express.json());
@@ -34,6 +36,8 @@ app.use('/api/tasks', tasksRouter);
 app.use('/api/poles', polesRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/export', exportRouter);
+app.use('/api/progress-payments', progressPaymentsRouter);
+app.use('/api/daily-reports', dailyReportsRouter);
 app.use('/api', overviewRouter);
 
 // ---------- İstemci (build edilmiş SPA) ----------
