@@ -964,3 +964,37 @@ tr.best td {
 tr.late-row td {
   background: #fdf3f3;
 }
+
+/* ---------- Harita (Güzergah) ---------- */
+.map-box {
+  height: 420px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  z-index: 0;
+}
+
+.pole-marker {
+  background: none;
+  border: none;
+}
+
+.pole-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--sidebar-bg);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.leaflet-popup-content {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 12.5px;
+}

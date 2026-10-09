@@ -12,6 +12,7 @@ import suppliersRouter from './routes/suppliers';
 import quotesRouter from './routes/quotes';
 import workgroupsRouter from './routes/workgroups';
 import tasksRouter from './routes/tasks';
+import polesRouter from './routes/poles';
 import overviewRouter from './routes/overview';
 
 const app = express();
@@ -28,6 +29,7 @@ app.use('/api/suppliers', suppliersRouter);
 app.use('/api/quotes', quotesRouter);
 app.use('/api/workgroups', workgroupsRouter);
 app.use('/api/tasks', tasksRouter);
+app.use('/api/poles', polesRouter);
 app.use('/api', overviewRouter);
 
 // ---------- İstemci (build edilmiş SPA) ----------

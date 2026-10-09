@@ -92,6 +92,20 @@ export async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_tasks_group ON tasks(work_group_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee_id);
 
+    CREATE TABLE IF NOT EXISTS poles (
+      id    SERIAL PRIMARY KEY,
+      name  TEXT NOT NULL DEFAULT '',
+      lat   DOUBLE PRECISION NOT NULL,
+      lon   DOUBLE PRECISION NOT NULL,
+      alt   DOUBLE PRECISION,
+      idx   INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS kmz_meta (
+      key   TEXT PRIMARY KEY,
+      value JSONB NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_quotes_material ON quotes(material_id);
     CREATE INDEX IF NOT EXISTS idx_quotes_supplier ON quotes(supplier_id);
   `);
