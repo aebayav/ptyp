@@ -9,7 +9,10 @@ function loadLeaflet() {
     if (window.L) return resolve(window.L);
     if (leafletLoaded) {
       // yükleniyor — kısa bekle
-      setTimeout(() => (window.L ? resolve(window.L) : reject(new Error('Harita kütüphanesi yüklenemedi.')), 2000);
+      setTimeout(() => {
+        if (window.L) resolve(window.L);
+        else reject(new Error('Harita kütüphanesi yüklenemedi.'));
+      }, 2000);
       return;
     }
     leafletLoaded = true;
