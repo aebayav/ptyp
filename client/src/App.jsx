@@ -62,7 +62,6 @@ function Sidebar() {
             </NavLink>
 
             <div className="nav-group">YAKINDA</div>
-            <div className="nav-soon"><span className="nav-ico">🧾</span> Muhasebe</div>
             <div className="nav-soon"><span className="nav-ico">📁</span> Dokümanlar</div>
           </>
         ) : (
