@@ -1,0 +1,15 @@
+[Unit]
+Description=PTYP OCR Servisi (RapidOCR, Ollama kapalı)
+After=network.target
+
+[Service]
+User=turguz
+WorkingDirectory=/home/turguz/ptyp/ocr-service
+Environment=OLLAMA_URL=http://127.0.0.1:11434
+Environment=OLLAMA_ATTEMPTS=0
+ExecStart=/home/turguz/ptyp/ocr-service/.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8787
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

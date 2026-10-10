@@ -1,0 +1,14 @@
+[Unit]
+Description=PTYP — Proje Yönetim Sistemi (Node)
+After=network.target postgresql.service
+
+[Service]
+User=turguz
+WorkingDirectory=/home/turguz/ptyp
+ExecStart=/usr/bin/node --no-warnings server/dist/index.js
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

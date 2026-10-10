@@ -53,6 +53,22 @@ export async function initSchema(): Promise<void> {
       updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
+    CREATE TABLE IF NOT EXISTS projects (
+      id          SERIAL PRIMARY KEY,
+      name        TEXT NOT NULL,
+      type        TEXT NOT NULL DEFAULT 'enh',
+      capacity    TEXT NOT NULL DEFAULT '',
+      employer    TEXT NOT NULL DEFAULT '',
+      contract_no TEXT NOT NULL DEFAULT '',
+      start_date  TEXT NOT NULL DEFAULT '',
+      end_date    TEXT NOT NULL DEFAULT '',
+      route       JSONB,
+      file_name   TEXT,
+      uploaded_at TEXT,
+      point_total INTEGER,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
     CREATE TABLE IF NOT EXISTS users (
       id            SERIAL PRIMARY KEY,
       username      TEXT NOT NULL UNIQUE,
@@ -107,22 +123,6 @@ export async function initSchema(): Promise<void> {
     CREATE TABLE IF NOT EXISTS kmz_meta (
       key   TEXT PRIMARY KEY,
       value JSONB NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS projects (
-      id          SERIAL PRIMARY KEY,
-      name        TEXT NOT NULL,
-      type        TEXT NOT NULL DEFAULT 'enh',
-      capacity    TEXT NOT NULL DEFAULT '',
-      employer    TEXT NOT NULL DEFAULT '',
-      contract_no TEXT NOT NULL DEFAULT '',
-      start_date  TEXT NOT NULL DEFAULT '',
-      end_date    TEXT NOT NULL DEFAULT '',
-      route       JSONB,
-      file_name   TEXT,
-      uploaded_at TEXT,
-      point_total INTEGER,
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
     CREATE TABLE IF NOT EXISTS daily_reports (
