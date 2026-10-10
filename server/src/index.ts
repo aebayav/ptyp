@@ -81,6 +81,12 @@ function lanIPs(): string[] {
   return ips;
 }
 
+// Kütüphane içi (örn. pdf-parse) stray rejection'larının sunucuyu
+// çökertmemesi için global koruma
+process.on('unhandledRejection', (reason) => {
+  console.error('Unexpected rejection:', reason instanceof Error ? reason.message : reason);
+});
+
 initSchema()
   .then(() => {
     app.listen(config.port, '0.0.0.0', () => {

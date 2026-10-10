@@ -1,11 +1,12 @@
-// Excel/PDF → otomatik KMZ üretme ve projeye aktarma
+// Excel/PDF/TIFF → otomatik KMZ üretme ve projeye aktarma
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
-import { parseExcelCoordinates, parsePdfCoordinates } from '../coord-parser';
+import { parseExcelCoordinates, parsePdfText } from '../coord-parser';
+import { detectDocumentKind, analyzePdf, isTiff } from '../document-reader';
 import { buildKmz } from '../kmz-builder';
 import { routeLengthKm } from '../kmz-parser';
 import { importPolesForProject } from '../pole-importer';
@@ -22,14 +23,20 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 },
 });
 
-// Excel/PDF → parse → KMZ üret → (isteğe bağlı) projeye aktar
+// Excel/PDF/TIFF → parse → KMZ üret → (isteğe bağlı) projeye aktar
 router.post('/parse', upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Dosya yüklenmedi.' });
-    const ext = path.extname(req.file.originalname).toLowerCase();
-    if (!['.xlsx', '.xls', '.pdf'].includes(ext)) {
-      return res.status(400).json({ error: 'Lütfen Excel (.xlsx/.xls) veya PDF dosyası yükleyin.' });
+
+    const kind = detectDocumentKind(req.file.originalname);
+    if (kind === 'unknown') {
+      return res.status(400).json({ error: 'Desteklenen biçimler: Excel (.xlsx/.xls), PDF, TIFF (.tif/.tiff).' });
     }
+    // Uzantı hatalı olsa bile TIFF sihirli baytını doğrula
+    if (kind !== 'tiff' && isTiff(req.file.buffer)) {
+      return res.status(400).json({ error: 'Bu dosya bir TIFF görüntüsü. Doğru uzantıyla (.tif/.tiff) yükleyin.' });
+    }
+
     const projectId = req.body?.project_id ? Number(req.body.project_id) : null;
     if (projectId != null) {
       const p = await pool.query('SELECT 1 FROM projects WHERE id = $1', [projectId]);
@@ -37,12 +44,39 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
     }
 
     let poles;
-    try {
-      poles = ext === '.pdf'
-        ? (await parsePdfCoordinates(req.file.buffer)).poles
-        : parseExcelCoordinates(req.file.buffer).poles;
-    } catch (e: any) {
-      return res.status(400).json({ error: 'Dosya okunamadı: ' + (e.message || 'geçersiz içerik') });
+    let source = kind;
+
+    if (kind === 'excel') {
+      try {
+        poles = parseExcelCoordinates(req.file.buffer).poles;
+      } catch (e: any) {
+        return res.status(400).json({ error: 'Excel okunamadı: ' + (e.message || 'geçersiz içerik') });
+      }
+    } else if (kind === 'pdf') {
+      // PDF: önce metin katmanı kontrolü
+      let analysis;
+      try {
+        analysis = await analyzePdf(req.file.buffer);
+      } catch (e: any) {
+        return res.status(400).json({ error: 'PDF okunamadı: ' + (e.message || 'geçersiz içerik') });
+      }
+      if (!analysis.hasTextLayer) {
+        return res.status(400).json({
+          error:
+            `Bu PDF taranmış belge (${analysis.pages} sayfa) — metin katmanı YOK. ` +
+            'Otomatik OCR desteği üzerinde çalışıyoruz; şimdilik Excel veya metin içeren (aranabilir) PDF kullanın.',
+          needs_ocr: true,
+          pages: analysis.pages,
+        });
+      }
+      source = 'pdf-text';
+      poles = parsePdfText(analysis.text).poles;
+    } else {
+      // TIFF: OCR boru hattı bir sonraki adımda eklenecek
+      return res.status(400).json({
+        error: 'TIFF görüntüsü alındı. TIFF OCR desteği üzerinde çalışıyoruz; şimdilik Excel veya metin içeren PDF kullanın.',
+        needs_ocr: true,
+      });
     }
 
     if (poles.length === 0) {
@@ -55,7 +89,7 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
     }
 
     // KMZ üret
-    const docName = path.basename(req.file.originalname, ext);
+    const docName = path.basename(req.file.originalname, path.extname(req.file.originalname));
     const kmzBuf = buildKmz(poles, docName);
     const kmzFile = `generated-${Date.now()}.kmz`;
     fs.writeFileSync(path.join(UPLOADS_DIR, kmzFile), kmzBuf);
@@ -67,7 +101,6 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
     if (projectId != null) {
       const result = await importPolesForProject(projectId, poles, poleCoords, req.file.originalname, poles.length, connectionKm);
       saved = result.saved;
-      // Bu dosya asıl yükleme gibi "son KMZ" olarak da saklansın
       try {
         fs.writeFileSync(path.join(UPLOADS_DIR, `latest-p${projectId}.kmz`), kmzBuf);
       } catch { /* kritik değil */ }
@@ -77,6 +110,7 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       poles: poles.map((p, i) => ({ no: i + 1, name: p.name || `Direk ${i + 1}`, lat: p.lat, lon: p.lon })),
       count: poles.length,
       saved,
+      source,
       connection_km: connectionKm,
       file_name: req.file.originalname,
       kmz: `/api/kmz-generator/download/${kmzFile}`,

@@ -306,7 +306,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
           >
             <input
               type="file"
-              accept={genMode ? '.xlsx,.xls,.pdf' : '.kmz,.kml'}
+              accept={genMode ? '.xlsx,.xls,.pdf,.tif,.tiff' : '.kmz,.kml'}
               onChange={(e) => {
                 if (genMode) setGenFile(e.target.files?.[0] || null);
                 else setFile(e.target.files?.[0] || null);
@@ -316,7 +316,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
             <span className="file-drop-ico">📄</span>
             <span className="file-drop-text" style={{ flex: 1, textAlign: 'left' }}>
               {genMode
-                ? (genFile ? genFile.name : 'Excel (.xlsx/.xls) veya PDF seçin — koordinatlar otomatik algılanır…')
+                ? (genFile ? genFile.name : 'Excel, PDF veya TIFF seçin — koordinatlar otomatik algılanır…')
                 : (file ? file.name : 'KMZ dosyası seçin (Google Earth)…')}
             </span>
           </label>

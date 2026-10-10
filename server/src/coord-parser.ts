@@ -1,6 +1,5 @@
-// Excel (.xlsx) ve PDF dosyalarından direk koordinatları çıkarma
+// Excel (.xlsx) ve PDF metinlerinden direk koordinatları çıkarma
 import * as XLSX from 'xlsx';
-import pdfParse from 'pdf-parse';
 import { PolePoint } from './kmz-parser';
 
 const LAT_RANGE: [number, number] = [36, 42]; // Türkiye enlem aralığı
@@ -142,9 +141,9 @@ export function parseExcelCoordinates(buffer: Buffer): { poles: PolePoint[] } {
   return { poles };
 }
 
-export async function parsePdfCoordinates(buffer: Buffer): Promise<{ poles: PolePoint[] }> {
-  const data = await pdfParse(buffer);
-  const text: string = data.text || '';
+// PDF metni: koordinat desenlerinden direkleri çıkar
+// (document-reader.analyzePdf ile metin katmanı önceden doğrulanır)
+export function parsePdfText(text: string): { poles: PolePoint[] } {
   const poles: PolePoint[] = [];
 
   const COORD_RE = /(\d{1,2}[.,]\d{3,})\s*[,;\s]\s*(\d{1,2}[.,]\d{3,})/g;
