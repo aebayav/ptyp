@@ -8,6 +8,8 @@
 import base64
 import io
 import os
+import logging
+import time
 
 import cv2
 import httpx
@@ -15,6 +17,9 @@ import numpy as np
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
 from PIL import Image
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [OCR] %(message)s", datefmt="%H:%M:%S")
+log = logging.getLogger("ocr")
 
 app = FastAPI(title="PTYP OCR Servisi", version="1.0.0")
 
@@ -177,8 +182,10 @@ def health():
 
 @app.post("/ocr/document")
 async def ocr_document(file: UploadFile):
+    t0 = time.time()
     buf = await file.read()
     name = (file.filename or "").lower()
+    log.info("istek: dosya=%s boyut=%d bayt", file.filename, len(buf))
     if name.endswith(".pdf"):
         images = pages_from_pdf(buf)
     elif name.endswith((".tif", ".tiff")):
@@ -186,10 +193,13 @@ async def ocr_document(file: UploadFile):
     elif name.endswith((".png", ".jpg", ".jpeg")):
         images = [np.array(Image.open(io.BytesIO(buf)).convert("RGB"))]
     else:
+        log.warning("desteklenmeyen biçim: %s", file.filename)
         return JSONResponse(status_code=400, content={"error": "Desteklenmeyen biçim"})
 
     if not images:
+        log.warning("görüntü bulunamadı: %s", file.filename)
         return JSONResponse(status_code=400, content={"error": "Görüntü bulunamadı"})
+    log.info("sayfalar: %d (%dx%d)", len(images), images[0].shape[1], images[0].shape[0])
 
     ocr = get_ocr()
     out_pages = []
@@ -201,11 +211,14 @@ async def ocr_document(file: UploadFile):
             return JSONResponse(status_code=500, content={"error": f"OCR hatası: {e}"})
 
         rows = []
+        low_conf = 0
+        fallback_used = 0
         for line in group_lines(items):
             cells = []
             for d in line:
                 cell = {"text": d["text"], "conf": round(d["conf"], 3)}
                 if d["conf"] < CONF_THRESHOLD:
+                    low_conf += 1
                     # Zor hücre → Ollama vision modeline sor
                     xs = [int(p[0]) for p in d["bbox"]]
                     ys = [int(p[1]) for p in d["bbox"]]
@@ -213,11 +226,17 @@ async def ocr_document(file: UploadFile):
                     y0, y1 = max(0, min(ys)), min(original.shape[0], max(ys))
                     fb = await ollama_read_cell(original[y0:y1, x0:x1])
                     if fb:
+                        fallback_used += 1
                         cell["text"] = fb
                         cell["conf"] = None
                         cell["fallback"] = "ollama"
                 cells.append(cell)
             rows.append(cells)
+
+        log.info(
+            "sayfa %d/%d: satır=%d hücre=%d düşük_güven=%d ollama=%d",
+            page_idx + 1, len(images), len(rows), sum(len(r) for r in rows), low_conf, fallback_used,
+        )
 
         out_pages.append(
             {
@@ -226,4 +245,5 @@ async def ocr_document(file: UploadFile):
                 "rows": rows,
             }
         )
+    log.info("bitti: %s sayfa=%d süre=%.1fs", file.filename, len(out_pages), time.time() - t0)
     return {"pages": out_pages, "pages_count": len(out_pages)}

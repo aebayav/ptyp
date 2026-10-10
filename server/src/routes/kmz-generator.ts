@@ -118,13 +118,19 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
     }
 
     if (poles.length === 0) {
+      console.log(`[KMZ-ÜRET] ${req.file.originalname} → ${source}: koordinat bulunamadı`);
       return res.status(400).json({
         error: 'Dosyada koordinat bulunamadı. PDF taranmış görüntü olabilir; Excel için enlem/boylam (veya X/Y) sütun başlıkları olmalı.',
       });
     }
     if (poles.length < 2) {
+      console.log(`[KMZ-ÜRET] ${req.file.originalname} → ${source}: yalnız ${poles.length} direk`);
       return res.status(400).json({ error: 'En az 2 direk bulunmalı (güzergah çizgisi için).' });
     }
+    console.log(
+      `[KMZ-ÜRET] ${req.file.originalname} → ${source}: ${poles.length} direk` +
+        (ocrResult ? `, belirsiz satır: ${ocrResult.uncertain.length}` : '')
+    );
 
     // KMZ üret
     const docName = path.basename(req.file.originalname, path.extname(req.file.originalname));
