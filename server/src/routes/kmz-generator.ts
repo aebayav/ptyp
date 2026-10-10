@@ -44,7 +44,7 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
     }
 
     let poles;
-    let source = kind;
+    let source: string = kind;
 
     if (kind === 'excel') {
       try {
