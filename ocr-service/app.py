@@ -31,11 +31,22 @@ _ocr = None
 def get_ocr():
     global _ocr
     if _ocr is None:
-        from paddleocr import PaddleOCR
+        from rapidocr_onnxruntime import RapidOCR
 
-        # Rakam/tablo ağırlıklı belgeler: açı sınıflandırıcı + en
-        _ocr = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
+        # RapidOCR: PaddleOCR PP-OCRv4 modelleri, ONNX Runtime ile.
+        # (paddlepaddle 3.x'in bu CPU'daki PIR/oneDNN hatasından kaçınır,
+        #  Python 3.13 uyumlu, düşük bellek.)
+        _ocr = RapidOCR()
     return _ocr
+
+
+def predict_items(ocr, prep: np.ndarray) -> list:
+    """RapidOCR çıktısını [(bbox, (text, conf)), ...] listesine çevirir."""
+    result, _ = ocr(prep)
+    items = []
+    for box, text, conf in result or []:
+        items.append((box, (str(text), float(conf))))
+    return items
 
 
 # ---------- Görüntü hazırlama ----------
@@ -185,14 +196,9 @@ async def ocr_document(file: UploadFile):
     for page_idx, original in enumerate(images):
         prep = preprocess(original)
         try:
-            result = ocr.ocr(prep, cls=True)
+            items = predict_items(ocr, prep)
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": f"OCR hatası: {e}"})
-
-        items = []
-        for block in result or []:
-            for bbox, (text, conf) in block:
-                items.append((bbox, (text, conf)))
 
         rows = []
         for line in group_lines(items):
