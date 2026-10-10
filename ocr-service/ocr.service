@@ -1,0 +1,14 @@
+[Unit]
+Description=PTYP OCR Servisi (PaddleOCR + Ollama fallback)
+After=network.target
+
+[Service]
+WorkingDirectory=/root/ptyp/ocr-service
+Environment=OLLAMA_URL=http://127.0.0.1:11434
+Environment=VISION_MODEL=qwen2.5vl:7b
+ExecStart=/root/ptyp/ocr-service/.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8787
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

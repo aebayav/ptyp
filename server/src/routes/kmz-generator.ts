@@ -3,13 +3,16 @@ import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import * as XLSX from 'xlsx';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
 import { parseExcelCoordinates, parsePdfText } from '../coord-parser';
 import { detectDocumentKind, analyzePdf, isTiff } from '../document-reader';
+import { callOcr, OcrCell } from '../ocr-client';
 import { buildKmz } from '../kmz-builder';
 import { routeLengthKm } from '../kmz-parser';
 import { importPolesForProject } from '../pole-importer';
+import { PolePoint } from '../kmz-parser';
 
 const router = Router();
 
@@ -22,6 +25,28 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
 });
+
+// OCR satırlarından direkleri çıkar; düşük güvenli satırları işaretle
+function polesFromOcr(ocr: { pages: { rows: OcrCell[][] }[] }): {
+  poles: PolePoint[];
+  uncertain: { row: number; text: string }[];
+} {
+  const lines: string[] = [];
+  const uncertain: { row: number; text: string }[] = [];
+  let rowNo = 0;
+  for (const page of ocr.pages) {
+    for (const row of page.rows) {
+      rowNo++;
+      const text = row.map((c) => c.text).join(' ').trim();
+      if (!text) continue;
+      lines.push(text);
+      const low = row.filter((c) => c.conf != null && c.conf < 0.55 && !c.fallback);
+      if (low.length > 0) uncertain.push({ row: rowNo, text });
+    }
+  }
+  const poles = parsePdfText(lines.join('\n')).poles;
+  return { poles, uncertain };
+}
 
 // Excel/PDF/TIFF → parse → KMZ üret → (isteğe bağlı) projeye aktar
 router.post('/parse', upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
@@ -45,6 +70,10 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
 
     let poles;
     let source: string = kind;
+    let ocrResult: {
+      pages: { page: number; preview: string; rows: OcrCell[][] }[];
+      uncertain: { row: number; text: string }[];
+    } | null = null;
 
     if (kind === 'excel') {
       try {
@@ -61,22 +90,31 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
         return res.status(400).json({ error: 'PDF okunamadı: ' + (e.message || 'geçersiz içerik') });
       }
       if (!analysis.hasTextLayer) {
-        return res.status(400).json({
-          error:
-            `Bu PDF taranmış belge (${analysis.pages} sayfa) — metin katmanı YOK. ` +
-            'Otomatik OCR desteği üzerinde çalışıyoruz; şimdilik Excel veya metin içeren (aranabilir) PDF kullanın.',
-          needs_ocr: true,
-          pages: analysis.pages,
-        });
+        // Taranmış PDF → OCR servisi
+        try {
+          const ocr = await callOcr(req.file.buffer, req.file.originalname);
+          const { poles: p, uncertain } = polesFromOcr(ocr);
+          poles = p;
+          ocrResult = { pages: ocr.pages.map((pg) => ({ page: pg.page, preview: pg.preview, rows: pg.rows })), uncertain };
+        } catch (e: any) {
+          return res.status(503).json({ error: 'Taranmış PDF için OCR servisi kullanılamıyor: ' + e.message });
+        }
+        source = 'pdf-ocr';
+      } else {
+        source = 'pdf-text';
+        poles = parsePdfText(analysis.text).poles;
       }
-      source = 'pdf-text';
-      poles = parsePdfText(analysis.text).poles;
     } else {
-      // TIFF: OCR boru hattı bir sonraki adımda eklenecek
-      return res.status(400).json({
-        error: 'TIFF görüntüsü alındı. TIFF OCR desteği üzerinde çalışıyoruz; şimdilik Excel veya metin içeren PDF kullanın.',
-        needs_ocr: true,
-      });
+      // TIFF → OCR servisi
+      try {
+        const ocr = await callOcr(req.file.buffer, req.file.originalname);
+        const { poles: p, uncertain } = polesFromOcr(ocr);
+        poles = p;
+        ocrResult = { pages: ocr.pages.map((pg) => ({ page: pg.page, preview: pg.preview, rows: pg.rows })), uncertain };
+      } catch (e: any) {
+        return res.status(503).json({ error: 'TIFF için OCR servisi kullanılamıyor: ' + e.message });
+      }
+      source = 'tiff-ocr';
     }
 
     if (poles.length === 0) {
@@ -111,6 +149,7 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       count: poles.length,
       saved,
       source,
+      ocr: ocrResult,
       connection_km: connectionKm,
       file_name: req.file.originalname,
       kmz: `/api/kmz-generator/download/${kmzFile}`,
@@ -118,6 +157,69 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
   } catch (e) {
     next(e);
   }
+});
+
+// Düzeltilmiş satırlardan KMZ üret + projeye aktar
+router.post('/from-rows', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const projectId = Number(req.body?.project_id);
+    if (!Number.isInteger(projectId) || projectId <= 0) {
+      return res.status(400).json({ error: 'Geçerli bir proje seçin.' });
+    }
+    const p = await pool.query('SELECT 1 FROM projects WHERE id = $1', [projectId]);
+    if (p.rowCount === 0) return res.status(404).json({ error: 'Proje bulunamadı.' });
+
+    const raw = Array.isArray(req.body?.poles) ? req.body.poles : [];
+    const poles: PolePoint[] = [];
+    for (const r of raw) {
+      const lat = Number(r?.lat);
+      const lon = Number(r?.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      if (lat < 36 || lat > 42 || lon < 26 || lon > 45) {
+        return res.status(400).json({ error: `Geçersiz koordinat: ${r?.name || ''} (${lat}, ${lon})` });
+      }
+      poles.push({ name: String(r?.name || '').trim(), lat, lon, alt: null });
+    }
+    if (poles.length < 2) {
+      return res.status(400).json({ error: 'En az 2 geçerli direk satırı gerekli.' });
+    }
+
+    const docName = String(req.body?.doc_name || 'belge');
+    const kmzBuf = buildKmz(poles, docName);
+    const kmzFile = `generated-${Date.now()}.kmz`;
+    fs.writeFileSync(path.join(UPLOADS_DIR, kmzFile), kmzBuf);
+
+    const coords: [number, number][] = poles.map((x) => [x.lat, x.lon]);
+    const connectionKm = routeLengthKm(coords);
+    const result = await importPolesForProject(projectId, poles, coords, `${docName} (düzeltilmiş)`, poles.length, connectionKm);
+    try {
+      fs.writeFileSync(path.join(UPLOADS_DIR, `latest-p${projectId}.kmz`), kmzBuf);
+    } catch { /* kritik değil */ }
+
+    res.json({
+      saved: result.saved,
+      count: poles.length,
+      connection_km: connectionKm,
+      kmz: `/api/kmz-generator/download/${kmzFile}`,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Düzeltilmiş satırları Excel (.xlsx) olarak indir
+router.post('/export-rows', async (req: Request, res: Response) => {
+  const raw = Array.isArray(req.body?.poles) ? req.body.poles : [];
+  const rows: (string | number)[][] = [['Sıra', 'Direk', 'Enlem', 'Boylam']];
+  raw.forEach((r: any, i: number) => {
+    rows.push([i + 1, String(r?.name || ''), Number(r?.lat) || 0, Number(r?.lon) || 0]);
+  });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Direkler');
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent('direkler-duzeltilmis.xlsx')}`);
+  res.send(buf);
 });
 
 // Üretilen KMZ'yi indir

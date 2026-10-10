@@ -12,6 +12,7 @@ import SupplierQuotes from './pages/SupplierQuotes';
 import QuoteUpload from './pages/QuoteUpload';
 import ProgressPayments from './pages/ProgressPayments';
 import DailyReports from './pages/DailyReports';
+import DocumentKmz from './pages/DocumentKmz';
 
 function Sidebar() {
   const { user, logout } = useAuth();
@@ -54,6 +55,9 @@ function Sidebar() {
             </NavLink>
             <NavLink to="/gunluk-raporlar" className={({ isActive }) => (isActive ? 'active' : '')}>
               <span className="nav-ico">📝</span> Günlük Raporlar
+            </NavLink>
+            <NavLink to="/belge-kmz" className={({ isActive }) => (isActive ? 'active' : '')}>
+              <span className="nav-ico">📄</span> Belge → KMZ
             </NavLink>
 
             <div className="nav-group">YÖNETİM</div>
@@ -126,6 +130,7 @@ function Shell() {
               <Route path="/guzergah" element={<Navigate to="/is-takibi" replace />} />
               <Route path="/hakedisler" element={<ProgressPayments />} />
               <Route path="/gunluk-raporlar" element={<DailyReports />} />
+              <Route path="/belge-kmz" element={<DocumentKmz />} />
               <Route path="/kullanicilar" element={<Users />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </>
