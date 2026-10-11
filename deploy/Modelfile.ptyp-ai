@@ -1,0 +1,13 @@
+FROM /home/turguz/models/Qwen3.5-4B-UD-Q4_K_XL.gguf
+FROM /home/turguz/models/mmproj-F16.gguf
+
+PARAMETER num_ctx 4096
+PARAMETER num_predict 48
+PARAMETER temperature 0.1
+
+TEMPLATE """{{ if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{ if .Prompt }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+{{ end }}<|im_start|>assistant
+"""

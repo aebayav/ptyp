@@ -9,6 +9,7 @@ import base64
 import io
 import os
 import logging
+import re
 import time
 
 import cv2
@@ -152,20 +153,40 @@ async def ollama_read_cell(crop_rgb: np.ndarray) -> str | None:
     b64 = base64.b64encode(buf.getvalue()).decode()
 
     prompt = (
-        "Bu görüntüde bir tablo hücresi var. İçindeki metni veya sayıyı yaz. "
-        "Sadece değeri döndür, başka açıklama ekleme."
+        "Görüntüdeki tablo hücresinin değerini oku. "
+        "Yanıt olarak YALNIZCA değeri yaz (örnek: 39.801234). "
+        "Tek kelime, tek sayı, başka hiçbir şey ekleme."
     )
     for attempt in range(OLLAMA_ATTEMPTS):
         try:
             async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
                 r = await client.post(
                     f"{OLLAMA_URL}/api/generate",
-                    json={"model": VISION_MODEL, "prompt": prompt, "images": [b64], "stream": False},
+                    json={
+                        "model": VISION_MODEL,
+                        "prompt": prompt,
+                        "images": [b64],
+                        "stream": False,
+                        "think": False,  # muhakeme modelinin düşünce zincirini kapat
+                    },
                 )
             if r.status_code == 200:
                 text = r.json().get("response", "").strip()
-                text = text.splitlines()[0].strip() if text else ""
-                return text[:80] or None
+                # Değer deseni: koordinat ya da kısa tek token (D-14, 55, TM-3...)
+                m = re.search(r"\d{1,2}[.,]\d{3,}", text)
+                if m:
+                    return m.group(0)
+                m = re.search(r"(?:^|\s)([A-Za-z]{0,3}[- ]?\d{1,4}(?:[.,]\d+)?)(?:\s|$)", text)
+                if m and "column" not in text.lower() and "text" not in text.lower():
+                    return m.group(1)
+                # Aday satır: kısa, boşluksuz, değer benzeri
+                for line in text.splitlines():
+                    line = line.strip()
+                    if not line or len(line) > 25:
+                        continue
+                    if re.fullmatch(r"[A-Za-z0-9.,:\-]+", line) and any(ch.isdigit() for ch in line):
+                        return line
+                return None  # güvenilir değer yok → OCR sonucunu koru
             if r.status_code == 404:  # model yok → boşuna tekrar deneme
                 return None
         except Exception:
