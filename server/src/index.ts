@@ -45,10 +45,20 @@ app.use('/api', overviewRouter);
 // ---------- İstemci (build edilmiş SPA) ----------
 const dist = path.join(__dirname, '..', '..', 'client', 'dist');
 if (fs.existsSync(dist)) {
-  app.use(express.static(dist));
+  // index.html önbelleğe alınmasın (yeni bundle'lar anında görünsün);
+  // hash'li asset'ler uzun ömürlü cache'lenebilir
+  app.use(
+    express.static(dist, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache');
+        else res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      },
+    })
+  );
   // SPA fallback: API dışı GET isteklerinde index.html döndür
   app.use((req, res, next) => {
     if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+    res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(path.join(dist, 'index.html'));
   });
 }

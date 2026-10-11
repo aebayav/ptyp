@@ -125,21 +125,25 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       source = 'tiff-ocr';
     }
 
-    // WGS84 koordinat bulunamadıysa UTM zone ile dene (35-38)
+    // WGS84 koordinat bulunamadıysa UTM zone ile dene
+    // utm_zone: 35-38 açık seçim; 0/boş = otomatik (WGS84 bulunamazsa UTM 37 dene)
     let utmZoneUsed: number | null = null;
-    if (poles.length === 0 && utmZone >= 35 && utmZone <= 38 && textLines) {
-      const utm = parseUtmLines(textLines);
-      const converted: PolePoint[] = [];
-      for (const u of utm) {
-        const { lat, lon } = utmToWgs84(u.easting, u.northing, utmZone);
-        if (lat >= 36 && lat <= 42 && lon >= 26 && lon <= 45) {
-          converted.push({ name: u.name, lat, lon, alt: null });
+    const zonesToTry = utmZone >= 35 && utmZone <= 38 ? [utmZone] : [37, 36, 35, 38];
+    if (poles.length === 0 && textLines) {
+      for (const z of zonesToTry) {
+        const converted: PolePoint[] = [];
+        for (const u of parseUtmLines(textLines)) {
+          const { lat, lon } = utmToWgs84(u.easting, u.northing, z);
+          if (lat >= 36 && lat <= 42 && lon >= 26 && lon <= 45) {
+            converted.push({ name: u.name, lat, lon, alt: null });
+          }
         }
-      }
-      if (converted.length > 0) {
-        poles = converted;
-        utmZoneUsed = utmZone;
-        console.log(`[KMZ-ÜRET] ${req.file.originalname}: UTM zone ${utmZone} ile ${converted.length} direk çevrildi`);
+        if (converted.length > 0) {
+          poles = converted;
+          utmZoneUsed = z;
+          console.log(`[KMZ-ÜRET] ${req.file.originalname}: UTM zone ${z} ile ${converted.length} direk çevrildi`);
+          break;
+        }
       }
     }
 

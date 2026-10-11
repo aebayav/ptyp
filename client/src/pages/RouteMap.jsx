@@ -129,6 +129,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
   const [genFile, setGenFile] = useState(null);
   const [uploadMsg, setUploadMsg] = useState(null);
   const [genResult, setGenResult] = useState(null);
+  const [utmZone, setUtmZone] = useState('0'); // 0 = otomatik
 
   async function load() {
     if (projectId == null) {
@@ -194,6 +195,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
     const fd = new FormData();
     fd.append('project_id', projectId);
     fd.append('file', genFile);
+    fd.append('utm_zone', utmZone);
     try {
       const res = await fetch('/api/kmz-generator/parse', {
         method: 'POST',
@@ -207,6 +209,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
         type: 'ok',
         text:
           `${d.count} direk bulundu, KMZ üretildi` +
+          (d.utm_zone_used ? ` · UTM zone ${d.utm_zone_used} ile çevrildi` : '') +
           (d.connection_km != null ? ` · hat ${d.connection_km} km` : '') +
           (d.saved > 0 ? ` · projeye aktarıldı (${d.saved})` : ''),
       });
@@ -321,9 +324,24 @@ export default function RouteMap({ embedded = false, projectId = null }) {
             </span>
           </label>
           {genMode ? (
-            <button className="btn btn-accent" onClick={uploadGen} disabled={busy || !genFile}>
-              {busy ? 'Dönüştürülüyor…' : '⚙️ KMZ Üret ve Aktar'}
-            </button>
+            <>
+              <select
+                value={utmZone}
+                onChange={(e) => setUtmZone(e.target.value)}
+                title="Koordinat sistemi — otomatikte WGS84 bulunamazsa UTM denenir"
+                style={{ padding: '9px 10px', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--bg)' }}
+              >
+                <option value="0">Koordinat: Otomatik</option>
+                <option value="0">— WGS84 (Enlem/Boylam)</option>
+                <option value="35">UTM Zone 35</option>
+                <option value="36">UTM Zone 36</option>
+                <option value="37">UTM Zone 37</option>
+                <option value="38">UTM Zone 38</option>
+              </select>
+              <button className="btn btn-accent" onClick={uploadGen} disabled={busy || !genFile}>
+                {busy ? 'Dönüştürülüyor…' : '⚙️ KMZ Üret ve Aktar'}
+              </button>
+            </>
           ) : (
             <button className="btn btn-accent" onClick={upload} disabled={busy || !file}>
               {busy ? 'Analiz ediliyor…' : '⬆️ Yükle ve Analiz Et'}

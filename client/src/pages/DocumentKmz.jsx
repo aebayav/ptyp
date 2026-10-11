@@ -29,7 +29,7 @@ export default function DocumentKmz() {
   const [result, setResult] = useState(null);
   const [rows, setRows] = useState([]);
   const [preview, setPreview] = useState(null);
-  const [utmZone, setUtmZone] = useState('37');
+  const [utmZone, setUtmZone] = useState('0'); // 0 = otomatik (WGS84 → UTM)
 
   useEffect(() => {
     api.get('/api/projects')
@@ -149,8 +149,8 @@ export default function DocumentKmz() {
           ))}
         </select>
         <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>KOORDİNAT:</span>
-        <select value={utmZone} onChange={(e) => setUtmZone(e.target.value)} title="WGS84 bulunamazsa UTM zone ile çevir">
-          <option value="0">WGS84 (Enlem/Boylam)</option>
+        <select value={utmZone} onChange={(e) => setUtmZone(e.target.value)} title="Koordinat sistemi — otomatikte WGS84 bulunamazsa UTM denenir">
+          <option value="0">Otomatik (WGS84 → UTM)</option>
           <option value="35">UTM Zone 35</option>
           <option value="36">UTM Zone 36</option>
           <option value="37">UTM Zone 37 (Doğu/GD)</option>
