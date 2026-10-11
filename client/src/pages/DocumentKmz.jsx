@@ -138,7 +138,7 @@ export default function DocumentKmz() {
     <div>
       <div className="page-head">
         <div>
-          <h1>Belge KMZ</h1>
+          <h1>Belge → KMZ</h1>
           <p className="sub">PDF (metin veya taranmış), TIFF ve Excel'den direk koordinatlarını okuyup KMZ üretin</p>
         </div>
       </div>
