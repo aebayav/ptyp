@@ -83,9 +83,12 @@ function addMsg(text, cls, imgSrc) {
     im.src = imgSrc;
     d.appendChild(im);
   }
-  d.appendChild(document.createTextNode(text));
+  const t = document.createElement('span');
+  t.textContent = text;
+  d.appendChild(t);
   log.appendChild(d);
   log.scrollTop = log.scrollHeight;
+  return t; // metin span'ı — akış sırasında ekleme yapılır
 }
 
 function addThinking() {
@@ -124,11 +127,43 @@ async function doSend() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, image: imageB64, history }),
     });
-    const d = await res.json();
-    if (!res.ok) throw new Error(d.error || ('HTTP ' + res.status));
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      throw new Error(d.error || ('HTTP ' + res.status));
+    }
     think.remove();
-    addMsg(d.response, 'ai');
-    history.push({ user: prompt || '[görsel]', assistant: d.response });
+    const t = addMsg('', 'ai');
+    // SSE akışı: "data: {...}\n\n" karelerini oku, token'ları ekle
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    let streamDone = false;
+    while (!streamDone) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, i);
+        buf = buf.slice(i + 2);
+        for (const line of frame.split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          let p;
+          try { p = JSON.parse(line.slice(6)); } catch { continue; }
+          if (p.error) {
+            t.textContent = p.error;
+            t.parentElement.className = 'msg err';
+            streamDone = true;
+          } else if (p.done) {
+            streamDone = true;
+          } else if (p.t) {
+            t.textContent += p.t;
+            log.scrollTop = log.scrollHeight;
+          }
+        }
+      }
+    }
+    history.push({ user: prompt || '[görsel]', assistant: t.textContent });
     if (history.length > 8) history.shift();
   } catch (e) {
     think.remove();
