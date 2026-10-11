@@ -58,3 +58,26 @@ export function StatusBadge({ meta }) {
   if (!meta) return null;
   return <span className={`badge ${meta.cls}`}>{meta.label}</span>;
 }
+
+// Test/şeffaflık: belgenin hangi yöntemle okunduğunu açıklar
+export function okumaBilgisi(d) {
+  if (!d) return '';
+  const yontem = {
+    excel: '📊 Excel dosyası (hücre okuma)',
+    'pdf-text': '📄 PDF metin katmanı',
+    'pdf-ocr': '📄 PDF taranmış → OCR (RapidOCR)',
+    'tiff-ocr': '🖼️ TIFF → OCR (RapidOCR)',
+  }[d.source] || `Kaynak: ${d.source}`;
+  let s = yontem;
+  if (d.utm_zone_used) s += ` · Koordinat: UTM zone ${d.utm_zone_used} → WGS84 dönüşümü`;
+  const pages = d.ocr?.pages || [];
+  if (pages.length) {
+    const cells = pages.flatMap((p) => p.rows.flat());
+    const ai = cells.filter((c) => c.fallback === 'ollama').length;
+    s += ` · ${pages.length} sayfa, ${cells.length} hücre`;
+    if (ai > 0) s += ` · 🤖 AI (ptyp-ai) ${ai} hücre düzeltti`;
+  }
+  const unc = d.ocr?.uncertain?.length || 0;
+  if (unc > 0) s += ` · ⚠️ ${unc} satır düşük güven`;
+  return s;
+}

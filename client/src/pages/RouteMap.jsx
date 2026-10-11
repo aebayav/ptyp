@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, apiDownload, getToken } from '../api';
-import { fmtDate } from '../utils';
+import { fmtDate, okumaBilgisi } from '../utils';
 
 let leafletLoaded = false;
 
@@ -209,9 +209,9 @@ export default function RouteMap({ embedded = false, projectId = null }) {
         type: 'ok',
         text:
           `${d.count} direk bulundu, KMZ üretildi` +
-          (d.utm_zone_used ? ` · UTM zone ${d.utm_zone_used} ile çevrildi` : '') +
           (d.connection_km != null ? ` · hat ${d.connection_km} km` : '') +
           (d.saved > 0 ? ` · projeye aktarıldı (${d.saved})` : ''),
+        info: okumaBilgisi(d),
       });
       setGenFile(null);
       await load();
@@ -350,16 +350,19 @@ export default function RouteMap({ embedded = false, projectId = null }) {
         </div>
         {uploadMsg && (
           <div className={uploadMsg.type === 'ok' ? 'notice-banner' : 'form-error'} style={{ marginTop: 10, marginBottom: 0 }}>
-            {uploadMsg.text}
-            {genResult && uploadMsg.type === 'ok' && (
-              <button
-                className="btn btn-sm"
-                style={{ marginLeft: 10 }}
-                onClick={() => apiDownload(genResult.kmz, (genResult.file_name || 'guzergah').replace(/\.(xlsx|xls|pdf)$/i, '') + '.kmz')}
-              >
-                ⬇️ KMZ'yi İndir
-              </button>
-            )}
+            <div>
+              {uploadMsg.text}
+              {genResult && uploadMsg.type === 'ok' && (
+                <button
+                  className="btn btn-sm"
+                  style={{ marginLeft: 10 }}
+                  onClick={() => apiDownload(genResult.kmz, (genResult.file_name || 'guzergah').replace(/\.(xlsx|xls|pdf)$/i, '') + '.kmz')}
+                >
+                  ⬇️ KMZ'yi İndir
+                </button>
+              )}
+            </div>
+            {uploadMsg.info && <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>🔍 {uploadMsg.info}</div>}
           </div>
         )}
         {data?.file_name && (

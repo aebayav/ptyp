@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, apiDownload, getToken } from '../api';
+import { okumaBilgisi } from '../utils';
 
 // POST ile dosya indirme (Bearer token ile blob)
 async function postDownload(path, body, filename) {
@@ -66,10 +67,10 @@ export default function DocumentKmz() {
       setMsg({
         type: 'ok',
         text:
-          `${d.count} direk bulundu (${d.source === 'excel' ? 'Excel' : d.source === 'pdf-text' ? 'PDF metin' : 'OCR'})` +
-          (d.utm_zone_used ? ` · UTM zone ${d.utm_zone_used} ile çevrildi` : '') +
+          `${d.count} direk bulundu` +
           (uncertainCount > 0 ? ` · ⚠️ ${uncertainCount} satır düşük güvenle okundu — aşağıdan kontrol edin` : '') +
           (d.saved > 0 ? ` · projeye ön aktarım yapıldı (${d.saved})` : ''),
+        info: okumaBilgisi(d),
       });
     } catch (e) {
       setMsg({ type: 'err', text: e.message });
@@ -186,7 +187,8 @@ export default function DocumentKmz() {
         </div>
         {msg && (
           <div className={msg.type === 'ok' ? 'notice-banner' : 'form-error'} style={{ marginTop: 10, marginBottom: 0 }}>
-            {msg.text}
+            <div>{msg.text}</div>
+            {msg.info && <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>🔍 {msg.info}</div>}
           </div>
         )}
       </div>
