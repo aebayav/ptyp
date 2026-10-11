@@ -266,6 +266,11 @@ export async function initSchema(): Promise<void> {
     await pool.query(`ALTER TABLE projects ADD COLUMN start_date TEXT NOT NULL DEFAULT ''`);
     await pool.query(`ALTER TABLE projects ADD COLUMN end_date TEXT NOT NULL DEFAULT ''`);
   }
+  // Referans hizalama (yerel şantiye gridi ofseti, derece cinsinden)
+  if (!projCols.rows.some((r: any) => r.column_name === 'grid_dlat')) {
+    await pool.query(`ALTER TABLE projects ADD COLUMN grid_dlat DOUBLE PRECISION NOT NULL DEFAULT 0`);
+    await pool.query(`ALTER TABLE projects ADD COLUMN grid_dlon DOUBLE PRECISION NOT NULL DEFAULT 0`);
+  }
 }
 
 // İlk açılışta hiç kullanıcı yoksa yönetici hesabı oluştur

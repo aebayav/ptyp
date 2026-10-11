@@ -9,6 +9,7 @@ import { requireAuth, requireRole } from '../auth';
 import { parseExcelCoordinates, parsePdfText, parseTm3Lines, tm3ToWgs84 } from '../coord-parser';
 import { detectRegion } from '../turkiye-regions';
 import { detectDocumentKind, analyzePdf, isTiff } from '../document-reader';
+import { parseKmz } from '../kmz-parser';
 import { callOcr, OcrCell } from '../ocr-client';
 import { buildKmz } from '../kmz-builder';
 import { routeLengthKm } from '../kmz-parser';
@@ -156,6 +157,21 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       }
     }
 
+    // Proje referans hizalaması (yerel şantiye gridi ofseti, derece cinsinden)
+    let gridApplied: { dlat: number; dlon: number } | null = null;
+    if (projectId != null && poles.length > 0) {
+      const g = await pool.query('SELECT grid_dlat, grid_dlon FROM projects WHERE id = $1', [projectId]);
+      const dlat = Number(g.rows[0]?.grid_dlat || 0);
+      const dlon = Number(g.rows[0]?.grid_dlon || 0);
+      if (dlat !== 0 || dlon !== 0) {
+        poles = poles.map((p) => ({ ...p, lat: p.lat + dlat, lon: p.lon + dlon }));
+        gridApplied = { dlat, dlon };
+        console.log(
+          `[KMZ-ÜRET] proje grid ofseti uygulandı: +${Math.round(dlat * 110900)}m K, +${Math.round(dlon * 87300)}m D`
+        );
+      }
+    }
+
     if (poles.length === 0) {
       console.log(`[KMZ-ÜRET] ${req.file.originalname} → ${source}: koordinat bulunamadı`);
       return res.status(400).json({
@@ -196,9 +212,86 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       source,
       ocr: ocrResult,
       tm3_cm_used: tm3CmUsed,
+      grid_applied: gridApplied,
       connection_km: connectionKm,
       file_name: req.file.originalname,
       kmz: `/api/kmz-generator/download/${kmzFile}`,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Referans KMZ ile proje güzergahını hizala (yerel şantiye gridi ofsetini öğren ve uygula)
+router.post('/calibrate', upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Referans KMZ yüklenmedi.' });
+    const projectId = Number(req.body?.project_id);
+    if (!Number.isInteger(projectId) || projectId <= 0) {
+      return res.status(400).json({ error: 'Geçerli bir proje seçin.' });
+    }
+    const p = await pool.query('SELECT 1 FROM projects WHERE id = $1', [projectId]);
+    if (p.rowCount === 0) return res.status(404).json({ error: 'Proje bulunamadı.' });
+
+    // Referans noktaları (direkler + rota köşeleri)
+    const ref = parseKmz(req.file.buffer);
+    const refPts: { lat: number; lon: number }[] = [];
+    for (const pole of ref.poles) refPts.push({ lat: pole.lat, lon: pole.lon });
+    if (ref.route) for (const [lat, lon] of ref.route) refPts.push({ lat, lon });
+    if (refPts.length < 2) return res.status(400).json({ error: 'Referans KMZ içinde koordinat bulunamadı.' });
+
+    // Projenin mevcut (dönüştürülmüş) direkleri
+    const cur = await pool.query('SELECT lat, lon FROM poles WHERE project_id = $1', [projectId]);
+    if ((cur.rowCount ?? 0) < 2) {
+      return res.status(400).json({ error: 'Projede en az 2 direk olmalı — önce belgeden güzergah üretin.' });
+    }
+
+    // Her referans noktasına en yakın direk → ofset örnekleri (medyan aykırı değerleri dışlar)
+    const dlatArr: number[] = [];
+    const dlonArr: number[] = [];
+    for (const r of refPts) {
+      let bestDist = 1e9;
+      let best: { lat: number; lon: number } | null = null;
+      for (const c of cur.rows) {
+        const d = Math.hypot(r.lat - c.lat, r.lon - c.lon);
+        if (d < bestDist) {
+          bestDist = d;
+          best = c;
+        }
+      }
+      if (best && bestDist < 0.05) {
+        // 0.05° ≈ 5.5 km eşik — uzak eşleşmeleri at
+        dlatArr.push(r.lat - best.lat);
+        dlonArr.push(r.lon - best.lon);
+      }
+    }
+    if (dlatArr.length < 2) {
+      return res.status(400).json({ error: 'Referans ile mevcut güzergah eşleşmedi (mesafe çok büyük).' });
+    }
+    const median = (a: number[]) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
+    const dlat = median(dlatArr);
+    const dlon = median(dlonArr);
+
+    await pool.query('UPDATE projects SET grid_dlat = $2, grid_dlon = $3 WHERE id = $1', [projectId, dlat, dlon]);
+    await pool.query('UPDATE poles SET lat = lat + $2, lon = lon + $3 WHERE project_id = $1', [projectId, dlat, dlon]);
+    const pr = await pool.query('SELECT route FROM projects WHERE id = $1', [projectId]);
+    if (pr.rows[0]?.route) {
+      const route = (pr.rows[0].route as [number, number][][]).map((seg) =>
+        seg.map(([la, lo]) => [la + dlat, lo + dlon])
+      );
+      await pool.query('UPDATE projects SET route = $2 WHERE id = $1', [projectId, JSON.stringify(route)]);
+    }
+
+    console.log(
+      `[KMZ-ÜRET] kalibrasyon: proje ${projectId} → +${Math.round(dlat * 110900)}m K, +${Math.round(dlon * 87300)}m D (${dlatArr.length}/${refPts.length} eşleşme)`
+    );
+    res.json({
+      dlat,
+      dlon,
+      northM: Math.round(dlat * 110900),
+      eastM: Math.round(dlon * 87300),
+      matched: dlatArr.length,
+      applied: cur.rowCount ?? 0,
     });
   } catch (e) {
     next(e);

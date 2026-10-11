@@ -130,6 +130,36 @@ export default function RouteMap({ embedded = false, projectId = null }) {
   const [uploadMsg, setUploadMsg] = useState(null);
   const [genResult, setGenResult] = useState(null);
   const [utmZone, setUtmZone] = useState('42'); // ITRF-96 3°TM CM 42 (standart)
+  const [refFile, setRefFile] = useState(null);
+  const [calibBusy, setCalibBusy] = useState(false);
+
+  // Referans KMZ ile hizalama: yerel şantiye gridi ofsetini öğren ve uygula
+  async function calibrate() {
+    if (!refFile || projectId == null) return;
+    setCalibBusy(true);
+    const fd = new FormData();
+    fd.append('project_id', projectId);
+    fd.append('file', refFile);
+    try {
+      const res = await fetch('/api/kmz-generator/calibrate', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + getToken() },
+        body: fd,
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || 'Kalibrasyon başarısız.');
+      setUploadMsg({
+        type: 'ok',
+        text: `Hizalama tamam: +${d.northM} m kuzey, +${d.eastM} m doğu — ${d.matched} eşleşme, ${d.applied} direk kaydırıldı. Yeni belge dönüşümlerinde bu ofset otomatik uygulanır.`,
+      });
+      setRefFile(null);
+      await load();
+    } catch (e) {
+      setUploadMsg({ type: 'err', text: e.message });
+    } finally {
+      setCalibBusy(false);
+    }
+  }
 
   async function load() {
     if (projectId == null) {
@@ -288,7 +318,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
         </div>
       )}
       <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <button
             className={genMode ? 'tab-chip' : 'tab-chip on'}
             onClick={() => { setGenMode(false); setUploadMsg(null); }}
@@ -300,6 +330,22 @@ export default function RouteMap({ embedded = false, projectId = null }) {
             onClick={() => { setGenMode(true); setUploadMsg(null); setGenResult(null); }}
           >
             Excel / PDF → KMZ Üret
+          </button>
+          <span style={{ flex: 1 }} />
+          <label
+            className="file-drop"
+            title="Orijinal güzergah KMZ'sini yükleyip yerel grid ofsetini otomatik hesaplar"
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', border: '1.5px dashed var(--border)', borderRadius: 8, cursor: 'pointer', fontSize: 12.5 }}
+          >
+            <input
+              type="file"
+              accept=".kmz,.kml"
+              onChange={(e) => { setRefFile(e.target.files?.[0] || null); setUploadMsg(null); }}
+            />
+            {refFile ? refFile.name : 'Referans KMZ (hizalama)'}
+          </label>
+          <button className="btn btn-sm" onClick={calibrate} disabled={calibBusy || !refFile || projectId == null}>
+            {calibBusy ? 'Hizalanıyor…' : 'Hizala'}
           </button>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
