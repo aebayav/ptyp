@@ -16,7 +16,7 @@ import cv2
 import httpx
 import numpy as np
 from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse, StreamingResponse
 from pydantic import BaseModel
 from PIL import Image
 
@@ -232,18 +232,42 @@ async def chat(req: ChatMsg):
     if req.image:
         msg["images"] = [req.image]
     messages.append(msg)
-    try:
-        async with httpx.AsyncClient(timeout=300) as client:
-            r = await client.post(
-                f"{OLLAMA_URL}/api/chat",
-                json={"model": VISION_MODEL, "messages": messages, "stream": False, "think": False},
-            )
-        if r.status_code != 200:
-            return JSONResponse(status_code=r.status_code, content={"error": f"Ollama: HTTP {r.status_code}"})
-        content = (r.json().get("message") or {}).get("content", "")
-        return {"response": content, "model": VISION_MODEL}
-    except Exception as e:
-        return JSONResponse(status_code=503, content={"error": f"Ollama'ya ulaşılamadı: {e}"})
+
+    async def gen():
+        import json as _json
+
+        try:
+            async with httpx.AsyncClient(timeout=None) as client:
+                async with client.stream(
+                    "POST",
+                    f"{OLLAMA_URL}/api/chat",
+                    json={
+                        "model": VISION_MODEL,
+                        "messages": messages,
+                        "stream": True,
+                        "think": False,
+                        "options": {"num_predict": 300},
+                    },
+                ) as r:
+                    if r.status_code != 200:
+                        yield f"data: {_json.dumps({'error': f'Ollama: HTTP {r.status_code}'})}\n\n"
+                        return
+                    async for line in r.aiter_lines():
+                        if not line.strip():
+                            continue
+                        try:
+                            chunk = _json.loads(line)
+                        except Exception:
+                            continue
+                        piece = (chunk.get("message") or {}).get("content", "")
+                        if piece:
+                            yield f"data: {_json.dumps({'t': piece})}\n\n"
+                        if chunk.get("done"):
+                            yield f"data: {_json.dumps({'done': True})}\n\n"
+        except Exception as e:
+            yield f"data: {_json.dumps({'error': f'Ollama akışı kesildi: {e}'})}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @app.post("/ocr/document")
