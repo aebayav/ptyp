@@ -1,0 +1,11 @@
+FROM /home/turguz/models/GLM-OCR-f16.gguf
+FROM /home/turguz/models/mmproj-GLM-OCR-Q8_0.gguf
+
+PARAMETER num_ctx 4096
+PARAMETER num_predict 256
+PARAMETER temperature 0.1
+
+TEMPLATE """[gMASK]<sop>{{ if .System }}<|system|>
+{{ .System }}{{ end }}<|user|>
+{{ .Prompt }}<|assistant|>
+"""
