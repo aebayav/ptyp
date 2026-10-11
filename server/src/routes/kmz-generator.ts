@@ -129,9 +129,10 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
 
     // WGS84 koordinat bulunamadıysa UTM zone ile dene
     // utm_zone: 35-38 açık seçim; 0/boş = otomatik (WGS84 bulunamazsa UTM 37 dene)
+    // Not: tm3_cm açıkça seçildiyse UTM denenmez (kullanıcı TM3 istedi)
     let utmZoneUsed: number | null = null;
     const zonesToTry = utmZone >= 35 && utmZone <= 38 ? [utmZone] : [37, 36, 35, 38];
-    if (poles.length === 0 && textLines) {
+    if (poles.length === 0 && textLines && tm3Cm === 0) {
       for (const z of zonesToTry) {
         const converted: PolePoint[] = [];
         for (const u of parseUtmLines(textLines)) {
