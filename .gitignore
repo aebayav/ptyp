@@ -6,3 +6,4 @@ server/.env
 *.log
 .DS_Store
 .hermes/
+__pycache__/
