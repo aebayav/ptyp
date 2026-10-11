@@ -259,8 +259,8 @@ router.post('/calibrate', upload.single('file'), async (req: Request, res: Respo
           best = c;
         }
       }
-      if (best && bestDist < 0.05) {
-        // 0.05° ≈ 5.5 km eşik — uzak eşleşmeleri at
+      if (best && bestDist < 0.2) {
+        // 0.2° ≈ 22 km eşik — yerel grid ofsetleri 10+ km olabilir; yalnızca alakasız eşleşmeleri at
         dlatArr.push(r.lat - best.lat);
         dlonArr.push(r.lon - best.lon);
       }
