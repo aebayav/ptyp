@@ -30,7 +30,7 @@ export default function DocumentKmz() {
   const [result, setResult] = useState(null);
   const [rows, setRows] = useState([]);
   const [preview, setPreview] = useState(null);
-  const [utmZone, setUtmZone] = useState('0'); // 0 = otomatik (WGS84 UTM)
+  const [utmZone, setUtmZone] = useState('42'); // ITRF-96 3°TM CM 42 (standart)
 
   useEffect(() => {
     api.get('/api/projects')

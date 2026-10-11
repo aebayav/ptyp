@@ -129,7 +129,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
   const [genFile, setGenFile] = useState(null);
   const [uploadMsg, setUploadMsg] = useState(null);
   const [genResult, setGenResult] = useState(null);
-  const [utmZone, setUtmZone] = useState('0'); // 0 = otomatik
+  const [utmZone, setUtmZone] = useState('42'); // ITRF-96 3°TM CM 42 (standart)
 
   async function load() {
     if (projectId == null) {
