@@ -1,0 +1,20 @@
+[Unit]
+Description=Ollama Service (PTYP yapılandırması)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/ollama serve
+User=ollama
+Group=ollama
+Restart=always
+RestartSec=3
+# PTYP ayarları: mmap kapalı (tam RAM), tam CPU offload,
+# KV cache kuantizasyonsuz (f16), flash attention açık, model sıcak kalsın
+Environment=OLLAMA_MMAP=0
+Environment=OLLAMA_NUM_GPU=0
+Environment=OLLAMA_KV_CACHE_TYPE=f16
+Environment=OLLAMA_FLASH_ATTENTION=1
+Environment=OLLAMA_KEEP_ALIVE=-1
+
+[Install]
+WantedBy=default.target
