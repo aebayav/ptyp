@@ -6,7 +6,7 @@ import fs from 'fs';
 import * as XLSX from 'xlsx';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
-import { parseExcelCoordinates, parsePdfText } from '../coord-parser';
+import { parseExcelCoordinates, parsePdfText, parseUtmLines, utmToWgs84 } from '../coord-parser';
 import { detectDocumentKind, analyzePdf, isTiff } from '../document-reader';
 import { callOcr, OcrCell } from '../ocr-client';
 import { buildKmz } from '../kmz-builder';
@@ -30,8 +30,9 @@ const upload = multer({
 function polesFromOcr(ocr: { pages: { rows: OcrCell[][] }[] }): {
   poles: PolePoint[];
   uncertain: { row: number; text: string }[];
+  lines: string;
 } {
-  const lines: string[] = [];
+  const linesArr: string[] = [];
   const uncertain: { row: number; text: string }[] = [];
   let rowNo = 0;
   for (const page of ocr.pages) {
@@ -39,13 +40,14 @@ function polesFromOcr(ocr: { pages: { rows: OcrCell[][] }[] }): {
       rowNo++;
       const text = row.map((c) => c.text).join(' ').trim();
       if (!text) continue;
-      lines.push(text);
+      linesArr.push(text);
       const low = row.filter((c) => c.conf != null && c.conf < 0.55 && !c.fallback);
       if (low.length > 0) uncertain.push({ row: rowNo, text });
     }
   }
-  const poles = parsePdfText(lines.join('\n')).poles;
-  return { poles, uncertain };
+  const lines = linesArr.join('\n');
+  const poles = parsePdfText(lines).poles;
+  return { poles, uncertain, lines };
 }
 
 // Excel/PDF/TIFF → parse → KMZ üret → (isteğe bağlı) projeye aktar
@@ -70,10 +72,13 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
 
     let poles;
     let source: string = kind;
+    let textLines: string | null = null;
     let ocrResult: {
       pages: { page: number; preview: string; rows: OcrCell[][] }[];
       uncertain: { row: number; text: string }[];
     } | null = null;
+    // UTM zone: 0 = yalnız WGS84; 35-38 = WGS84 yoksa UTM ile dene
+    const utmZone = Number(req.body?.utm_zone || 0);
 
     if (kind === 'excel') {
       try {
@@ -93,8 +98,9 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
         // Taranmış PDF → OCR servisi
         try {
           const ocr = await callOcr(req.file.buffer, req.file.originalname);
-          const { poles: p, uncertain } = polesFromOcr(ocr);
+          const { poles: p, uncertain, lines } = polesFromOcr(ocr);
           poles = p;
+          textLines = lines;
           ocrResult = { pages: ocr.pages.map((pg) => ({ page: pg.page, preview: pg.preview, rows: pg.rows })), uncertain };
         } catch (e: any) {
           return res.status(503).json({ error: 'Taranmış PDF için OCR servisi kullanılamıyor: ' + e.message });
@@ -102,19 +108,39 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
         source = 'pdf-ocr';
       } else {
         source = 'pdf-text';
+        textLines = analysis.text;
         poles = parsePdfText(analysis.text).poles;
       }
     } else {
       // TIFF → OCR servisi
       try {
         const ocr = await callOcr(req.file.buffer, req.file.originalname);
-        const { poles: p, uncertain } = polesFromOcr(ocr);
+        const { poles: p, uncertain, lines } = polesFromOcr(ocr);
         poles = p;
+        textLines = lines;
         ocrResult = { pages: ocr.pages.map((pg) => ({ page: pg.page, preview: pg.preview, rows: pg.rows })), uncertain };
       } catch (e: any) {
         return res.status(503).json({ error: 'TIFF için OCR servisi kullanılamıyor: ' + e.message });
       }
       source = 'tiff-ocr';
+    }
+
+    // WGS84 koordinat bulunamadıysa UTM zone ile dene (35-38)
+    let utmZoneUsed: number | null = null;
+    if (poles.length === 0 && utmZone >= 35 && utmZone <= 38 && textLines) {
+      const utm = parseUtmLines(textLines);
+      const converted: PolePoint[] = [];
+      for (const u of utm) {
+        const { lat, lon } = utmToWgs84(u.easting, u.northing, utmZone);
+        if (lat >= 36 && lat <= 42 && lon >= 26 && lon <= 45) {
+          converted.push({ name: u.name, lat, lon, alt: null });
+        }
+      }
+      if (converted.length > 0) {
+        poles = converted;
+        utmZoneUsed = utmZone;
+        console.log(`[KMZ-ÜRET] ${req.file.originalname}: UTM zone ${utmZone} ile ${converted.length} direk çevrildi`);
+      }
     }
 
     if (poles.length === 0) {
@@ -156,6 +182,7 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       saved,
       source,
       ocr: ocrResult,
+      utm_zone_used: utmZoneUsed,
       connection_km: connectionKm,
       file_name: req.file.originalname,
       kmz: `/api/kmz-generator/download/${kmzFile}`,

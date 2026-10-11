@@ -29,6 +29,7 @@ export default function DocumentKmz() {
   const [result, setResult] = useState(null);
   const [rows, setRows] = useState([]);
   const [preview, setPreview] = useState(null);
+  const [utmZone, setUtmZone] = useState('37');
 
   useEffect(() => {
     api.get('/api/projects')
@@ -49,6 +50,7 @@ export default function DocumentKmz() {
     const fd = new FormData();
     fd.append('project_id', projectId);
     fd.append('file', file);
+    fd.append('utm_zone', utmZone);
     try {
       const res = await fetch('/api/kmz-generator/parse', {
         method: 'POST',
@@ -65,6 +67,7 @@ export default function DocumentKmz() {
         type: 'ok',
         text:
           `${d.count} direk bulundu (${d.source === 'excel' ? 'Excel' : d.source === 'pdf-text' ? 'PDF metin' : 'OCR'})` +
+          (d.utm_zone_used ? ` · UTM zone ${d.utm_zone_used} ile çevrildi` : '') +
           (uncertainCount > 0 ? ` · ⚠️ ${uncertainCount} satır düşük güvenle okundu — aşağıdan kontrol edin` : '') +
           (d.saved > 0 ? ` · projeye ön aktarım yapıldı (${d.saved})` : ''),
       });
@@ -145,6 +148,17 @@ export default function DocumentKmz() {
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
+        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>KOORDİNAT:</span>
+        <select value={utmZone} onChange={(e) => setUtmZone(e.target.value)} title="WGS84 bulunamazsa UTM zone ile çevir">
+          <option value="0">WGS84 (Enlem/Boylam)</option>
+          <option value="35">UTM Zone 35</option>
+          <option value="36">UTM Zone 36</option>
+          <option value="37">UTM Zone 37 (Doğu/GD)</option>
+          <option value="38">UTM Zone 38</option>
+        </select>
+        <span className="muted" style={{ fontSize: 11.5 }}>
+          Belgede UTM (Doğu/Kuzey) koordinatı varsa zone seçin
+        </span>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
