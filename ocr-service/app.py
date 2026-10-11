@@ -16,7 +16,8 @@ import cv2
 import httpx
 import numpy as np
 from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from pydantic import BaseModel
 from PIL import Image
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [OCR] %(message)s", datefmt="%H:%M:%S")
@@ -199,6 +200,50 @@ async def ollama_read_cell(crop_rgb: np.ndarray) -> str | None:
 @app.get("/health")
 def health():
     return {"status": "ok", "ollama": OLLAMA_URL, "vision_model": VISION_MODEL}
+
+
+# ---------- Test chat konsolu (SSH tüneliyle erişilir) ----------
+
+class ChatMsg(BaseModel):
+    prompt: str
+    image: str | None = None  # base64, data: öneki olmadan
+    history: list[dict] | None = None
+
+
+@app.get("/chat", response_class=HTMLResponse)
+def chat_page():
+    chat_html = os.path.join(os.path.dirname(__file__), "chat.html")
+    if os.path.exists(chat_html):
+        return FileResponse(chat_html, media_type="text/html")
+    return HTMLResponse("<h1>chat.html bulunamadı</h1>")
+
+
+@app.post("/chat")
+async def chat(req: ChatMsg):
+    if not req.prompt.strip():
+        return JSONResponse(status_code=400, content={"error": "Boş mesaj."})
+    messages = []
+    for h in (req.history or [])[-6:]:
+        if h.get("user"):
+            messages.append({"role": "user", "content": h["user"]})
+        if h.get("assistant"):
+            messages.append({"role": "assistant", "content": h["assistant"]})
+    msg: dict = {"role": "user", "content": req.prompt}
+    if req.image:
+        msg["images"] = [req.image]
+    messages.append(msg)
+    try:
+        async with httpx.AsyncClient(timeout=300) as client:
+            r = await client.post(
+                f"{OLLAMA_URL}/api/chat",
+                json={"model": VISION_MODEL, "messages": messages, "stream": False, "think": False},
+            )
+        if r.status_code != 200:
+            return JSONResponse(status_code=r.status_code, content={"error": f"Ollama: HTTP {r.status_code}"})
+        content = (r.json().get("message") or {}).get("content", "")
+        return {"response": content, "model": VISION_MODEL}
+    except Exception as e:
+        return JSONResponse(status_code=503, content={"error": f"Ollama'ya ulaşılamadı: {e}"})
 
 
 @app.post("/ocr/document")
