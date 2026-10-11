@@ -46,9 +46,18 @@ function isLon(n: number) {
 
 function cleanName(raw: unknown): string {
   if (raw == null) return '';
-  const s = String(raw).trim();
+  let s = String(raw).trim();
+  if (!s) return '';
   // "55.0" gibi kayan noktalı direk numaralarını "55" yap
-  return s.replace(/^(\d+)\.0+$/, '$1');
+  s = s.replace(/^(\d+)\.0+$/, '$1');
+  // "D-1", "d.1", "D 1", "d_1", "D1" → "D-1"  /  "DP-3", "dp.3" → "DP-3"  /  "P 5" → "P-5"
+  const poleM = s.match(/^(d\s*p|d|p)[\s._\-]*(\d+)$/i);
+  if (poleM) {
+    const prefix = poleM[1].toUpperCase().replace(/\s+/g, '');
+    return `${prefix}-${poleM[2]}`;
+  }
+  // Sadece sayıysa dokunma
+  return s;
 }
 
 interface ColumnMap {
@@ -206,9 +215,10 @@ export function parseUtmLines(text: string): { name: string; easting: number; no
     const north = Number(m[3]) + (m[4] ? Number('0.' + m[4]) : 0);
     if (east < 100000 || east > 900000) continue;
     if (north < 3000000 || north > 6000000) continue; // Türkiye kuzey aralığı
-    const first = line.split(/\s+/)[0].replace(/[.:;]+$/, '');
-    const name = /^[A-Za-z0-9\-/]{1,12}$/.test(first) ? cleanName(first) : '';
-    out.push({ name, easting: east, northing: north });
+    const firstWord = line.split(/\s+/)[0].replace(/[.:;]+$/, '');
+    // Direk no desenleri: "D-1", "DP-3", "P5", "d.2", "55", "A3" vb.
+    const nameUtm = /^(?:d\s*p|d|p)[\s._\-]?\d+$|^\d{1,4}$|^[A-Za-z]\d{1,4}$/i.test(firstWord) ? cleanName(firstWord) : '';
+    out.push({ name: nameUtm, easting: east, northing: north });
   }
   return out;
 }
@@ -239,9 +249,10 @@ export function parseTm3Lines(text: string): { name: string; easting: number; no
     if (east == null || north == null) continue;
     if (east < 100000 || east > 900000) continue;
     if (north < 3000000 || north > 6000000) continue;
-    const first = line.split(/\s+/)[0].replace(/[.:;]+$/, '');
-    const name = /^[A-Za-z0-9\-/]{1,12}$/.test(first) ? cleanName(first) : '';
-    out.push({ name, easting: east, northing: north });
+    const firstWord = line.split(/\s+/)[0].replace(/[.:;]+$/, '');
+    // Direk no desenleri: "D-1", "DP-3", "P5", "d.2", "55", "A3" vb.
+    const nameTm = /^(?:d\s*p|d|p)[\s._\-]?\d+$|^\d{1,4}$|^[A-Za-z]\d{1,4}$/i.test(firstWord) ? cleanName(firstWord) : '';
+    out.push({ name: nameTm, easting: east, northing: north });
   }
   return out;
 }
@@ -250,7 +261,7 @@ export function parsePdfText(text: string): { poles: PolePoint[] } {
   const poles: PolePoint[] = [];
 
   const COORD_RE = /(\d{1,2}[.,]\d{3,})\s*[,;\s]\s*(\d{1,2}[.,]\d{3,})/g;
-  const NAME_RE = /(?:direk\s*[:\-]?\s*)?(d\s*[:\-]?\s*\d+|[a-z]?\d{1,4})/i;
+  const NAME_RE = /(?:direk\s*[:\-]?\s*)?(?:(d\s*p|d|p)[\s._\-]?\d+|\d{1,4})/i;
 
   for (const line of text.split(/\r?\n/)) {
     const t = line.trim();

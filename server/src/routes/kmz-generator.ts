@@ -6,7 +6,7 @@ import fs from 'fs';
 import * as XLSX from 'xlsx';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
-import { parseExcelCoordinates, parsePdfText, parseUtmLines, utmToWgs84, parseTm3Lines, tm3ToWgs84 } from '../coord-parser';
+import { parseExcelCoordinates, parsePdfText, parseTm3Lines, tm3ToWgs84 } from '../coord-parser';
 import { detectDocumentKind, analyzePdf, isTiff } from '../document-reader';
 import { callOcr, OcrCell } from '../ocr-client';
 import { buildKmz } from '../kmz-builder';
@@ -77,9 +77,7 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       pages: { page: number; preview: string; rows: OcrCell[][] }[];
       uncertain: { row: number; text: string }[];
     } | null = null;
-    // UTM zone: 0 = yalnız WGS84; 35-38 = WGS84 yoksa UTM ile dene
-    const utmZone = Number(req.body?.utm_zone || 0);
-    // ITRF-96 / 3° TM orta meridyeni: 0 = kapalı; ör. 42
+    // ITRF-96 / 3° TM orta meridyeni: 0 = otomatik algıla; ör. 42
     const tm3Cm = Number(req.body?.tm3_cm || 0);
 
     if (kind === 'excel') {
@@ -127,43 +125,25 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       source = 'tiff-ocr';
     }
 
-    // WGS84 koordinat bulunamadıysa UTM zone ile dene
-    // utm_zone: 35-38 açık seçim; 0/boş = otomatik (WGS84 bulunamazsa UTM 37 dene)
-    // Not: tm3_cm açıkça seçildiyse UTM denenmez (kullanıcı TM3 istedi)
-    let utmZoneUsed: number | null = null;
-    const zonesToTry = utmZone >= 35 && utmZone <= 38 ? [utmZone] : [37, 36, 35, 38];
-    if (poles.length === 0 && textLines && tm3Cm === 0) {
-      for (const z of zonesToTry) {
+    // WGS84 koordinat bulunamadıysa ITRF-96 / 3° TM ile dönüştür
+    // Türkiye 3 derecelik dilim orta meridyenleri: 27, 30, 33, 36, 39, 42, 45
+    let tm3CmUsed: number | null = null;
+    const cmsToTry = tm3Cm >= 27 && tm3Cm <= 45 ? [tm3Cm] : [33, 36, 39, 42, 30, 27, 45];
+    if (poles.length === 0 && textLines) {
+      for (const cm of cmsToTry) {
         const converted: PolePoint[] = [];
-        for (const u of parseUtmLines(textLines)) {
-          const { lat, lon } = utmToWgs84(u.easting, u.northing, z);
+        for (const u of parseTm3Lines(textLines)) {
+          const { lat, lon } = tm3ToWgs84(u.easting, u.northing, cm);
           if (lat >= 36 && lat <= 42 && lon >= 26 && lon <= 45) {
             converted.push({ name: u.name, lat, lon, alt: null });
           }
         }
         if (converted.length > 0) {
           poles = converted;
-          utmZoneUsed = z;
-          console.log(`[KMZ-ÜRET] ${req.file.originalname}: UTM zone ${z} ile ${converted.length} direk çevrildi`);
+          tm3CmUsed = cm;
+          console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (CM ${cm}) ile ${converted.length} direk çevrildi`);
           break;
         }
-      }
-    }
-
-    // Hâlâ bulunamadıysa ve TM3 orta meridyeni seçiliyse ITRF-96 / 3° TM dene
-    let tm3CmUsed: number | null = null;
-    if (poles.length === 0 && tm3Cm >= 27 && tm3Cm <= 45 && textLines) {
-      const converted: PolePoint[] = [];
-      for (const u of parseTm3Lines(textLines)) {
-        const { lat, lon } = tm3ToWgs84(u.easting, u.northing, tm3Cm);
-        if (lat >= 36 && lat <= 42 && lon >= 26 && lon <= 45) {
-          converted.push({ name: u.name, lat, lon, alt: null });
-        }
-      }
-      if (converted.length > 0) {
-        poles = converted;
-        tm3CmUsed = tm3Cm;
-        console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (CM ${tm3Cm}) ile ${converted.length} direk çevrildi`);
       }
     }
 
@@ -206,7 +186,6 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       saved,
       source,
       ocr: ocrResult,
-      utm_zone_used: utmZoneUsed,
       tm3_cm_used: tm3CmUsed,
       connection_km: connectionKm,
       file_name: req.file.originalname,

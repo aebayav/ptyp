@@ -195,8 +195,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
     const fd = new FormData();
     fd.append('project_id', projectId);
     fd.append('file', genFile);
-    fd.append('utm_zone', utmZone.startsWith('t') ? 0 : utmZone);
-    fd.append('tm3_cm', utmZone.startsWith('t') ? utmZone.slice(1) : 0);
+    fd.append('tm3_cm', utmZone === '0' ? 0 : utmZone);
     try {
       const res = await fetch('/api/kmz-generator/parse', {
         method: 'POST',
@@ -329,12 +328,17 @@ export default function RouteMap({ embedded = false, projectId = null }) {
               <select
                 value={utmZone}
                 onChange={(e) => setUtmZone(e.target.value)}
-                title="Koordinat sistemi — otomatikte WGS84 bulunamazsa UTM denenir"
+                title="ITRF-96 3° TM orta meridyen seçimi"
                 style={{ padding: '9px 10px', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--bg)' }}
               >
-                <option value="0">Koordinat: Otomatik</option>
-                <option value="37">UTM Zone 37</option>
-                <option value="t42">ITRF-96 3°TM (CM 42)</option>
+                <option value="0">ITRF-96 3°TM — Otomatik Algıla</option>
+                <option value="27">ITRF-96 3°TM (CM 27°)</option>
+                <option value="30">ITRF-96 3°TM (CM 30°)</option>
+                <option value="33">ITRF-96 3°TM (CM 33°)</option>
+                <option value="36">ITRF-96 3°TM (CM 36°)</option>
+                <option value="39">ITRF-96 3°TM (CM 39°)</option>
+                <option value="42">ITRF-96 3°TM (CM 42°)</option>
+                <option value="45">ITRF-96 3°TM (CM 45°)</option>
               </select>
               <button className="btn btn-accent" onClick={uploadGen} disabled={busy || !genFile}>
                 {busy ? 'Dönüştürülüyor…' : 'KMZ Üret ve Aktar'}
