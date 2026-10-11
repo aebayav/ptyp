@@ -246,7 +246,8 @@ router.post('/calibrate', upload.single('file'), async (req: Request, res: Respo
       return res.status(400).json({ error: 'Projede en az 2 direk olmalı — önce belgeden güzergah üretin.' });
     }
 
-    // Her referans noktasına en yakın direk → ofset örnekleri (medyan aykırı değerleri dışlar)
+    // Her referans noktasına en yakın direk → ofset örnekleri
+    // (ara köşe noktaları gürültü ekler; MOD binleme yalnızca gerçek ofset kümesini seçer)
     const dlatArr: number[] = [];
     const dlonArr: number[] = [];
     for (const r of refPts) {
@@ -260,7 +261,7 @@ router.post('/calibrate', upload.single('file'), async (req: Request, res: Respo
         }
       }
       if (best && bestDist < 0.2) {
-        // 0.2° ≈ 22 km eşik — yerel grid ofsetleri 10+ km olabilir; yalnızca alakasız eşleşmeleri at
+        // 0.2° ≈ 22 km eşik — yerel grid ofsetleri 10+ km olabilir
         dlatArr.push(r.lat - best.lat);
         dlonArr.push(r.lon - best.lon);
       }
@@ -268,17 +269,32 @@ router.post('/calibrate', upload.single('file'), async (req: Request, res: Respo
     if (dlatArr.length < 2) {
       return res.status(400).json({ error: 'Referans ile mevcut güzergah eşleşmedi (mesafe çok büyük).' });
     }
-    const median = (a: number[]) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
-    const dlat = median(dlatArr);
-    const dlon = median(dlonArr);
+    // Çoğunluk (mod) binleme: gerçek ofset ±5 m içinde sabittir, gürültü dağınıktır
+    function modeOf(vals: number[], bin: number): number {
+      const bins = new Map<number, number[]>();
+      for (const v of vals) {
+        const k = Math.round(v / bin);
+        const arr = bins.get(k) || [];
+        arr.push(v);
+        bins.set(k, arr);
+      }
+      let best: number[] = [];
+      for (const arr of bins.values()) if (arr.length > best.length) best = arr;
+      return best.reduce((s, x) => s + x, 0) / best.length;
+    }
+    const dlat = modeOf(dlatArr, 0.0005);
+    const dlon = modeOf(dlonArr, 0.0005);
 
     await pool.query('UPDATE projects SET grid_dlat = $2, grid_dlon = $3 WHERE id = $1', [projectId, dlat, dlon]);
     await pool.query('UPDATE poles SET lat = lat + $2, lon = lon + $3 WHERE project_id = $1', [projectId, dlat, dlon]);
     const pr = await pool.query('SELECT route FROM projects WHERE id = $1', [projectId]);
     if (pr.rows[0]?.route) {
-      const route = (pr.rows[0].route as [number, number][][]).map((seg) =>
-        seg.map(([la, lo]) => [la + dlat, lo + dlon])
-      );
+      const raw = pr.rows[0].route as unknown;
+      const isFlat =
+        Array.isArray(raw) && raw.length > 0 && Array.isArray((raw as unknown[])[0]) &&
+        typeof ((raw as unknown[])[0] as unknown[])[0] === 'number';
+      const shift = ([la, lo]: [number, number]): [number, number] => [la + dlat, lo + dlon];
+      const route = isFlat ? (raw as [number, number][]).map(shift) : (raw as [number, number][][]).map((seg) => seg.map(shift));
       await pool.query('UPDATE projects SET route = $2 WHERE id = $1', [projectId, JSON.stringify(route)]);
     }
 
