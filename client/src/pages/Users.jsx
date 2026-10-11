@@ -150,9 +150,9 @@ export default function Users() {
                   </td>
                   <td>{u.supplier_name || <span className="muted">—</span>}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>
-                    <button className="icon-btn" title="Düzenle" onClick={() => openEdit(u)}></button>
-                    <button className="icon-btn" title="Şifre Sıfırla" onClick={() => { setResetModal(u); setResetPassword(''); setFormError(null); }}></button>
-                    <button className="icon-btn" title="Sil" onClick={() => remove(u)}></button>
+                    <button className="btn btn-sm" title="Düzenle" onClick={() => openEdit(u)}>Düzenle</button>
+                    <button className="btn btn-sm btn-danger" title="Şifre Sıfırla" onClick={() => { setResetModal(u); setResetPassword(''); setFormError(null); }}>Sil</button>
+                    <button className="btn btn-sm btn-danger" title="Sil" onClick={() => remove(u)}>Sil</button>
                   </td>
                 </tr>
               ))}

@@ -381,8 +381,8 @@ export default function Quotes() {
                                   Seç
                                 </button>
                               )}
-                              <button className="icon-btn" title="Düzenle" onClick={() => openEdit(q)}></button>
-                              <button className="icon-btn" title="Sil" onClick={() => removeQuote(q)}></button>
+                              <button className="btn btn-sm" title="Düzenle" onClick={() => openEdit(q)}>Düzenle</button>
+                              <button className="btn btn-sm btn-danger" title="Sil" onClick={() => removeQuote(q)}>Sil</button>
                             </td>
                           </tr>
                         ))}

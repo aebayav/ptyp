@@ -168,8 +168,8 @@ export default function Suppliers() {
                   <td>{s.email || <span className="muted">—</span>}</td>
                   <td className="num">{s.quote_count}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>
-                    <button className="icon-btn" title="Düzenle" onClick={() => openEdit(s)}></button>
-                    <button className="icon-btn" title="Sil" onClick={() => remove(s)}></button>
+                    <button className="btn btn-sm" title="Düzenle" onClick={() => openEdit(s)}>Düzenle</button>
+                    <button className="btn btn-sm btn-danger" title="Sil" onClick={() => remove(s)}>Sil</button>
                   </td>
                 </tr>
               ))}

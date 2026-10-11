@@ -98,8 +98,8 @@ export default function SupplierQuotes() {
                       <span className="muted" title="Seçilmiş teklif değiştirilemez">Kazandınız — kilitli</span>
                     ) : (
                       <>
-                        <button className="icon-btn" title="Düzenle" onClick={() => setModal({ quote: q })}></button>
-                        <button className="icon-btn" title="Sil" onClick={() => remove(q)}></button>
+                        <button className="btn btn-sm" title="Düzenle" onClick={() => setModal({ quote: q })}>Düzenle</button>
+                        <button className="btn btn-sm btn-danger" title="Sil" onClick={() => remove(q)}>Sil</button>
                       </>
                     )}
                   </td>

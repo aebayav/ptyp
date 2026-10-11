@@ -308,9 +308,9 @@ export default function ProgressPayments() {
                     <span className={`badge ${STATUS_META[p.status]?.cls}`}>{STATUS_META[p.status]?.label}</span>
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
-                    <button className="icon-btn" title="Düzenle" onClick={() => openEditModal(p)}></button>
+                    <button className="btn btn-sm" title="Düzenle" onClick={() => openEditModal(p)}>Düzenle</button>
                     {p.status === 'draft' && (
-                      <button className="icon-btn" title="Sil" onClick={() => removePayment(p)}></button>
+                      <button className="btn btn-sm btn-danger" title="Sil" onClick={() => removePayment(p)}>Sil</button>
                     )}
                   </td>
                 </tr>
@@ -523,7 +523,7 @@ export default function ProgressPayments() {
                         />
                       </td>
                       <td>
-                        <button type="button" className="icon-btn" onClick={() => removeItem(idx)}></button>
+                        <button type="button" className="btn btn-sm btn-danger" onClick={() => removeItem(idx)}>Sil</button>
                       </td>
                     </tr>
                   ))}

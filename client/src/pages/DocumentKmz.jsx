@@ -232,7 +232,7 @@ export default function DocumentKmz() {
                       <input type="number" step="any" value={r.lon} onChange={(e) => updateRow(i, 'lon', e.target.value)} style={{ width: 130 }} />
                     </td>
                     <td>
-                      <button className="btn btn-sm btn-danger" onClick={() => deleteRow(i)} title="Satırı sil"></button>
+                      <button className="btn btn-sm btn-danger" onClick={() => deleteRow(i)} title="Satırı sil">Sil</button>
                     </td>
                   </tr>
                 ))}

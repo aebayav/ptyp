@@ -275,8 +275,8 @@ export default function DailyReports() {
                     {r.work_summary ? (r.work_summary.length > 60 ? r.work_summary.slice(0, 60) + '...' : r.work_summary) : '—'}
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }}>
-                    <button className="icon-btn" title="Düzenle" onClick={(e) => openEdit(r, e)}></button>
-                    <button className="icon-btn" title="Sil" onClick={(e) => remove(r, e)}></button>
+                    <button className="btn btn-sm" title="Düzenle" onClick={(e) => openEdit(r, e)}>Düzenle</button>
+                    <button className="btn btn-sm btn-danger" title="Sil" onClick={(e) => remove(r, e)}>Sil</button>
                   </td>
                 </tr>
               ))}
@@ -330,7 +330,7 @@ export default function DailyReports() {
                       </select>
                       <input style={{ flex: 1 }} placeholder="Firma (Taşeron ise)" value={c.company} onChange={e => handleCrewChange(i, 'company', e.target.value)} disabled={c.role !== 'taseron'} />
                       <input style={{ width: 80 }} type="number" min="1" value={c.count} onChange={e => handleCrewChange(i, 'count', e.target.value)} placeholder="Sayı" />
-                      <button type="button" className="icon-btn" onClick={() => setF('crew', form.crew.filter((_, idx) => idx !== i))}></button>
+                      <button type="button" className="btn btn-sm btn-danger" onClick={() => setF('crew', form.crew.filter((_, idx) => idx !== i))}>Sil</button>
                     </div>
                   ))}
                 </div>
@@ -355,7 +355,7 @@ export default function DailyReports() {
                       </select>
                       <input style={{ flex: 1 }} placeholder="Açıklama (Örn: Plaka)" value={eq.description} onChange={e => handleEqChange(i, 'description', e.target.value)} />
                       <input style={{ width: 80 }} type="number" min="1" value={eq.count} onChange={e => handleEqChange(i, 'count', e.target.value)} placeholder="Sayı" />
-                      <button type="button" className="icon-btn" onClick={() => setF('equipment', form.equipment.filter((_, idx) => idx !== i))}></button>
+                      <button type="button" className="btn btn-sm btn-danger" onClick={() => setF('equipment', form.equipment.filter((_, idx) => idx !== i))}>Sil</button>
                     </div>
                   ))}
                 </div>

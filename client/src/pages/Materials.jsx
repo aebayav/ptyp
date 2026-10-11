@@ -218,8 +218,8 @@ export default function Materials() {
                   </td>
                   <td><StatusBadge meta={MATERIAL_STATUS[m.status]} /></td>
                   <td style={{ whiteSpace: 'nowrap' }}>
-                    <button className="icon-btn" title="Düzenle" onClick={() => openEdit(m)}></button>
-                    <button className="icon-btn" title="Sil" onClick={() => remove(m)}></button>
+                    <button className="btn btn-sm" title="Düzenle" onClick={() => openEdit(m)}>Düzenle</button>
+                    <button className="btn btn-sm btn-danger" title="Sil" onClick={() => remove(m)}>Sil</button>
                   </td>
                 </tr>
               ))}

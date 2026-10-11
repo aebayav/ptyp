@@ -503,8 +503,8 @@ export default function WorkTracking() {
                   </td>
                   <td><StatusBadge meta={GROUP_STATUS[g.status]} /></td>
                   <td style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
-                    <button className="icon-btn" title="Düzenle" onClick={() => openEditGroup(g)}></button>
-                    <button className="icon-btn" title="Sil" onClick={() => removeGroup(g)}></button>
+                    <button className="btn btn-sm" title="Düzenle" onClick={() => openEditGroup(g)}>Düzenle</button>
+                    <button className="btn btn-sm btn-danger" title="Sil" onClick={() => removeGroup(g)}>Sil</button>
                   </td>
                 </tr>
               ))}
@@ -571,8 +571,8 @@ export default function WorkTracking() {
                           </button>
                         </td>
                         <td style={{ whiteSpace: 'nowrap' }}>
-                          <button className="icon-btn" title="Düzenle" onClick={() => openEditTask(t)}></button>
-                          <button className="icon-btn" title="Sil" onClick={() => removeTask(t)}></button>
+                          <button className="btn btn-sm" title="Düzenle" onClick={() => openEditTask(t)}>Düzenle</button>
+                          <button className="btn btn-sm btn-danger" title="Sil" onClick={() => removeTask(t)}>Sil</button>
                         </td>
                       </tr>
                     );

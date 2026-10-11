@@ -330,12 +330,14 @@ tr.best td {
 }
 
 .btn-danger {
-  color: var(--red);
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
 }
 
 .btn-danger:hover {
-  border-color: var(--red);
-  background: #fdf3f3;
+  background: #c62828;
+  border-color: #c62828;
 }
 
 .btn-success {
