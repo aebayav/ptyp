@@ -39,6 +39,7 @@ const ALL_CMS = [27, 30, 33, 36, 39, 42, 45];
 // Türkçe karakterleri ASCII'ye indirge (arama için)
 function asciiTr(s: string): string {
   return s
+    .replace(/\u0130/g, 'i') // İ → i (lowercase önce; aksi halde i̇ birleşik karakter olur)
     .toLowerCase()
     .replace(/ç/g, 'c').replace(/ğ/g, 'g').replace(/ı/g, 'i')
     .replace(/ö/g, 'o').replace(/ş/g, 's').replace(/ü/g, 'u')

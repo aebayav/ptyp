@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
 import { parseExcelCoordinates, parsePdfText, parseTm3Lines, tm3ToWgs84 } from '../coord-parser';
+import { detectRegion } from '../turkiye-regions';
 import { detectDocumentKind, analyzePdf, isTiff } from '../document-reader';
 import { callOcr, OcrCell } from '../ocr-client';
 import { buildKmz } from '../kmz-builder';
@@ -128,8 +129,16 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
     // WGS84 koordinat bulunamadıysa ITRF-96 / 3° TM ile dönüştür
     // Türkiye 3 derecelik dilim orta meridyenleri: 27, 30, 33, 36, 39, 42, 45
     let tm3CmUsed: number | null = null;
-    const cmsToTry = tm3Cm >= 27 && tm3Cm <= 45 ? [tm3Cm] : [33, 36, 39, 42, 30, 27, 45];
     if (poles.length === 0 && textLines) {
+      let cmsToTry: number[];
+      if (tm3Cm >= 27 && tm3Cm <= 45) {
+        cmsToTry = [tm3Cm];
+      } else {
+        // Otomatik: dosya adı + belge metninden bölge tespiti → CM öncelik sırası
+        const region = detectRegion(`${req.file.originalname}\n${textLines.slice(0, 800)}`);
+        cmsToTry = region.cmOrder;
+        if (region.city) console.log(`[KMZ-ÜRET] bölge tespiti: ${region.city}`);
+      }
       for (const cm of cmsToTry) {
         const converted: PolePoint[] = [];
         for (const u of parseTm3Lines(textLines)) {
