@@ -1,9 +1,10 @@
 # PTYP OCR Servisi — taranmış PDF / TIFF belgelerden tablo ve rakam okuma
-# OpenCV ön işleme + PaddleOCR + zor hücreler için Ollama (Qwen2.5-VL) fallback
+# Akıllı OCR: GLM-OCR (Ollama) tüm sayfayı tek seferde okur (direk no + Y + X),
+# yetersiz kalırsa OpenCV ile tespit edilen satır bantları bant bant tekrar okunur.
 #
 # Çalıştırma (Ubuntu):
 #   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-#   OLLAMA_URL=http://127.0.0.1:11434 VISION_MODEL=qwen2.5vl:7b \
+#   OLLAMA_URL=http://127.0.0.1:11434 VISION_MODEL=glm-ocr \
 #     .venv/bin/uvicorn app:app --host 127.0.0.1 --port 8787
 import base64
 import io
@@ -23,37 +24,14 @@ from PIL import Image
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [OCR] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("ocr")
 
-app = FastAPI(title="PTYP OCR Servisi", version="1.0.0")
+app = FastAPI(title="PTYP OCR Servisi", version="2.0.0")
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
-VISION_MODEL = os.environ.get("VISION_MODEL", "qwen2.5vl:7b")
+VISION_MODEL = os.environ.get("VISION_MODEL", "glm-ocr")
 CONF_THRESHOLD = float(os.environ.get("CONF_THRESHOLD", "0.55"))
 # Ollama çağrısı kaç kez denenir / kaç sn beklenir (0 = devre dışı)
 OLLAMA_ATTEMPTS = int(os.environ.get("OLLAMA_ATTEMPTS", "1"))
-OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "60"))
-
-_ocr = None
-
-
-def get_ocr():
-    global _ocr
-    if _ocr is None:
-        from rapidocr_onnxruntime import RapidOCR
-
-        # RapidOCR: PaddleOCR PP-OCRv4 modelleri, ONNX Runtime ile.
-        # (paddlepaddle 3.x'in bu CPU'daki PIR/oneDNN hatasından kaçınır,
-        #  Python 3.13 uyumlu, düşük bellek.)
-        _ocr = RapidOCR()
-    return _ocr
-
-
-def predict_items(ocr, prep: np.ndarray) -> list:
-    """RapidOCR çıktısını [(bbox, (text, conf)), ...] listesine çevirir."""
-    result, _ = ocr(prep)
-    items = []
-    for box, text, conf in result or []:
-        items.append((box, (str(text), float(conf))))
-    return items
+OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "240"))
 
 
 # ---------- Görüntü hazırlama ----------
@@ -81,118 +59,208 @@ def pages_from_tiff(buf: bytes) -> list[np.ndarray]:
     return pages
 
 
-def preprocess(img: np.ndarray) -> np.ndarray:
-    """Küçük/tarama gürültülü görüntüleri OCR'a hazırla."""
-    h, w = img.shape[:2]
-    if max(h, w) < 2000:
-        scale = min(3.0, 2000 / max(h, w))
-        img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+def preprocess_gray(img: np.ndarray) -> np.ndarray:
+    """Satır bandı tespiti için gri + kontrast."""
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     gray = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
     return gray
 
 
-def jpeg_b64(img: np.ndarray, max_w: int = 900) -> str:
+def jpeg_b64(img: np.ndarray, max_w: int = 1200) -> str:
+    """GLM-OCR'a gönderilecek JPEG (base64)."""
     h, w = img.shape[:2]
     if w > max_w:
-        img = cv2.resize(img, (max_w, int(h * max_w / w)))
-    ok, buf = cv2.imencode(".jpg", cv2.cvtColor(img, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 70])
+        img = cv2.resize(img, (max_w, int(h * max_w / w)), interpolation=cv2.INTER_AREA)
+    ok, buf = cv2.imencode(".jpg", cv2.cvtColor(img, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 85])
     return base64.b64encode(buf.tobytes()).decode() if ok else ""
 
 
-# ---------- Satır gruplama ----------
+# ---------- GLM-OCR akıllı okuma ----------
 
-def group_lines(items):
-    """PaddleOCR çıktısını y-ekseninde satırlara kümele, her satırı x'e göre sırala."""
-    if not items:
-        return []
-    data = []
-    for bbox, (text, conf) in items:
-        xs = [p[0] for p in bbox]
-        ys = [p[1] for p in bbox]
-        data.append(
-            {
-                "bbox": bbox,
-                "text": text,
-                "conf": float(conf),
-                "cx": (min(xs) + max(xs)) / 2,
-                "cy": (min(ys) + max(ys)) / 2,
-                "h": max(ys) - min(ys),
-            }
-        )
-    data.sort(key=lambda d: d["cy"])
-    lines: list[list[dict]] = []
-    cur = [data[0]]
-    for d in data[1:]:
-        avg_h = np.mean([x["h"] for x in cur])
-        if abs(d["cy"] - cur[-1]["cy"]) <= 0.6 * avg_h:
-            cur.append(d)
-        else:
-            lines.append(sorted(cur, key=lambda x: x["cx"]))
-            cur = [d]
-    lines.append(sorted(cur, key=lambda x: x["cx"]))
-    return lines
+PAGE_PROMPT = (
+    "Bu, bir enerji nakil hattı direk listesi tablosudur. Tablodaki HER satırı oku. "
+    "Her satır için YALNIZCA şu formatta tek satır yaz: DIR | Y | X\n"
+    "DIR: direk numarası (ör. D-14, P3, DP-2, 5, Portal)\n"
+    "Y: ilk koordinat değeri (6-7 haneli sayı, ondalıklı olabilir)\n"
+    "X: ikinci koordinat değeri (6-7 haneli sayı, ondalıklı olabilir)\n"
+    "Başlık satırlarını ve diğer yazıları atla. Sayıları aynen koru, hiçbir değer uydurma. "
+    "Başka hiçbir şey yazma."
+)
+
+ROW_PROMPT = (
+    "Bu görüntüde solda direk numarası, sağda iki koordinat değeri (Y ve X) var. "
+    "Şu formatta tek satır yaz: DIR | Y | X\n"
+    "DIR direk numarası (ör. D-14, P3, PB1, 5, Portal), Y ve X 6-7 haneli koordinat sayıları. "
+    "Sayıları dikkatle, aynen koru; uydurma. Başka bir şey yazma."
+)
+
+COORD_RE = re.compile(r"\b\d{6,7}(?:[.,]\d{1,4})?\b")
+# Direk kalıbı: PB1, D-14, P3, DP-2, Direk 5, Portal
+POLE_PAT_RE = re.compile(r"(?i)(?:direk\s*)?(?:portal|(?:d|p|dp|pb|dm)[-./]?\d{1,4})")
+# Prompt yankısı sayılan kalıplar (boş bantta model prompt'u tekrar eder)
+ECHO_WORDS = ("yalnızca", "formatta", "başka bir şey", "uydurma", "aynen koru")
 
 
-# ---------- Ollama fallback (zor hücreler) ----------
+def parse_glm_line(line: str) -> dict | None:
+    """GLM çıktı satırını {pole, coords: [y, x], text} biçimine çevirir."""
+    text = (line or "").strip().strip("|").strip()
+    if not text:
+        return None
+    # Rakamsal OCR karışıklıkları: < → 4, O/o → 0 (yalnız rakam bağlamında)
+    norm = re.sub(r"(?<=[\d\s])<(?=\d)", "4", text)
+    norm = re.sub(r"(?<=[\d.])[Oo](?=[\d.])", "0", norm)
+    norm = norm.replace(",", ".")
+    coords = COORD_RE.findall(norm)
+    # DTL tablolarında koordinatlar son iki büyük sayıdır
+    coords = coords[-2:] if len(coords) >= 2 else coords
+    rest = COORD_RE.sub(" ", norm).strip()
+    pole = ""
+    m = POLE_PAT_RE.search(rest)
+    if m:
+        pole = m.group(0).strip()
+    else:
+        m2 = re.search(r"\b\d{1,4}\b", rest)
+        if m2:
+            pole = m2.group(0)
+    if len(coords) >= 2:
+        return {"pole": pole, "coords": [coords[-2], coords[-1]], "text": text}
+    return {"pole": pole, "coords": coords, "text": text, "weak": True}
 
-async def ollama_read_cell(crop_rgb: np.ndarray) -> str | None:
-    """Hücre kırpığını Qwen2.5-VL'ye sor: sadece değeri döndür."""
+
+async def glm_read(images_b64: list[str], prompt: str, num_predict: int, timeout: int | None = None) -> str | None:
+    """GLM-OCR'a tek seferlik soru. Başarısızsa None."""
     if OLLAMA_ATTEMPTS <= 0:
         return None
-    h, w = crop_rgb.shape[:2]
-    if h < 8 or w < 8:
-        return None
-    # Kırpığa kenar payı ekle (küçük kırpıklar modeli zorlar)
-    pad = 12
-    h, w = crop_rgb.shape[:2]
-    canvas = np.full((h + 2 * pad, w + 2 * pad, 3), 255, dtype=np.uint8)
-    canvas[pad : pad + h, pad : pad + w] = crop_rgb
-    img = Image.fromarray(canvas).resize((w * 3, h * 3), Image.LANCZOS)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    b64 = base64.b64encode(buf.getvalue()).decode()
-
-    prompt = (
-        "Görüntüdeki tablo hücresinin değerini oku. "
-        "Yanıt olarak YALNIZCA değeri yaz (örnek: 39.801234). "
-        "Tek kelime, tek sayı, başka hiçbir şey ekleme."
-    )
+    last_err = ""
     for attempt in range(OLLAMA_ATTEMPTS):
         try:
-            async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=timeout or OLLAMA_TIMEOUT) as client:
                 r = await client.post(
                     f"{OLLAMA_URL}/api/generate",
                     json={
                         "model": VISION_MODEL,
                         "prompt": prompt,
-                        "images": [b64],
+                        "images": images_b64,
                         "stream": False,
-                        "think": False,  # muhakeme modelinin düşünce zincirini kapat
+                        "think": False,
+                        "options": {"num_predict": num_predict, "temperature": 0.1},
                     },
                 )
             if r.status_code == 200:
-                text = r.json().get("response", "").strip()
-                # Değer deseni: koordinat ya da kısa tek token (D-14, 55, TM-3...)
-                m = re.search(r"\d{1,2}[.,]\d{3,}", text)
-                if m:
-                    return m.group(0)
-                m = re.search(r"(?:^|\s)([A-Za-z]{0,3}[- ]?\d{1,4}(?:[.,]\d+)?)(?:\s|$)", text)
-                if m and "column" not in text.lower() and "text" not in text.lower():
-                    return m.group(1)
-                # Aday satır: kısa, boşluksuz, değer benzeri
-                for line in text.splitlines():
-                    line = line.strip()
-                    if not line or len(line) > 25:
-                        continue
-                    if re.fullmatch(r"[A-Za-z0-9.,:\-]+", line) and any(ch.isdigit() for ch in line):
-                        return line
-                return None  # güvenilir değer yok → OCR sonucunu koru
+                return (r.json().get("response") or "").strip() or None
             if r.status_code == 404:  # model yok → boşuna tekrar deneme
                 return None
-        except Exception:
-            continue
+            last_err = f"HTTP {r.status_code}"
+        except Exception as e:
+            last_err = str(e)
+    log.warning("glm_read başarısız (%s): %s", OLLAMA_ATTEMPTS, last_err)
     return None
+
+
+def row_bands(gray: np.ndarray, min_h: int = 8) -> list[tuple[int, int]]:
+    """Satır bantları: kural çizgilerini sök, kalan mürekkebi genişlik yüzdesiyle
+    izdüşümle (kısa dikey kalıntılar boşluğu kapatamaz)."""
+    h, w = gray.shape
+    _, bin_img = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    horiz = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (max(16, w // 4), 1)))
+    vert = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(16, h // 4))))
+    cleaned = cv2.subtract(cv2.subtract(bin_img, horiz), vert)
+    # Satır boşluğu: genişliğin %2'sinden azında mürekkep varsa boşluktur
+    proj_frac = (cleaned > 0).sum(axis=1) / max(w, 1)
+    bands = []
+    start = None
+    for y in range(h):
+        if proj_frac[y] > 0.02 and start is None:
+            start = y
+        elif proj_frac[y] <= 0.02 and start is not None:
+            if y - start >= min_h:
+                bands.append((max(0, start - 4), min(h, y + 4)))
+            start = None
+    if start is not None and h - start >= min_h:
+        bands.append((max(0, start - 4), h))
+    return bands
+
+
+def cells_from_parsed(parsed: dict) -> list[dict]:
+    """parse_glm_line sonucunu hücre listesine çevir (Node tarafıyla uyumlu biçim)."""
+    coords = parsed.get("coords") or []
+    if len(coords) >= 2:
+        cells = [
+            {"text": parsed.get("pole") or "", "conf": 0.9},
+            {"text": coords[0], "conf": 0.9},
+            {"text": coords[1], "conf": 0.9},
+        ]
+    elif parsed.get("text"):
+        # Zayıf satır → kullanıcı düzeltmesine düşsün
+        cells = [{"text": parsed["text"], "conf": 0.3}]
+    else:
+        cells = []
+    return cells
+
+
+def compose_band(band_img: np.ndarray) -> np.ndarray:
+    """Direk sütunu (sol) + koordinat sütunları (sağ) → tek odaklı görüntü."""
+    h, w = band_img.shape[:2]
+    pole_crop = band_img[:, 0 : max(1, int(w * 0.20))]
+    coord_crop = band_img[:, int(w * 0.55) :]
+    gap = np.full((h, 30, 3), 255, np.uint8)
+    composed = np.hstack([pole_crop, gap, coord_crop])
+    if composed.shape[0] < 64:
+        composed = cv2.resize(composed, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+    return composed
+
+
+async def ocr_page_glm(original: np.ndarray) -> tuple[list[list[dict]], int, int]:
+    """Bir sayfayı GLM-OCR ile oku.
+    - Seyrek sayfa (≤12 bant): önce tüm sayfa, gerekirse bant bant.
+    - Yoğun sayfa (>12 bant): doğrudan bant bant (1.3B model tam sayfada kararsız).
+    Döner: (rows, band_sayısı, bant_okuma_sayısı)"""
+    gray = preprocess_gray(original)
+    bands = row_bands(gray)
+    rows: list[list[dict]] = []
+    band_reads = 0
+
+    if len(bands) <= 12:
+        page_b64 = jpeg_b64(original)
+        text = await glm_read([page_b64], PAGE_PROMPT, 2048)
+        lines = [l for l in (text or "").splitlines() if l.strip()]
+        for l in lines:
+            parsed = parse_glm_line(l)
+            if parsed is None:
+                continue
+            rows.append(cells_from_parsed(parsed))
+        valid = sum(1 for r in rows if len(r) >= 3)
+        if valid >= max(2, len(bands) - 2):
+            return rows, len(bands), 0
+        log.info("sayfa okuması zayıf (geçerli=%d, bant=%d) → bant bant oku", valid, len(bands))
+        rows = []
+
+    for y0, y1 in bands:
+        band_img = original[y0:y1]
+        if band_img.shape[0] < 8:
+            continue
+        # Gürültü/boş bantları atla (mürekkep yoğunluğu çok düşükse okunacak şey yoktur)
+        band_gray = cv2.cvtColor(band_img, cv2.COLOR_RGB2GRAY)
+        _, bbin = cv2.threshold(band_gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        if (bbin > 0).mean() < 0.004:
+            continue
+        # Direk + koordinat sütunlarını odaklı kompozit görüntüde GLM'e sor
+        composed = compose_band(band_img)
+        line = await glm_read([jpeg_b64(composed, max_w=2000)], ROW_PROMPT, 160)
+        band_reads += 1
+        parsed = parse_glm_line(line or "")
+        if parsed is None:
+            continue
+        if parsed.get("weak"):
+            # Yalnızca koordinat kanıtı içeren zayıf satırları tut;
+            # prompt yankısı/başlık gürültüsünü at
+            t = parsed["text"].lower()
+            if not COORD_RE.search(parsed["text"]) or any(k in t for k in ECHO_WORDS):
+                continue
+        cells = cells_from_parsed(parsed)
+        if cells:
+            rows.append(cells)
+    return rows, len(bands), band_reads
 
 
 # ---------- Uç noktalar ----------
@@ -289,43 +357,19 @@ async def ocr_document(file: UploadFile):
     if not images:
         log.warning("görüntü bulunamadı: %s", file.filename)
         return JSONResponse(status_code=400, content={"error": "Görüntü bulunamadı"})
-    log.info("sayfalar: %d (%dx%d)", len(images), images[0].shape[1], images[0].shape[0])
+    log.info("sayfalar: %d (%dx%d) — akıllı OCR (glm-ocr)", len(images), images[0].shape[1], images[0].shape[0])
 
-    ocr = get_ocr()
     out_pages = []
     for page_idx, original in enumerate(images):
-        prep = preprocess(original)
         try:
-            items = predict_items(ocr, prep)
+            rows, band_count, band_reads = await ocr_page_glm(original)
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": f"OCR hatası: {e}"})
 
-        rows = []
-        low_conf = 0
-        fallback_used = 0
-        for line in group_lines(items):
-            cells = []
-            for d in line:
-                cell = {"text": d["text"], "conf": round(d["conf"], 3)}
-                if d["conf"] < CONF_THRESHOLD:
-                    low_conf += 1
-                    # Zor hücre → Ollama vision modeline sor
-                    xs = [int(p[0]) for p in d["bbox"]]
-                    ys = [int(p[1]) for p in d["bbox"]]
-                    x0, x1 = max(0, min(xs)), min(original.shape[1], max(xs))
-                    y0, y1 = max(0, min(ys)), min(original.shape[0], max(ys))
-                    fb = await ollama_read_cell(original[y0:y1, x0:x1])
-                    if fb:
-                        fallback_used += 1
-                        cell["text"] = fb
-                        cell["conf"] = None
-                        cell["fallback"] = "ollama"
-                cells.append(cell)
-            rows.append(cells)
-
+        low_conf = sum(1 for r in rows for c in r if c["conf"] < CONF_THRESHOLD)
         log.info(
-            "sayfa %d/%d: satır=%d hücre=%d düşük_güven=%d ollama=%d",
-            page_idx + 1, len(images), len(rows), sum(len(r) for r in rows), low_conf, fallback_used,
+            "sayfa %d/%d: satır=%d bant=%d bant_okuma=%d düşük_güven=%d",
+            page_idx + 1, len(images), len(rows), band_count, band_reads, low_conf,
         )
 
         out_pages.append(
