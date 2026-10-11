@@ -246,24 +246,35 @@ router.post('/calibrate', upload.single('file'), async (req: Request, res: Respo
       return res.status(400).json({ error: 'Projede en az 2 direk olmalı — önce belgeden güzergah üretin.' });
     }
 
-    // Katı öteleme varsayımı: ofset = ağırlık merkezleri farkı (eşleştirme gerektirmez)
-    // Referans: tüm noktalar; mevcut: proje direkleri
+    // Saklı grid ofseti (ham dönüşüm → gerçek konum toplam ötelemesi)
+    const gp = await pool.query('SELECT grid_dlat, grid_dlon FROM projects WHERE id = $1', [projectId]);
+    const gridOld = {
+      lat: Number(gp.rows[0]?.grid_dlat || 0),
+      lon: Number(gp.rows[0]?.grid_dlon || 0),
+    };
+    // Ham dönüşüm konumları = mevcut direkler − saklı ofset
+    const rawRows = cur.rows.map((c: any) => ({ lat: c.lat - gridOld.lat, lon: c.lon - gridOld.lon }));
+
+    // Katı öteleme varsayımı: toplam ofset = ağırlık merkezleri farkı (eşleştirme gerektirmez)
     const refCent = refPts.reduce(
       (a, p) => ({ lat: a.lat + p.lat / refPts.length, lon: a.lon + p.lon / refPts.length }),
       { lat: 0, lon: 0 }
     );
-    const curCent = cur.rows.reduce(
-      (a, p) => ({ lat: a.lat + p.lat / cur.rows.length, lon: a.lon + p.lon / cur.rows.length }),
+    const rawCent = rawRows.reduce(
+      (a, p) => ({ lat: a.lat + p.lat / rawRows.length, lon: a.lon + p.lon / rawRows.length }),
       { lat: 0, lon: 0 }
     );
-    const dlat = refCent.lat - curCent.lat;
-    const dlon = refCent.lon - curCent.lon;
-    // Emniyet: anlamsız (çok büyük) ofsetleri reddet
-    if (Math.hypot(dlat * 110900, dlon * 87300) > 50000) {
+    const dlatTotal = refCent.lat - rawCent.lat;
+    const dlonTotal = refCent.lon - rawCent.lon;
+    // Emniyet: anlamsız (çok büyük) toplam ofsetleri reddet
+    if (Math.hypot(dlatTotal * 110900, dlonTotal * 87300) > 50000) {
       return res.status(400).json({ error: 'Referans ile mevcut güzergah arasındaki fark çok büyük (>50 km).' });
     }
+    // Bu turda direklere uygulanacak artım
+    const dlat = dlatTotal - gridOld.lat;
+    const dlon = dlonTotal - gridOld.lon;
 
-    await pool.query('UPDATE projects SET grid_dlat = $2, grid_dlon = $3 WHERE id = $1', [projectId, dlat, dlon]);
+    await pool.query('UPDATE projects SET grid_dlat = $2, grid_dlon = $3 WHERE id = $1', [projectId, dlatTotal, dlonTotal]);
     await pool.query('UPDATE poles SET lat = lat + $2, lon = lon + $3 WHERE project_id = $1', [projectId, dlat, dlon]);
     const pr = await pool.query('SELECT route FROM projects WHERE id = $1', [projectId]);
     if (pr.rows[0]?.route) {
