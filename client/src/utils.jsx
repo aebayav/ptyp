@@ -70,6 +70,7 @@ export function okumaBilgisi(d) {
   }[d.source] || `Kaynak: ${d.source}`;
   let s = yontem;
   if (d.utm_zone_used) s += ` · Koordinat: UTM zone ${d.utm_zone_used} → WGS84 dönüşümü`;
+  if (d.tm3_cm_used) s += ` · Koordinat: ITRF-96 3°TM (CM ${d.tm3_cm_used}) → WGS84 dönüşümü`;
   const pages = d.ocr?.pages || [];
   if (pages.length) {
     const cells = pages.flatMap((p) => p.rows.flat());

@@ -6,7 +6,7 @@ import fs from 'fs';
 import * as XLSX from 'xlsx';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
-import { parseExcelCoordinates, parsePdfText, parseUtmLines, utmToWgs84 } from '../coord-parser';
+import { parseExcelCoordinates, parsePdfText, parseUtmLines, utmToWgs84, parseTm3Lines, tm3ToWgs84 } from '../coord-parser';
 import { detectDocumentKind, analyzePdf, isTiff } from '../document-reader';
 import { callOcr, OcrCell } from '../ocr-client';
 import { buildKmz } from '../kmz-builder';
@@ -79,6 +79,8 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
     } | null = null;
     // UTM zone: 0 = yalnız WGS84; 35-38 = WGS84 yoksa UTM ile dene
     const utmZone = Number(req.body?.utm_zone || 0);
+    // ITRF-96 / 3° TM orta meridyeni: 0 = kapalı; ör. 42
+    const tm3Cm = Number(req.body?.tm3_cm || 0);
 
     if (kind === 'excel') {
       try {
@@ -147,6 +149,23 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       }
     }
 
+    // Hâlâ bulunamadıysa ve TM3 orta meridyeni seçiliyse ITRF-96 / 3° TM dene
+    let tm3CmUsed: number | null = null;
+    if (poles.length === 0 && tm3Cm >= 27 && tm3Cm <= 45 && textLines) {
+      const converted: PolePoint[] = [];
+      for (const u of parseTm3Lines(textLines)) {
+        const { lat, lon } = tm3ToWgs84(u.easting, u.northing, tm3Cm);
+        if (lat >= 36 && lat <= 42 && lon >= 26 && lon <= 45) {
+          converted.push({ name: u.name, lat, lon, alt: null });
+        }
+      }
+      if (converted.length > 0) {
+        poles = converted;
+        tm3CmUsed = tm3Cm;
+        console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (CM ${tm3Cm}) ile ${converted.length} direk çevrildi`);
+      }
+    }
+
     if (poles.length === 0) {
       console.log(`[KMZ-ÜRET] ${req.file.originalname} → ${source}: koordinat bulunamadı`);
       return res.status(400).json({
@@ -187,6 +206,7 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       source,
       ocr: ocrResult,
       utm_zone_used: utmZoneUsed,
+      tm3_cm_used: tm3CmUsed,
       connection_km: connectionKm,
       file_name: req.file.originalname,
       kmz: `/api/kmz-generator/download/${kmzFile}`,

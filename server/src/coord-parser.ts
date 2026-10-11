@@ -143,11 +143,11 @@ export function parseExcelCoordinates(buffer: Buffer): { poles: PolePoint[] } {
 
 // PDF metni: koordinat desenlerinden direkleri çıkar
 // (document-reader.analyzePdf ile metin katmanı önceden doğrulanır)
-// UTM (WGS84, kuzey yarımküre) → enlem/boylam dönüşümü (Krüger serisi)
-export function utmToWgs84(easting: number, northing: number, zone: number): { lat: number; lon: number } {
+// Enine Merkator ters izdüşümü (Krüger serisi) — WGS84/GRS80 elipsoidi
+// (ITRF-96 ≈ WGS84: fark cm düzeyinde, ihmal edilir)
+function tmToWgs84(easting: number, northing: number, lon0Deg: number, k0: number): { lat: number; lon: number } {
   const a = 6378137;
   const f = 1 / 298.257223563;
-  const k0 = 0.9996;
   const e2 = f * (2 - f);
   const ep2 = e2 / (1 - e2);
   const n = f / (2 - f);
@@ -175,12 +175,22 @@ export function utmToWgs84(easting: number, northing: number, zone: number): { l
       ((D * D) / 2 -
         ((5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * ep2) * Math.pow(D, 4)) / 24 +
         ((61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 252 * ep2 - 3 * C1 * C1) * Math.pow(D, 6)) / 720);
-  const lon0 = zone * 6 - 183;
   const lonDeltaRad =
     (D - ((1 + 2 * T1 + C1) * Math.pow(D, 3)) / 6 + ((5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * ep2 + 24 * T1 * T1) * Math.pow(D, 5)) / 120) /
     cosP;
-  const lon = lon0 + (lonDeltaRad * 180) / Math.PI;
+  const lon = lon0Deg + (lonDeltaRad * 180) / Math.PI;
   return { lat: (lat * 180) / Math.PI, lon };
+}
+
+// UTM (WGS84, kuzey yarımküre) → enlem/boylam
+export function utmToWgs84(easting: number, northing: number, zone: number): { lat: number; lon: number } {
+  return tmToWgs84(easting, northing, zone * 6 - 183, 0.9996);
+}
+
+// ITRF-96 / 3° TM (Türkiye 3 derecelik dilim) → enlem/boylam
+// k0 = 1.0, sahte doğu 500000 m, sahte kuzey 0
+export function tm3ToWgs84(easting: number, northing: number, cm: number): { lat: number; lon: number } {
+  return tmToWgs84(easting, northing, cm, 1.0);
 }
 
 // Satırlardan UTM koordinat çiftleri (easting ~6 hane, northing ~7 hane)
@@ -196,6 +206,39 @@ export function parseUtmLines(text: string): { name: string; easting: number; no
     const north = Number(m[3]) + (m[4] ? Number('0.' + m[4]) : 0);
     if (east < 100000 || east > 900000) continue;
     if (north < 3000000 || north > 6000000) continue; // Türkiye kuzey aralığı
+    const first = line.split(/\s+/)[0].replace(/[.:;]+$/, '');
+    const name = /^[A-Za-z0-9\-/]{1,12}$/.test(first) ? cleanName(first) : '';
+    out.push({ name, easting: east, northing: north });
+  }
+  return out;
+}
+
+// ITRF-96 / 3° TM satırlarından koordinat çiftleri
+// easting: 6 hane (350000-650000) veya dilim önekli 7 hane (ör. 6 500000),
+// northing: 7 hane (Türkiye için 3.5M-4.8M)
+export function parseTm3Lines(text: string): { name: string; easting: number; northing: number }[] {
+  const out: { name: string; easting: number; northing: number }[] = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    // 7 haneli (önekli) veya 6 haneli easting + 7 haneli northing
+    const m = line.match(/\b(\d{7})(?:[.,](\d{1,2}))?[\s|;,]+(\d{7})(?:[.,](\d{1,2}))?\b/);
+    let east: number | null = null;
+    let north: number | null = null;
+    if (m) {
+      const first = Number(m[1]) + (m[2] ? Number('0.' + m[2]) : 0);
+      north = Number(m[3]) + (m[4] ? Number('0.' + m[4]) : 0);
+      // Önekli easting (dilim no + 6 hane) → öneki sök
+      east = first >= 3000000 ? first % 1000000 : null;
+    } else {
+      const m2 = line.match(/\b(\d{6})(?:[.,](\d{1,2}))?[\s|;,]+(\d{7})(?:[.,](\d{1,2}))?\b/);
+      if (!m2) continue;
+      east = Number(m2[1]) + (m2[2] ? Number('0.' + m2[2]) : 0);
+      north = Number(m2[3]) + (m2[4] ? Number('0.' + m2[4]) : 0);
+    }
+    if (east == null || north == null) continue;
+    if (east < 100000 || east > 900000) continue;
+    if (north < 3000000 || north > 6000000) continue;
     const first = line.split(/\s+/)[0].replace(/[.:;]+$/, '');
     const name = /^[A-Za-z0-9\-/]{1,12}$/.test(first) ? cleanName(first) : '';
     out.push({ name, easting: east, northing: north });
