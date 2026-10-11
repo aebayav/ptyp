@@ -246,44 +246,22 @@ router.post('/calibrate', upload.single('file'), async (req: Request, res: Respo
       return res.status(400).json({ error: 'Projede en az 2 direk olmalı — önce belgeden güzergah üretin.' });
     }
 
-    // Her referans noktasına en yakın direk → ofset örnekleri
-    // (ara köşe noktaları gürültü ekler; MOD binleme yalnızca gerçek ofset kümesini seçer)
-    const dlatArr: number[] = [];
-    const dlonArr: number[] = [];
-    for (const r of refPts) {
-      let bestDist = 1e9;
-      let best: { lat: number; lon: number } | null = null;
-      for (const c of cur.rows) {
-        const d = Math.hypot(r.lat - c.lat, r.lon - c.lon);
-        if (d < bestDist) {
-          bestDist = d;
-          best = c;
-        }
-      }
-      if (best && bestDist < 0.2) {
-        // 0.2° ≈ 22 km eşik — yerel grid ofsetleri 10+ km olabilir
-        dlatArr.push(r.lat - best.lat);
-        dlonArr.push(r.lon - best.lon);
-      }
+    // Katı öteleme varsayımı: ofset = ağırlık merkezleri farkı (eşleştirme gerektirmez)
+    // Referans: tüm noktalar; mevcut: proje direkleri
+    const refCent = refPts.reduce(
+      (a, p) => ({ lat: a.lat + p.lat / refPts.length, lon: a.lon + p.lon / refPts.length }),
+      { lat: 0, lon: 0 }
+    );
+    const curCent = cur.rows.reduce(
+      (a, p) => ({ lat: a.lat + p.lat / cur.rows.length, lon: a.lon + p.lon / cur.rows.length }),
+      { lat: 0, lon: 0 }
+    );
+    const dlat = refCent.lat - curCent.lat;
+    const dlon = refCent.lon - curCent.lon;
+    // Emniyet: anlamsız (çok büyük) ofsetleri reddet
+    if (Math.hypot(dlat * 110900, dlon * 87300) > 50000) {
+      return res.status(400).json({ error: 'Referans ile mevcut güzergah arasındaki fark çok büyük (>50 km).' });
     }
-    if (dlatArr.length < 2) {
-      return res.status(400).json({ error: 'Referans ile mevcut güzergah eşleşmedi (mesafe çok büyük).' });
-    }
-    // Çoğunluk (mod) binleme: gerçek ofset ±5 m içinde sabittir, gürültü dağınıktır
-    function modeOf(vals: number[], bin: number): number {
-      const bins = new Map<number, number[]>();
-      for (const v of vals) {
-        const k = Math.round(v / bin);
-        const arr = bins.get(k) || [];
-        arr.push(v);
-        bins.set(k, arr);
-      }
-      let best: number[] = [];
-      for (const arr of bins.values()) if (arr.length > best.length) best = arr;
-      return best.reduce((s, x) => s + x, 0) / best.length;
-    }
-    const dlat = modeOf(dlatArr, 0.0005);
-    const dlon = modeOf(dlonArr, 0.0005);
 
     await pool.query('UPDATE projects SET grid_dlat = $2, grid_dlon = $3 WHERE id = $1', [projectId, dlat, dlon]);
     await pool.query('UPDATE poles SET lat = lat + $2, lon = lon + $3 WHERE project_id = $1', [projectId, dlat, dlon]);
@@ -299,14 +277,14 @@ router.post('/calibrate', upload.single('file'), async (req: Request, res: Respo
     }
 
     console.log(
-      `[KMZ-ÜRET] kalibrasyon: proje ${projectId} → +${Math.round(dlat * 110900)}m K, +${Math.round(dlon * 87300)}m D (${dlatArr.length}/${refPts.length} eşleşme)`
+      `[KMZ-ÜRET] kalibrasyon: proje ${projectId} → +${Math.round(dlat * 110900)}m K, +${Math.round(dlon * 87300)}m D (${refPts.length} referans noktası)`
     );
     res.json({
       dlat,
       dlon,
       northM: Math.round(dlat * 110900),
       eastM: Math.round(dlon * 87300),
-      matched: dlatArr.length,
+      refPoints: refPts.length,
       applied: cur.rowCount ?? 0,
     });
   } catch (e) {
