@@ -30,7 +30,7 @@ export default function DocumentKmz() {
   const [result, setResult] = useState(null);
   const [rows, setRows] = useState([]);
   const [preview, setPreview] = useState(null);
-  const [utmZone, setUtmZone] = useState('0'); // 0 = otomatik (WGS84 → UTM)
+  const [utmZone, setUtmZone] = useState('0'); // 0 = otomatik (WGS84 UTM)
 
   useEffect(() => {
     api.get('/api/projects')
@@ -69,10 +69,10 @@ export default function DocumentKmz() {
         type: 'ok',
         text:
           `${d.count} direk bulundu` +
-          (uncertainCount > 0 ? ` · ⚠️ ${uncertainCount} satır düşük güvenle okundu — aşağıdan kontrol edin` : '') +
+          (uncertainCount > 0 ? ` · ${uncertainCount} satır düşük güvenle okundu — aşağıdan kontrol edin` : '') +
           (d.saved > 0 ? ` · projeye ön aktarım yapıldı (${d.saved})` : ''),
-        info: okumaBilgisi(d),
       });
+      console.log('[Belge→KMZ]', okumaBilgisi(d));
     } catch (e) {
       setMsg({ type: 'err', text: e.message });
     } finally {
@@ -138,7 +138,7 @@ export default function DocumentKmz() {
     <div>
       <div className="page-head">
         <div>
-          <h1>📄 Belge → KMZ</h1>
+          <h1>Belge KMZ</h1>
           <p className="sub">PDF (metin veya taranmış), TIFF ve Excel'den direk koordinatlarını okuyup KMZ üretin</p>
         </div>
       </div>
@@ -151,20 +151,11 @@ export default function DocumentKmz() {
           ))}
         </select>
         <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>KOORDİNAT:</span>
-        <select value={utmZone} onChange={(e) => setUtmZone(e.target.value)} title="Koordinat sistemi — otomatikte WGS84 bulunamazsa UTM denenir">
+        <select value={utmZone} onChange={(e) => setUtmZone(e.target.value)} title="Koordinat sistemi">
           <option value="0">Otomatik (WGS84 → UTM)</option>
-          <option value="35">UTM Zone 35</option>
-          <option value="36">UTM Zone 36</option>
-          <option value="37">UTM Zone 37 (Doğu/GD)</option>
-          <option value="38">UTM Zone 38</option>
+          <option value="37">UTM Zone 37</option>
           <option value="t42">ITRF-96 3°TM (CM 42)</option>
-          <option value="t39">ITRF-96 3°TM (CM 39)</option>
-          <option value="t36">ITRF-96 3°TM (CM 36)</option>
-          <option value="t45">ITRF-96 3°TM (CM 45)</option>
         </select>
-        <span className="muted" style={{ fontSize: 11.5 }}>
-          Belgede UTM (Doğu/Kuzey) koordinatı varsa zone seçin
-        </span>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
@@ -181,26 +172,25 @@ export default function DocumentKmz() {
                 setMsg(null);
               }}
             />
-            <span className="file-drop-ico">📄</span>
+            <span className="file-drop-ico"></span>
             <span className="file-drop-text" style={{ flex: 1, textAlign: 'left' }}>
               {file ? file.name : 'Excel, PDF veya TIFF seçin — metin katmanı, taranmış belge, OCR otomatik seçilir…'}
             </span>
           </label>
           <button className="btn btn-accent" onClick={parseFile} disabled={busy || !file || projectId == null}>
-            {busy ? 'Okunuyor (OCR sürebilir)…' : '🔍 Oku ve Analiz Et'}
+            {busy ? 'Okunuyor (OCR sürebilir)…' : 'Oku ve Analiz Et'}
           </button>
         </div>
         {msg && (
           <div className={msg.type === 'ok' ? 'notice-banner' : 'form-error'} style={{ marginTop: 10, marginBottom: 0 }}>
-            <div>{msg.text}</div>
-            {msg.info && <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>🔍 {msg.info}</div>}
+            {msg.text}
           </div>
         )}
       </div>
 
       {preview && (
         <div className="card" style={{ marginBottom: 16 }}>
-          <h3 style={{ marginTop: 0 }}>🖼️ Belge Önizleme</h3>
+          <h3 style={{ marginTop: 0 }}>Belge Önizleme</h3>
           <div style={{ maxHeight: 360, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
             <img src={preview} alt="Belge önizleme" style={{ display: 'block', maxWidth: '100%' }} />
           </div>
@@ -210,11 +200,11 @@ export default function DocumentKmz() {
       {rows.length > 0 && (
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-            <h3 style={{ margin: 0 }}>📋 Sonuç Tablosu — hatalı satırları düzeltin</h3>
+            <h3 style={{ margin: 0 }}>Sonuç Tablosu — hatalı satırları düzeltin</h3>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button className="btn btn-sm" onClick={downloadCsv}>⬇️ CSV İndir</button>
-              <button className="btn btn-sm" onClick={downloadExcel}>⬇️ Excel İndir</button>
-              <button className="btn btn-sm" onClick={addRow}>＋ Satır Ekle</button>
+              <button className="btn btn-sm" onClick={downloadCsv}>CSV İndir</button>
+              <button className="btn btn-sm" onClick={downloadExcel}>Excel İndir</button>
+              <button className="btn btn-sm" onClick={addRow}>+ Satır Ekle</button>
             </div>
           </div>
           <div className="table-wrap">
@@ -242,7 +232,7 @@ export default function DocumentKmz() {
                       <input type="number" step="any" value={r.lon} onChange={(e) => updateRow(i, 'lon', e.target.value)} style={{ width: 130 }} />
                     </td>
                     <td>
-                      <button className="btn btn-sm btn-danger" onClick={() => deleteRow(i)} title="Satırı sil">🗑️</button>
+                      <button className="btn btn-sm btn-danger" onClick={() => deleteRow(i)} title="Satırı sil"></button>
                     </td>
                   </tr>
                 ))}
@@ -251,14 +241,14 @@ export default function DocumentKmz() {
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 14, alignItems: 'center', flexWrap: 'wrap' }}>
             <button className="btn btn-accent" onClick={submitRows} disabled={busy}>
-              {busy ? 'Kaydediliyor…' : '⚙️ KMZ Üret ve Projeye Aktar'}
+              {busy ? 'Kaydediliyor…' : 'KMZ Üret ve Projeye Aktar'}
             </button>
             {result?.kmz && (
-              <button className="btn" onClick={() => apiDownload(result.kmz, 'olusturulan.kmz')}>⬇️ Oluşan KMZ'yi İndir</button>
+              <button className="btn" onClick={() => apiDownload(result.kmz, 'olusturulan.kmz')}>Oluşan KMZ'yi İndir</button>
             )}
           </div>
           <div className="form-hint" style={{ marginTop: 8 }}>
-            KMZ üretildikten sonra haritada görmek için: <strong>İş Takibi &amp; Güzergah → Güzergah &amp; Harita</strong>
+            KMZ üretildikten sonra haritada görmek için: <strong>İş Takibi &amp; Güzergah Güzergah &amp; Harita</strong>
           </div>
         </div>
       )}

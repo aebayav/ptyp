@@ -204,7 +204,7 @@ export default function Quotes() {
   if (error) {
     return (
       <div>
-        <div className="page-head"><h1>💰 Teklif &amp; Karşılaştırma</h1></div>
+        <div className="page-head"><h1>Teklif &amp; Karşılaştırma</h1></div>
         <div className="error-banner">
           <span>Veriler yüklenemedi: {error}</span>
           <button className="btn btn-sm" onClick={load}>Tekrar Dene</button>
@@ -216,8 +216,8 @@ export default function Quotes() {
   if (loading) {
     return (
       <div>
-        <div className="page-head"><h1>💰 Teklif &amp; Karşılaştırma</h1></div>
-        <div className="empty"><span className="empty-ico">⏳</span>Yükleniyor…</div>
+        <div className="page-head"><h1>Teklif &amp; Karşılaştırma</h1></div>
+        <div className="empty"><span className="empty-ico"></span>Yükleniyor…</div>
       </div>
     );
   }
@@ -225,11 +225,11 @@ export default function Quotes() {
   if (materials.length === 0) {
     return (
       <div>
-        <div className="page-head"><h1>💰 Teklif &amp; Karşılaştırma</h1></div>
+        <div className="page-head"><h1>Teklif &amp; Karşılaştırma</h1></div>
         <div className="empty">
-          <span className="empty-ico">📦</span>
+          <span className="empty-ico"></span>
           Teklif toplamak için önce malzeme eklemelisiniz.{' '}
-          <Link to="/malzemeler">Malzeme Listesi →</Link>
+          <Link to="/malzemeler">Malzeme Listesi </Link>
         </div>
       </div>
     );
@@ -239,13 +239,13 @@ export default function Quotes() {
     <div>
       <div className="page-head">
         <div>
-          <h1>💰 Teklif &amp; Karşılaştırma</h1>
+          <h1>Teklif &amp; Karşılaştırma</h1>
           <p className="sub">Satıcılardan fiyat toplayın, en uygun teklifi seçin</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button className="btn" onClick={() => apiDownload('/api/export/quotes', 'ptyp-teklifler.xlsx')}>⬇️ Excel (Teklifler + Karşılaştırma)</button>
+          <button className="btn" onClick={() => apiDownload('/api/export/quotes', 'ptyp-teklifler.xlsx')}>Excel (Teklifler + Karşılaştırma)</button>
           <button className="btn" onClick={copyUploadLink} title="Satıcıya gönderilecek teklif yükleme linkini kopyala">
-            {copied ? '✓ Kopyalandı' : '🔗 Satıcı Yükleme Linki'}
+            {copied ? 'Kopyalandı' : 'Satıcı Yükleme Linki'}
           </button>
         </div>
       </div>
@@ -296,7 +296,7 @@ export default function Quotes() {
           <div className="quote-panel">
             {!selectedMaterial ? (
               <div className="empty">
-                <span className="empty-ico">👈</span>
+                <span className="empty-ico"></span>
                 Soldan bir malzeme seçerek tekliflerini görün.
               </div>
             ) : (
@@ -314,7 +314,7 @@ export default function Quotes() {
                     </div>
                   </div>
                   <button className="btn btn-accent" onClick={openNew} disabled={suppliers.length === 0}>
-                    ＋ Teklif Ekle
+                    + Teklif Ekle
                   </button>
                 </div>
 
@@ -332,7 +332,7 @@ export default function Quotes() {
                     <div>
                       Bütçeye Göre{' '}
                       <strong className={minPrice <= selectedMaterial.target_price ? 'diff-pos' : 'diff-neg'}>
-                        {minPrice <= selectedMaterial.target_price ? '✓ ' : '▲ '}
+                        {minPrice <= selectedMaterial.target_price ? '' : ''}
                         {fmtMoney(selectedMaterial.target_price - minPrice)}
                       </strong>
                     </div>
@@ -341,7 +341,7 @@ export default function Quotes() {
 
                 {materialQuotes.length === 0 ? (
                   <div className="empty">
-                    <span className="empty-ico">💬</span>
+                    <span className="empty-ico"></span>
                     Bu malzeme için henüz teklif yok. "Teklif Ekle" ile başlayın.
                   </div>
                 ) : (
@@ -366,7 +366,7 @@ export default function Quotes() {
                             </td>
                             <td className="num" style={{ fontWeight: 700, fontSize: 14.5 }}>
                               {fmtMoney(q.price, q.currency)}
-                              {q.price === minPrice && materialQuotes.length > 1 && ' ⭐'}
+                              {q.price === minPrice && materialQuotes.length > 1 && ' '}
                             </td>
                             <td className="num">{q.delivery_days != null ? `${q.delivery_days} gün` : '—'}</td>
                             <td className="muted">{fmtDate(q.validity_date)}</td>
@@ -374,15 +374,15 @@ export default function Quotes() {
                             <td style={{ whiteSpace: 'nowrap' }}>
                               {q.status === 'selected' ? (
                                 <button className="btn btn-sm btn-success" onClick={() => toggleSelect(q)} disabled={busy} title="Seçimi geri al">
-                                  Seçili ✓
+                                  Seçili
                                 </button>
                               ) : (
                                 <button className="btn btn-sm" onClick={() => toggleSelect(q)} disabled={busy} title="Bu teklifi seç">
                                   Seç
                                 </button>
                               )}
-                              <button className="icon-btn" title="Düzenle" onClick={() => openEdit(q)}>✏️</button>
-                              <button className="icon-btn" title="Sil" onClick={() => removeQuote(q)}>🗑️</button>
+                              <button className="icon-btn" title="Düzenle" onClick={() => openEdit(q)}></button>
+                              <button className="icon-btn" title="Sil" onClick={() => removeQuote(q)}></button>
                             </td>
                           </tr>
                         ))}

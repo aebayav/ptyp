@@ -22,7 +22,7 @@ function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <span className="brand-logo">⚡</span>
+        
         <div className="brand-text">
           <h1>PTYP</h1>
           <p>Proje Yönetim Sistemi</p>
@@ -32,57 +32,57 @@ function Sidebar() {
         {isOwner ? (
           <>
             <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>
-              <span className="nav-ico">📊</span> Genel Bakış
+              Genel Bakış
             </NavLink>
 
             <div className="nav-group">TEDARİK</div>
             <NavLink to="/malzemeler" className={({ isActive }) => (isActive ? 'active' : '')}>
-              <span className="nav-ico">📦</span> Malzeme Listesi
+              Malzeme Listesi
             </NavLink>
             <NavLink to="/saticilar" className={({ isActive }) => (isActive ? 'active' : '')}>
-              <span className="nav-ico">🏢</span> Satıcılar
+              Satıcılar
             </NavLink>
             <NavLink to="/teklifler" className={({ isActive }) => (isActive ? 'active' : '')}>
-              <span className="nav-ico">💰</span> Teklif &amp; Karşılaştırma
+              Teklif &amp; Karşılaştırma
             </NavLink>
 
             <div className="nav-group">PROJE</div>
             <NavLink to="/is-takibi" className={({ isActive }) => (isActive ? 'active' : '')}>
-              <span className="nav-ico">🔧</span> İş Takibi &amp; Güzergah
+              İş Takibi &amp; Güzergah
             </NavLink>
             <NavLink to="/hakedisler" className={({ isActive }) => (isActive ? 'active' : '')}>
-              <span className="nav-ico">🧾</span> Hakediş Yönetimi
+              Hakediş Yönetimi
             </NavLink>
             <NavLink to="/gunluk-raporlar" className={({ isActive }) => (isActive ? 'active' : '')}>
-              <span className="nav-ico">📝</span> Günlük Raporlar
+              Günlük Raporlar
             </NavLink>
             <NavLink to="/belge-kmz" className={({ isActive }) => (isActive ? 'active' : '')}>
-              <span className="nav-ico">📄</span> Belge → KMZ
+              Belge → KMZ
             </NavLink>
 
             <div className="nav-group">YÖNETİM</div>
             <NavLink to="/kullanicilar" className={({ isActive }) => (isActive ? 'active' : '')}>
-              <span className="nav-ico">👥</span> Kullanıcılar
+              Kullanıcılar
             </NavLink>
 
             <div className="nav-group">YAKINDA</div>
-            <div className="nav-soon"><span className="nav-ico">📁</span> Dokümanlar</div>
+            <div className="nav-soon">Dokümanlar</div>
           </>
         ) : (
           <>
             <div className="nav-group">TEDARİKÇİ PORTALI</div>
             <NavLink to="/malzemeler" className={({ isActive }) => (isActive ? 'active' : '')}>
-              <span className="nav-ico">📦</span> Açık Malzemeler
+              Açık Malzemeler
             </NavLink>
             <NavLink to="/tekliflerim" className={({ isActive }) => (isActive ? 'active' : '')}>
-              <span className="nav-ico">💰</span> Tekliflerim
+              Tekliflerim
             </NavLink>
           </>
         )}
       </nav>
       <div className="sidebar-foot">
         <div className="sidebar-user">
-          <span className="user-ico">{isOwner ? '👷' : '🏢'}</span>
+          <span className="user-ico">{isOwner ? '' : ''}</span>
           <div>
             <div className="user-name">{user.display_name || user.username}</div>
             <div className="user-role">{isOwner ? 'İş Sahibi' : 'Satıcı'}</div>
@@ -95,7 +95,7 @@ function Sidebar() {
             navigate('/login');
           }}
         >
-          Çıkış Yap ⏻
+          Çıkış Yap
         </button>
       </div>
     </aside>
@@ -106,7 +106,7 @@ function Shell() {
   const { user, ready } = useAuth();
   const location = useLocation();
 
-  if (!ready) return <div className="loading-screen">⏳ Yükleniyor…</div>;
+  if (!ready) return <div className="loading-screen">Yükleniyor…</div>;
 
   const isLogin = location.pathname === '/login';
   const isPublic = location.pathname === '/teklif-yukle';

@@ -27,7 +27,7 @@ export const MATERIAL_STATUS = {
 export const QUOTE_STATUS = {
   requested: { label: 'Talep Edildi', cls: 'badge-amber' },
   received: { label: 'Teklif Alındı', cls: 'badge-blue' },
-  selected: { label: 'Seçildi ✓', cls: 'badge-green' },
+  selected: { label: 'Seçildi ', cls: 'badge-green' },
 };
 
 export function fmtMoney(value, currency = 'TRY') {
@@ -63,10 +63,10 @@ export function StatusBadge({ meta }) {
 export function okumaBilgisi(d) {
   if (!d) return '';
   const yontem = {
-    excel: '📊 Excel dosyası (hücre okuma)',
-    'pdf-text': '📄 PDF metin katmanı',
-    'pdf-ocr': '📄 PDF taranmış → OCR (RapidOCR)',
-    'tiff-ocr': '🖼️ TIFF → OCR (RapidOCR)',
+    excel: 'Excel dosyası (hücre okuma)',
+    'pdf-text': 'PDF metin katmanı',
+    'pdf-ocr': 'PDF taranmış OCR (RapidOCR)',
+    'tiff-ocr': 'TIFF OCR (RapidOCR)',
   }[d.source] || `Kaynak: ${d.source}`;
   let s = yontem;
   if (d.utm_zone_used) s += ` · Koordinat: UTM zone ${d.utm_zone_used} → WGS84 dönüşümü`;
@@ -76,9 +76,9 @@ export function okumaBilgisi(d) {
     const cells = pages.flatMap((p) => p.rows.flat());
     const ai = cells.filter((c) => c.fallback === 'ollama').length;
     s += ` · ${pages.length} sayfa, ${cells.length} hücre`;
-    if (ai > 0) s += ` · 🤖 AI (ptyp-ai) ${ai} hücre düzeltti`;
+    if (ai > 0) s += ` · AI (ptyp-ai) ${ai} hücre düzeltti`;
   }
   const unc = d.ocr?.uncertain?.length || 0;
-  if (unc > 0) s += ` · ⚠️ ${unc} satır düşük güven`;
+  if (unc > 0) s += ` · ${unc} satır düşük güven`;
   return s;
 }

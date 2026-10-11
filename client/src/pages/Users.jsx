@@ -109,10 +109,10 @@ export default function Users() {
     <div>
       <div className="page-head">
         <div>
-          <h1>👥 Kullanıcılar</h1>
+          <h1>Kullanıcılar</h1>
           <p className="sub">Portal erişim hesapları — iş sahibi ve satıcı rolleri</p>
         </div>
-        <button className="btn btn-accent" onClick={openNew}>＋ Yeni Kullanıcı</button>
+        <button className="btn btn-accent" onClick={openNew}>+ Yeni Kullanıcı</button>
       </div>
 
       {error && (
@@ -123,7 +123,7 @@ export default function Users() {
       )}
 
       {loading ? (
-        <div className="empty"><span className="empty-ico">⏳</span>Yükleniyor…</div>
+        <div className="empty"><span className="empty-ico"></span>Yükleniyor…</div>
       ) : (
         <div className="table-wrap">
           <table>
@@ -150,9 +150,9 @@ export default function Users() {
                   </td>
                   <td>{u.supplier_name || <span className="muted">—</span>}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>
-                    <button className="icon-btn" title="Düzenle" onClick={() => openEdit(u)}>✏️</button>
-                    <button className="icon-btn" title="Şifre Sıfırla" onClick={() => { setResetModal(u); setResetPassword(''); setFormError(null); }}>🔑</button>
-                    <button className="icon-btn" title="Sil" onClick={() => remove(u)}>🗑️</button>
+                    <button className="icon-btn" title="Düzenle" onClick={() => openEdit(u)}></button>
+                    <button className="icon-btn" title="Şifre Sıfırla" onClick={() => { setResetModal(u); setResetPassword(''); setFormError(null); }}></button>
+                    <button className="icon-btn" title="Sil" onClick={() => remove(u)}></button>
                   </td>
                 </tr>
               ))}

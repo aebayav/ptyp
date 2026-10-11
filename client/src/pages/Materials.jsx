@@ -136,12 +136,12 @@ export default function Materials() {
     <div>
       <div className="page-head">
         <div>
-          <h1>📦 Malzeme Listesi</h1>
+          <h1>Malzeme Listesi</h1>
           <p className="sub">Proje malzemeleri ve tedarik durumu</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn" onClick={() => apiDownload('/api/export/materials', 'ptyp-malzemeler.xlsx')}>⬇️ Excel</button>
-          <button className="btn btn-accent" onClick={openNew}>＋ Yeni Malzeme</button>
+          <button className="btn" onClick={() => apiDownload('/api/export/materials', 'ptyp-malzemeler.xlsx')}>Excel</button>
+          <button className="btn btn-accent" onClick={openNew}>+ Yeni Malzeme</button>
         </div>
       </div>
 
@@ -171,10 +171,10 @@ export default function Materials() {
       </div>
 
       {loading ? (
-        <div className="empty"><span className="empty-ico">⏳</span>Yükleniyor…</div>
+        <div className="empty"><span className="empty-ico"></span>Yükleniyor…</div>
       ) : items.length === 0 ? (
         <div className="empty">
-          <span className="empty-ico">📦</span>
+          <span className="empty-ico"></span>
           Henüz malzeme eklenmemiş. İlk malzemeyi ekleyerek teklif toplamaya başlayın.
         </div>
       ) : (
@@ -210,7 +210,7 @@ export default function Materials() {
                         onClick={() => navigate(`/teklifler?malzeme=${m.id}`)}
                         title="Teklifleri gör"
                       >
-                        {m.quote_count} teklif 💬
+                        {m.quote_count} teklif
                       </button>
                     ) : (
                       <span className="badge badge-amber">Teklif yok</span>
@@ -218,8 +218,8 @@ export default function Materials() {
                   </td>
                   <td><StatusBadge meta={MATERIAL_STATUS[m.status]} /></td>
                   <td style={{ whiteSpace: 'nowrap' }}>
-                    <button className="icon-btn" title="Düzenle" onClick={() => openEdit(m)}>✏️</button>
-                    <button className="icon-btn" title="Sil" onClick={() => remove(m)}>🗑️</button>
+                    <button className="icon-btn" title="Düzenle" onClick={() => openEdit(m)}></button>
+                    <button className="icon-btn" title="Sil" onClick={() => remove(m)}></button>
                   </td>
                 </tr>
               ))}
@@ -239,7 +239,7 @@ export default function Materials() {
               <div className="field">
                 <label>Malzeme Kodu</label>
                 <input value={form.code} onChange={set('code')} placeholder="Boş bırakılırsa otomatik" />
-                <div className="form-hint">Örn: M-001 (boş → otomatik atanır)</div>
+                <div className="form-hint">Örn: M-001 (boş otomatik atanır)</div>
               </div>
               <div className="field">
                 <label>Malzeme Adı *</label>

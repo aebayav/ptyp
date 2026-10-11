@@ -5,12 +5,12 @@ import Modal from '../components/Modal';
 
 const WEATHER_LABELS = {
   '': '—',
-  acik: '☀️ Açık',
-  bulutlu: '⛅ Bulutlu',
-  yagmurlu: '🌧️ Yağmurlu',
-  firtina: '⛈️ Fırtına',
-  kar: '❄️ Kar',
-  sisli: '🌫️ Sisli',
+  acik: 'Açık',
+  bulutlu: 'Bulutlu',
+  yagmurlu: 'Yağmurlu',
+  firtina: 'Fırtına',
+  kar: 'Kar',
+  sisli: 'Sisli',
 };
 
 const CREW_ROLES = {
@@ -198,12 +198,12 @@ export default function DailyReports() {
     <div>
       <div className="page-head">
         <div>
-          <h1>📋 Saha Günlük Raporu</h1>
+          <h1>Saha Günlük Raporu</h1>
           <p className="sub">Proje bazlı günlük personel, ekipman ve imalat kaydı</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           {projectId != null && (
-            <button className="btn btn-accent" onClick={openNew}>＋ Yeni Rapor</button>
+            <button className="btn btn-accent" onClick={openNew}>+ Yeni Rapor</button>
           )}
         </div>
       </div>
@@ -238,10 +238,10 @@ export default function DailyReports() {
       )}
 
       {loading ? (
-        <div className="empty"><span className="empty-ico">⏳</span>Yükleniyor…</div>
+        <div className="empty"><span className="empty-ico"></span>Yükleniyor…</div>
       ) : reports.length === 0 ? (
         <div className="empty">
-          <span className="empty-ico">📋</span>
+          <span className="empty-ico"></span>
           Henüz rapor yok. İlk raporu ekleyin.
         </div>
       ) : (
@@ -275,8 +275,8 @@ export default function DailyReports() {
                     {r.work_summary ? (r.work_summary.length > 60 ? r.work_summary.slice(0, 60) + '...' : r.work_summary) : '—'}
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }}>
-                    <button className="icon-btn" title="Düzenle" onClick={(e) => openEdit(r, e)}>✏️</button>
-                    <button className="icon-btn" title="Sil" onClick={(e) => remove(r, e)}>🗑️</button>
+                    <button className="icon-btn" title="Düzenle" onClick={(e) => openEdit(r, e)}></button>
+                    <button className="icon-btn" title="Sil" onClick={(e) => remove(r, e)}></button>
                   </td>
                 </tr>
               ))}
@@ -292,7 +292,7 @@ export default function DailyReports() {
         >
           <form onSubmit={submitForm}>
             {formError && <div className="form-error">{formError}</div>}
-            
+
             <div className="form-row">
               <div className="field">
                 <label>Tarih *</label>
@@ -314,9 +314,9 @@ export default function DailyReports() {
 
             <div style={{ marginTop: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <strong>👷 Personel (Puantaj)</strong>
+                <strong>Personel (Puantaj)</strong>
                 <button type="button" className="btn btn-sm" onClick={() => setF('crew', [...form.crew, { role: 'isci', company: '', count: 1 }])}>
-                  ＋ Personel Ekle
+                  + Personel Ekle
                 </button>
               </div>
               {form.crew.length === 0 ? (
@@ -330,7 +330,7 @@ export default function DailyReports() {
                       </select>
                       <input style={{ flex: 1 }} placeholder="Firma (Taşeron ise)" value={c.company} onChange={e => handleCrewChange(i, 'company', e.target.value)} disabled={c.role !== 'taseron'} />
                       <input style={{ width: 80 }} type="number" min="1" value={c.count} onChange={e => handleCrewChange(i, 'count', e.target.value)} placeholder="Sayı" />
-                      <button type="button" className="icon-btn" onClick={() => setF('crew', form.crew.filter((_, idx) => idx !== i))}>✕</button>
+                      <button type="button" className="icon-btn" onClick={() => setF('crew', form.crew.filter((_, idx) => idx !== i))}></button>
                     </div>
                   ))}
                 </div>
@@ -339,9 +339,9 @@ export default function DailyReports() {
 
             <div style={{ marginTop: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <strong>🚜 Ekipman & Araçlar</strong>
+                <strong>Ekipman & Araçlar</strong>
                 <button type="button" className="btn btn-sm" onClick={() => setF('equipment', [...form.equipment, { equipment_type: 'kepce', description: '', count: 1 }])}>
-                  ＋ Ekipman Ekle
+                  + Ekipman Ekle
                 </button>
               </div>
               {form.equipment.length === 0 ? (
@@ -355,7 +355,7 @@ export default function DailyReports() {
                       </select>
                       <input style={{ flex: 1 }} placeholder="Açıklama (Örn: Plaka)" value={eq.description} onChange={e => handleEqChange(i, 'description', e.target.value)} />
                       <input style={{ width: 80 }} type="number" min="1" value={eq.count} onChange={e => handleEqChange(i, 'count', e.target.value)} placeholder="Sayı" />
-                      <button type="button" className="icon-btn" onClick={() => setF('equipment', form.equipment.filter((_, idx) => idx !== i))}>✕</button>
+                      <button type="button" className="icon-btn" onClick={() => setF('equipment', form.equipment.filter((_, idx) => idx !== i))}></button>
                     </div>
                   ))}
                 </div>
@@ -391,12 +391,12 @@ export default function DailyReports() {
 
           <div style={{ display: 'flex', gap: 20, marginBottom: 20 }}>
             <div style={{ flex: 1 }}>
-              <h4 style={{ marginBottom: 8, borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>👷 Personel</h4>
+              <h4 style={{ marginBottom: 8, borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>Personel</h4>
               {currentReport.crew?.length > 0 ? (
                 <ul style={{ margin: 0, paddingLeft: 20 }}>
                   {currentReport.crew.map((c, i) => (
                     <li key={i}>
-                      {c.count}x {CREW_ROLES[c.role] || c.role} 
+                      {c.count}x {CREW_ROLES[c.role] || c.role}
                       {c.company && <span className="muted"> ({c.company})</span>}
                     </li>
                   ))}
@@ -404,7 +404,7 @@ export default function DailyReports() {
               ) : <span className="muted">—</span>}
             </div>
             <div style={{ flex: 1 }}>
-              <h4 style={{ marginBottom: 8, borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>🚜 Ekipman</h4>
+              <h4 style={{ marginBottom: 8, borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>Ekipman</h4>
               {currentReport.equipment?.length > 0 ? (
                 <ul style={{ margin: 0, paddingLeft: 20 }}>
                   {currentReport.equipment.map((e, i) => (

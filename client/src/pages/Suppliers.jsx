@@ -108,12 +108,12 @@ export default function Suppliers() {
     <div>
       <div className="page-head">
         <div>
-          <h1>🏢 Satıcılar</h1>
+          <h1>Satıcılar</h1>
           <p className="sub">Fiyat teklifi alınan tedarikçi ve firmalar</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn" onClick={() => apiDownload('/api/export/suppliers', 'ptyp-saticilar.xlsx')}>⬇️ Excel</button>
-          <button className="btn btn-accent" onClick={openNew}>＋ Yeni Satıcı</button>
+          <button className="btn" onClick={() => apiDownload('/api/export/suppliers', 'ptyp-saticilar.xlsx')}>Excel</button>
+          <button className="btn btn-accent" onClick={openNew}>+ Yeni Satıcı</button>
         </div>
       </div>
 
@@ -137,10 +137,10 @@ export default function Suppliers() {
       </div>
 
       {loading ? (
-        <div className="empty"><span className="empty-ico">⏳</span>Yükleniyor…</div>
+        <div className="empty"><span className="empty-ico"></span>Yükleniyor…</div>
       ) : items.length === 0 ? (
         <div className="empty">
-          <span className="empty-ico">🏢</span>
+          <span className="empty-ico"></span>
           Henüz satıcı kaydedilmemiş. Teklif toplamadan önce satıcıları ekleyin.
         </div>
       ) : (
@@ -168,8 +168,8 @@ export default function Suppliers() {
                   <td>{s.email || <span className="muted">—</span>}</td>
                   <td className="num">{s.quote_count}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>
-                    <button className="icon-btn" title="Düzenle" onClick={() => openEdit(s)}>✏️</button>
-                    <button className="icon-btn" title="Sil" onClick={() => remove(s)}>🗑️</button>
+                    <button className="icon-btn" title="Düzenle" onClick={() => openEdit(s)}></button>
+                    <button className="icon-btn" title="Sil" onClick={() => remove(s)}></button>
                   </td>
                 </tr>
               ))}

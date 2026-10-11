@@ -30,7 +30,7 @@ export default function Login() {
     <div className="layout-login">
       <div className="auth-card">
         <div className="auth-brand">
-          <span>⚡</span>
+          <span></span>
           <h1>PTYP</h1>
           <p>Elektrik Nakil Hattı &amp; Trafo Merkezi Projesi</p>
         </div>

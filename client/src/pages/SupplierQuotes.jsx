@@ -49,7 +49,7 @@ export default function SupplierQuotes() {
     <div>
       <div className="page-head">
         <div>
-          <h1>💰 Tekliflerim</h1>
+          <h1>Tekliflerim</h1>
           <p className="sub">Gönderdiğiniz teklifler ve durumları</p>
         </div>
       </div>
@@ -62,12 +62,12 @@ export default function SupplierQuotes() {
       )}
 
       {loading ? (
-        <div className="empty"><span className="empty-ico">⏳</span>Yükleniyor…</div>
+        <div className="empty"><span className="empty-ico"></span>Yükleniyor…</div>
       ) : quotes.length === 0 ? (
         <div className="empty">
-          <span className="empty-ico">💬</span>
+          <span className="empty-ico"></span>
           Henüz teklif göndermediniz.{' '}
-          <a href="/malzemeler" style={{ fontWeight: 600 }}>Açık malzemelere göz atın →</a>
+          <a href="/malzemeler" style={{ fontWeight: 600 }}>Açık malzemelere göz atın </a>
         </div>
       ) : (
         <div className="table-wrap">
@@ -95,11 +95,11 @@ export default function SupplierQuotes() {
                   <td><StatusBadge meta={QUOTE_STATUS[q.status]} /></td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     {q.status === 'selected' ? (
-                      <span className="muted" title="Seçilmiş teklif değiştirilemez">🎉 Kazandınız — kilitli</span>
+                      <span className="muted" title="Seçilmiş teklif değiştirilemez">Kazandınız — kilitli</span>
                     ) : (
                       <>
-                        <button className="icon-btn" title="Düzenle" onClick={() => setModal({ quote: q })}>✏️</button>
-                        <button className="icon-btn" title="Sil" onClick={() => remove(q)}>🗑️</button>
+                        <button className="icon-btn" title="Düzenle" onClick={() => setModal({ quote: q })}></button>
+                        <button className="icon-btn" title="Sil" onClick={() => remove(q)}></button>
                       </>
                     )}
                   </td>

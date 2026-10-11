@@ -10,12 +10,12 @@ const GROUP_STATUS = {
   completed: { label: 'Tamamlandı', cls: 'badge-green' },
 };
 
-const PROJ_ICONS = { enh: '⚡', tm: '🏭', ges: '☀️', res: '💨' };
+const PROJ_ICONS = { enh: '', tm: '', ges: '', res: '' };
 
 const TASK_STATUS = {
   todo: { label: 'Yapılacak', cls: 'badge-gray' },
   in_progress: { label: 'Devam Ediyor', cls: 'badge-blue' },
-  done: { label: 'Tamamlandı ✓', cls: 'badge-green' },
+  done: { label: 'Tamamlandı ', cls: 'badge-green' },
 };
 
 const PRIORITY = {
@@ -148,7 +148,7 @@ export default function WorkTracking() {
         const created = await api.post('/api/projects', payload);
         await loadProjects();
         setProjectId(created.id);
-        
+
         const templates = {
           enh: ['Aplikasyon', 'Temel Kazısı', 'Beton Dökümü', 'Direk Montajı', 'İzolatör Montajı', 'Tel Çekimi', 'Devreye Alma'],
           tm: ['Saha Hazırlık', 'Temel/Bina İnşaat', 'Topraklama Şebekesi', 'Bara Montajı', 'Trafo Montajı', 'Koruma/Otomasyon', 'Test & Devreye Alma'],
@@ -346,7 +346,7 @@ export default function WorkTracking() {
     }
   }
 
-  // Durum döngüsü: yapılacak → devam → tamamlandı → yapılacak
+  // Durum döngüsü: yapılacak devam tamamlandı yapılacak
   async function cycleStatus(t) {
     const order = ['todo', 'in_progress', 'done'];
     const next = order[(order.indexOf(t.status) + 1) % order.length];
@@ -370,13 +370,13 @@ export default function WorkTracking() {
     <div>
       <div className="page-head">
         <div>
-          <h1>🔧 İş Takibi &amp; Güzergah</h1>
+          <h1>İş Takibi &amp; Güzergah</h1>
           <p className="sub">Proje bazlı iş grupları, görevler, ağırlıklı ilerleme ve güzergah kesimleri</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn" onClick={() => apiDownload('/api/export/worktracking', 'ptyp-is-takibi.xlsx')}>⬇️ Excel</button>
+          <button className="btn" onClick={() => apiDownload('/api/export/worktracking', 'ptyp-is-takibi.xlsx')}>Excel</button>
           {tab === 'plan' && projectId != null && (
-            <button className="btn btn-accent" onClick={openNewGroup}>＋ Yeni İş Grubu</button>
+            <button className="btn btn-accent" onClick={openNewGroup}>+ Yeni İş Grubu</button>
           )}
         </div>
       </div>
@@ -386,12 +386,12 @@ export default function WorkTracking() {
         <select value={projectId ?? ''} onChange={(e) => setProjectId(Number(e.target.value))}>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
-              {PROJ_ICONS[p.type] || '⚡'} {p.name} — {p.pole_count} direk · {p.group_count} grup
+              {PROJ_ICONS[p.type] || ''} {p.name} — {p.pole_count} direk · {p.group_count} grup
             </option>
           ))}
         </select>
         <button className="btn btn-sm" onClick={() => { resetProjForm(); setProjModal({ mode: 'new' }); }}>
-          ＋ Yeni Proje
+          + Yeni Proje
         </button>
         {projectId != null && (
           <button
@@ -410,20 +410,20 @@ export default function WorkTracking() {
               setProjModal({ mode: 'rename', proj: p });
             }}
           >
-            ✏️ Ad Değiştir
+            Ad Değiştir
           </button>
         )}
         {projects.length > 1 && (
-          <button className="btn btn-sm btn-danger" onClick={removeProject} title="Projeyi sil">🗑️ Sil</button>
+          <button className="btn btn-sm btn-danger" onClick={removeProject} title="Projeyi sil">Sil</button>
         )}
       </div>
 
       <div className="tabs">
         <button className={tab === 'plan' ? 'active' : ''} onClick={() => setTab('plan')}>
-          📋 İş Planı
+          İş Planı
         </button>
         <button className={tab === 'guzergah' ? 'active' : ''} onClick={() => setTab('guzergah')}>
-          🗺️ Güzergah &amp; Harita
+          Güzergah &amp; Harita
         </button>
       </div>
 
@@ -453,10 +453,10 @@ export default function WorkTracking() {
       </div>
 
       {loading ? (
-        <div className="empty"><span className="empty-ico">⏳</span>Yükleniyor…</div>
+        <div className="empty"><span className="empty-ico"></span>Yükleniyor…</div>
       ) : groups.length === 0 ? (
         <div className="empty">
-          <span className="empty-ico">🔧</span>
+          <span className="empty-ico"></span>
           Henüz iş grubu yok. İlk iş grubunu ekleyin (örn. "ENH Direk Dikim", "Trafo Merkezi Bina").
         </div>
       ) : (
@@ -487,7 +487,7 @@ export default function WorkTracking() {
                   <td style={{ fontWeight: 600 }}>{g.name}</td>
                   <td>
                     {g.segment_from != null ? (
-                      <span className="badge badge-blue">D{g.segment_from} → D{g.segment_to}</span>
+                      <span className="badge badge-blue">D{g.segment_from} D{g.segment_to}</span>
                     ) : (
                       <span className="muted">—</span>
                     )}
@@ -496,15 +496,15 @@ export default function WorkTracking() {
                   <td style={{ minWidth: 130 }}><ProgressBar value={g.progress} mini /></td>
                   <td className="num">
                     {g.done_count}/{g.task_count}
-                    {g.late_count > 0 && <span className="diff-neg" title="Geciken görev"> ⚠️{g.late_count}</span>}
+                    {g.late_count > 0 && <span className="diff-neg" title="Geciken görev"> {g.late_count}</span>}
                   </td>
                   <td className="muted" style={{ whiteSpace: 'nowrap' }}>
-                    {g.planned_start ? fmtDate(g.planned_start) : '—'} → {g.planned_end ? fmtDate(g.planned_end) : '—'}
+                    {g.planned_start ? fmtDate(g.planned_start) : '—'} {g.planned_end ? fmtDate(g.planned_end) : '—'}
                   </td>
                   <td><StatusBadge meta={GROUP_STATUS[g.status]} /></td>
                   <td style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
-                    <button className="icon-btn" title="Düzenle" onClick={() => openEditGroup(g)}>✏️</button>
-                    <button className="icon-btn" title="Sil" onClick={() => removeGroup(g)}>🗑️</button>
+                    <button className="icon-btn" title="Düzenle" onClick={() => openEditGroup(g)}></button>
+                    <button className="icon-btn" title="Sil" onClick={() => removeGroup(g)}></button>
                   </td>
                 </tr>
               ))}
@@ -522,12 +522,12 @@ export default function WorkTracking() {
               </h3>
               {selGroup.notes && <div className="muted" style={{ fontSize: 12.5 }}>{selGroup.notes}</div>}
             </div>
-            <button className="btn btn-accent" onClick={openNewTask}>＋ Görev Ekle</button>
+            <button className="btn btn-accent" onClick={openNewTask}>+ Görev Ekle</button>
           </div>
 
           {groupTasks.length === 0 ? (
             <div className="empty">
-              <span className="empty-ico">📝</span>
+              <span className="empty-ico"></span>
               Bu grupta henüz görev yok.
             </div>
           ) : (
@@ -539,7 +539,7 @@ export default function WorkTracking() {
                     <th>Atanan</th>
                     <th>Termin</th>
                     <th>Öncelik</th>
-                    <th>Durum (tıkla → değiştir)</th>
+                    <th>Durum (tıkla değiştir)</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -550,7 +550,7 @@ export default function WorkTracking() {
                       <tr key={t.id} className={isLate ? 'late-row' : ''}>
                         <td>
                           <div style={{ fontWeight: 600 }}>
-                            {isLate && '⚠️ '}
+                            {isLate && ''}
                             {t.title}
                           </div>
                           {t.description && <div className="muted" style={{ fontSize: 11.5, maxWidth: 320 }}>{t.description}</div>}
@@ -571,8 +571,8 @@ export default function WorkTracking() {
                           </button>
                         </td>
                         <td style={{ whiteSpace: 'nowrap' }}>
-                          <button className="icon-btn" title="Düzenle" onClick={() => openEditTask(t)}>✏️</button>
-                          <button className="icon-btn" title="Sil" onClick={() => removeTask(t)}>🗑️</button>
+                          <button className="icon-btn" title="Düzenle" onClick={() => openEditTask(t)}></button>
+                          <button className="icon-btn" title="Sil" onClick={() => removeTask(t)}></button>
                         </td>
                       </tr>
                     );
@@ -608,14 +608,14 @@ export default function WorkTracking() {
               <div className="field">
                 <label>Proje Tipi</label>
                 <select value={projType} onChange={(e) => setProjType(e.target.value)}>
-                  <option value="enh">⚡ ENH (Enerji Nakil Hattı)</option>
-                  <option value="tm">🏭 TM (Trafo Merkezi)</option>
-                  <option value="ges">☀️ GES (Güneş Enerji Santrali)</option>
-                  <option value="res">💨 RES (Rüzgar Enerji Santrali)</option>
+                  <option value="enh">ENH (Enerji Nakil Hattı)</option>
+                  <option value="tm">TM (Trafo Merkezi)</option>
+                  <option value="ges">GES (Güneş Enerji Santrali)</option>
+                  <option value="res">RES (Rüzgar Enerji Santrali)</option>
                 </select>
               </div>
             </div>
-            
+
             <div className="form-row">
               <div className="field">
                 <label>İşveren</label>
@@ -664,7 +664,7 @@ export default function WorkTracking() {
             <div className="form-row">
               <div className="field">
                 <label>Kod</label>
-                <input value={gForm.code} onChange={gSet('code')} placeholder="Boş → otomatik (WG-01)" />
+                <input value={gForm.code} onChange={gSet('code')} placeholder="Boş otomatik (WG-01)" />
               </div>
               <div className="field">
                 <label>İş Grubu Adı *</label>
@@ -693,7 +693,7 @@ export default function WorkTracking() {
               </div>
             </div>
             <div className="form-hint" style={{ marginTop: -6, marginBottom: 12 }}>
-              Güzergah yüklüyse direk sıra numarası girin (örn. 1 → 30). Bu kesim haritada iş grubunun rengiyle boyanır.
+              Güzergah yüklüyse direk sıra numarası girin (örn. 1 30). Bu kesim haritada iş grubunun rengiyle boyanır.
             </div>
             <div className="form-row">
               <div className="field">

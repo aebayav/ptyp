@@ -110,7 +110,7 @@ function MapView({ poles, route, segments }) {
   if (mapError) {
     return (
       <div className="empty" style={{ border: '1px dashed var(--border)', borderRadius: 12, marginBottom: 16 }}>
-        <span className="empty-ico">🗺️</span>
+        <span className="empty-ico"></span>
         {mapError} — koordinat tablosu aşağıda.
       </div>
     );
@@ -186,7 +186,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
     }
   }
 
-  // Excel/PDF → otomatik KMZ üret + projeye aktar
+  // Excel/PDF otomatik KMZ üret + projeye aktar
   async function uploadGen() {
     if (!genFile) return;
     setBusy(true);
@@ -212,8 +212,8 @@ export default function RouteMap({ embedded = false, projectId = null }) {
           `${d.count} direk bulundu, KMZ üretildi` +
           (d.connection_km != null ? ` · hat ${d.connection_km} km` : '') +
           (d.saved > 0 ? ` · projeye aktarıldı (${d.saved})` : ''),
-        info: okumaBilgisi(d),
       });
+      console.log('[Güzergah]', okumaBilgisi(d));
       setGenFile(null);
       await load();
     } catch (e) {
@@ -267,25 +267,25 @@ export default function RouteMap({ embedded = false, projectId = null }) {
       {!embedded && (
         <div className="page-head">
           <div>
-            <h1>🗺️ Güzergah &amp; Direkler</h1>
+            <h1>Güzergah &amp; Direkler</h1>
             <p className="sub">KMZ dosyasından direk koordinatlarını içe aktarın</p>
           </div>
           {poles.length > 0 && (
             <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn" onClick={() => apiDownload('/api/kmz-generator/from-project?project_id=' + projectId, 'guzergah.kmz')}>⬇️ KMZ İndir</button>
-              <button className="btn" onClick={() => apiDownload('/api/export/poles?project_id=' + projectId, 'ptyp-direkler.xlsx')}>⬇️ Excel İndir</button>
-              <button className="btn" onClick={exportCsv}>⬇️ CSV İndir</button>
-              <button className="btn btn-danger" onClick={clearAll}>🗑️ Temizle</button>
+              <button className="btn" onClick={() => apiDownload('/api/kmz-generator/from-project?project_id=' + projectId, 'guzergah.kmz')}>KMZ İndir</button>
+              <button className="btn" onClick={() => apiDownload('/api/export/poles?project_id=' + projectId, 'ptyp-direkler.xlsx')}>Excel İndir</button>
+              <button className="btn" onClick={exportCsv}>CSV İndir</button>
+              <button className="btn btn-danger" onClick={clearAll}>Temizle</button>
             </div>
           )}
         </div>
       )}
       {embedded && poles.length > 0 && (
         <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-          <button className="btn" onClick={() => apiDownload('/api/kmz-generator/from-project?project_id=' + projectId, 'guzergah.kmz')}>⬇️ KMZ İndir</button>
-          <button className="btn" onClick={() => apiDownload('/api/export/poles?project_id=' + projectId, 'ptyp-direkler.xlsx')}>⬇️ Excel İndir</button>
-          <button className="btn" onClick={exportCsv}>⬇️ CSV İndir</button>
-          <button className="btn btn-danger" onClick={clearAll}>🗑️ Temizle</button>
+          <button className="btn" onClick={() => apiDownload('/api/kmz-generator/from-project?project_id=' + projectId, 'guzergah.kmz')}>KMZ İndir</button>
+          <button className="btn" onClick={() => apiDownload('/api/export/poles?project_id=' + projectId, 'ptyp-direkler.xlsx')}>Excel İndir</button>
+          <button className="btn" onClick={exportCsv}>CSV İndir</button>
+          <button className="btn btn-danger" onClick={clearAll}>Temizle</button>
         </div>
       )}
       <div className="card" style={{ marginBottom: 16 }}>
@@ -294,13 +294,13 @@ export default function RouteMap({ embedded = false, projectId = null }) {
             className={genMode ? 'tab-chip' : 'tab-chip on'}
             onClick={() => { setGenMode(false); setUploadMsg(null); }}
           >
-            🗺️ KMZ / KML Yükle
+            KMZ / KML Yükle
           </button>
           <button
             className={genMode ? 'tab-chip on' : 'tab-chip'}
             onClick={() => { setGenMode(true); setUploadMsg(null); setGenResult(null); }}
           >
-            📄 Excel / PDF → KMZ Üret
+            Excel / PDF → KMZ Üret
           </button>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -317,7 +317,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
                 setUploadMsg(null);
               }}
             />
-            <span className="file-drop-ico">📄</span>
+            <span className="file-drop-ico"></span>
             <span className="file-drop-text" style={{ flex: 1, textAlign: 'left' }}>
               {genMode
                 ? (genFile ? genFile.name : 'Excel, PDF veya TIFF seçin — koordinatlar otomatik algılanır…')
@@ -333,41 +333,31 @@ export default function RouteMap({ embedded = false, projectId = null }) {
                 style={{ padding: '9px 10px', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--bg)' }}
               >
                 <option value="0">Koordinat: Otomatik</option>
-                <option value="0">— WGS84 (Enlem/Boylam)</option>
-                <option value="35">UTM Zone 35</option>
-                <option value="36">UTM Zone 36</option>
                 <option value="37">UTM Zone 37</option>
-                <option value="38">UTM Zone 38</option>
                 <option value="t42">ITRF-96 3°TM (CM 42)</option>
-                <option value="t39">ITRF-96 3°TM (CM 39)</option>
-                <option value="t36">ITRF-96 3°TM (CM 36)</option>
-                <option value="t45">ITRF-96 3°TM (CM 45)</option>
               </select>
               <button className="btn btn-accent" onClick={uploadGen} disabled={busy || !genFile}>
-                {busy ? 'Dönüştürülüyor…' : '⚙️ KMZ Üret ve Aktar'}
+                {busy ? 'Dönüştürülüyor…' : 'KMZ Üret ve Aktar'}
               </button>
             </>
           ) : (
             <button className="btn btn-accent" onClick={upload} disabled={busy || !file}>
-              {busy ? 'Analiz ediliyor…' : '⬆️ Yükle ve Analiz Et'}
+              {busy ? 'Analiz ediliyor…' : 'Yükle ve Analiz Et'}
             </button>
           )}
         </div>
         {uploadMsg && (
           <div className={uploadMsg.type === 'ok' ? 'notice-banner' : 'form-error'} style={{ marginTop: 10, marginBottom: 0 }}>
-            <div>
-              {uploadMsg.text}
-              {genResult && uploadMsg.type === 'ok' && (
-                <button
-                  className="btn btn-sm"
-                  style={{ marginLeft: 10 }}
-                  onClick={() => apiDownload(genResult.kmz, (genResult.file_name || 'guzergah').replace(/\.(xlsx|xls|pdf)$/i, '') + '.kmz')}
-                >
-                  ⬇️ KMZ'yi İndir
-                </button>
-              )}
-            </div>
-            {uploadMsg.info && <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>🔍 {uploadMsg.info}</div>}
+            {uploadMsg.text}
+            {genResult && uploadMsg.type === 'ok' && (
+              <button
+                className="btn btn-sm"
+                style={{ marginLeft: 10 }}
+                onClick={() => apiDownload(genResult.kmz, (genResult.file_name || 'guzergah').replace(/\.(xlsx|xls|pdf)$/i, '') + '.kmz')}
+              >
+                KMZ'yi İndir
+              </button>
+            )}
           </div>
         )}
         {data?.file_name && (
@@ -403,10 +393,10 @@ export default function RouteMap({ embedded = false, projectId = null }) {
       )}
 
       {loading ? (
-        <div className="empty"><span className="empty-ico">⏳</span>Yükleniyor…</div>
+        <div className="empty"><span className="empty-ico"></span>Yükleniyor…</div>
       ) : poles.length === 0 ? (
         <div className="empty">
-          <span className="empty-ico">🗺️</span>
+          <span className="empty-ico"></span>
           Henüz güzergah yüklenmemiş. Google Earth'ten dışa aktardığınız KMZ dosyasını yukarıdan yükleyin.
         </div>
       ) : (

@@ -16,7 +16,7 @@ export default function ProgressPayments() {
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
+
   const [selPayment, setSelPayment] = useState(null);
   const [paymentItems, setPaymentItems] = useState([]);
   const [itemsLoading, setItemsLoading] = useState(false);
@@ -137,9 +137,9 @@ export default function ProgressPayments() {
          notes: 'Geçici'
       });
       // This approach is problematic as it creates a dummy payment.
-      // Better to fetch work groups and calculate locally for the new form, 
+      // Better to fetch work groups and calculate locally for the new form,
       // but the prompt explicitly said to use the `/:id/populate` endpoint.
-      // Since `/:id/populate` requires an ID, for a completely NEW payment 
+      // Since `/:id/populate` requires an ID, for a completely NEW payment
       // that isn't saved yet, it's tricky.
       // Let's implement local fetch for work groups to pre-fill new items.
       const wgs = await api.get(`/api/workgroups?project_id=${projectId}`);
@@ -233,12 +233,12 @@ export default function ProgressPayments() {
     <div>
       <div className="page-head">
         <div>
-          <h1>🧾 Hakediş Yönetimi</h1>
+          <h1>Hakediş Yönetimi</h1>
           <p className="sub">Proje bazlı aylık hakediş hesaplama ve takip</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           {projectId != null && (
-            <button className="btn btn-accent" onClick={openNewModal}>＋ Yeni Hakediş</button>
+            <button className="btn btn-accent" onClick={openNewModal}>+ Yeni Hakediş</button>
           )}
         </div>
       </div>
@@ -273,10 +273,10 @@ export default function ProgressPayments() {
       )}
 
       {loading ? (
-        <div className="empty"><span className="empty-ico">⏳</span>Yükleniyor…</div>
+        <div className="empty"><span className="empty-ico"></span>Yükleniyor…</div>
       ) : payments.length === 0 ? (
         <div className="empty">
-          <span className="empty-ico">🧾</span>
+          <span className="empty-ico"></span>
           Henüz hakediş kaydı yok.
         </div>
       ) : (
@@ -308,9 +308,9 @@ export default function ProgressPayments() {
                     <span className={`badge ${STATUS_META[p.status]?.cls}`}>{STATUS_META[p.status]?.label}</span>
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
-                    <button className="icon-btn" title="Düzenle" onClick={() => openEditModal(p)}>✏️</button>
+                    <button className="icon-btn" title="Düzenle" onClick={() => openEditModal(p)}></button>
                     {p.status === 'draft' && (
-                      <button className="icon-btn" title="Sil" onClick={() => removePayment(p)}>🗑️</button>
+                      <button className="icon-btn" title="Sil" onClick={() => removePayment(p)}></button>
                     )}
                   </td>
                 </tr>
@@ -343,10 +343,10 @@ export default function ProgressPayments() {
           </div>
 
           {itemsLoading ? (
-            <div className="empty">⏳ Kalemler yükleniyor…</div>
+            <div className="empty">Kalemler yükleniyor…</div>
           ) : paymentItems.length === 0 ? (
             <div className="empty">
-              <span className="empty-ico">📝</span>
+              <span className="empty-ico"></span>
               Bu hakedişte kalem yok.
             </div>
           ) : (
@@ -431,7 +431,7 @@ export default function ProgressPayments() {
               <div style={{ display: 'flex', gap: 8 }}>
                 {modal.mode === 'edit' && (
                   <button type="button" className="btn btn-sm" onClick={() => populateItems(modal.payment.id)}>
-                    📋 İş Gruplarından Doldur
+                    İş Gruplarından Doldur
                   </button>
                 )}
                 {modal.mode === 'new' && (
@@ -439,7 +439,7 @@ export default function ProgressPayments() {
                     (İş gruplarından doldurmak için önce taslak olarak kaydedin)
                   </div>
                 )}
-                <button type="button" className="btn btn-sm" onClick={addItem}>＋ Kalem Ekle</button>
+                <button type="button" className="btn btn-sm" onClick={addItem}>+ Kalem Ekle</button>
               </div>
             </div>
 
@@ -523,7 +523,7 @@ export default function ProgressPayments() {
                         />
                       </td>
                       <td>
-                        <button type="button" className="icon-btn" onClick={() => removeItem(idx)}>✕</button>
+                        <button type="button" className="icon-btn" onClick={() => removeItem(idx)}></button>
                       </td>
                     </tr>
                   ))}

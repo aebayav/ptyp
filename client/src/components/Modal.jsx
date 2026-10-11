@@ -10,7 +10,7 @@ export default function Modal({ title, onClose, children }) {
         <div className="modal-head">
           <h2>{title}</h2>
           <button type="button" className="icon-btn" onClick={onClose} title="Kapat">
-            ✕
+
           </button>
         </div>
         <div className="modal-body">{children}</div>

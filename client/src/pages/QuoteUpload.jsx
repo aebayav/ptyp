@@ -37,7 +37,7 @@ export default function QuoteUpload() {
   return (
     <div className="upload-page">
       <div className="upload-head">
-        <span className="brand-logo">⚡</span>
+        <span className="brand-logo"></span>
         <div>
           <h1>PTYP — Teklif Yükleme</h1>
           <p>Elektrik Nakil Hattı &amp; Trafo Merkezi Projesi</p>
@@ -83,7 +83,7 @@ export default function QuoteUpload() {
                     accept=".pdf,.xlsx,.xls,.docx,.csv,.txt"
                     onChange={(e) => setFile(e.target.files?.[0] || null)}
                   />
-                  <span className="file-drop-ico">📄</span>
+                  <span className="file-drop-ico"></span>
                   <span className="file-drop-text">
                     {file ? file.name : 'Dosya seçmek için tıklayın'}
                   </span>
@@ -98,7 +98,7 @@ export default function QuoteUpload() {
         ) : (
           <div className="upload-result">
             <h2>
-              {result.saved_count > 0 ? '✅ Teklifiniz alındı' : '⚠️ Dosya alındı, fiyat eşleşmedi'}
+              {result.saved_count > 0 ? 'Teklifiniz alındı' : 'Dosya alındı, fiyat eşleşmedi'}
             </h2>
             <p className="upload-sub">
               <strong>{result.firm_name}</strong> — {result.file}
@@ -143,14 +143,14 @@ export default function QuoteUpload() {
             )}
 
             <button className="btn" onClick={() => { setResult(null); setFile(null); setFirmName(''); setContact(''); setEmail(''); }}>
-              ← Başka Teklif Yükle
+              Başka Teklif Yükle
             </button>
           </div>
         )}
       </div>
 
       <p className="upload-foot">
-        ⚡ PTYP Proje Yönetim Sistemi — teklifler otomatik analiz edilir
+        PTYP Proje Yönetim Sistemi — teklifler otomatik analiz edilir
       </p>
     </div>
   );

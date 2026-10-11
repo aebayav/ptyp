@@ -57,14 +57,14 @@ export default function SupplierMaterials() {
     <div>
       <div className="page-head">
         <div>
-          <h1>📦 Açık Malzemeler</h1>
+          <h1>Açık Malzemeler</h1>
           <p className="sub">Şu an teklif toplanan malzemeler — teklifinizi gönderin</p>
         </div>
       </div>
 
       {notice && (
         <div className="notice-banner">
-          ✓ {notice}
+          {notice}
         </div>
       )}
 
@@ -88,10 +88,10 @@ export default function SupplierMaterials() {
       </div>
 
       {loading ? (
-        <div className="empty"><span className="empty-ico">⏳</span>Yükleniyor…</div>
+        <div className="empty"><span className="empty-ico"></span>Yükleniyor…</div>
       ) : materials.length === 0 ? (
         <div className="empty">
-          <span className="empty-ico">📭</span>
+          <span className="empty-ico"></span>
           Şu anda teklif toplanan malzeme yok. Daha sonra tekrar kontrol edin.
         </div>
       ) : (
@@ -130,7 +130,7 @@ export default function SupplierMaterials() {
                         </>
                       ) : (
                         <button className="btn btn-sm btn-accent" onClick={() => setModal({ material: m })}>
-                          💬 Teklif Ver
+                          Teklif Ver
                         </button>
                       )}
                     </td>
