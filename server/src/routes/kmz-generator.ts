@@ -132,13 +132,15 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
     let tm3CmUsed: number | null = null;
     if (poles.length === 0 && textLines) {
       let cmsToTry: number[];
+      let provLon: number | null = null;
       if (tm3Cm >= 27 && tm3Cm <= 45) {
         cmsToTry = [tm3Cm];
       } else {
         // Otomatik: dosya adı + belge metninden bölge tespiti → CM öncelik sırası
         const region = detectRegion(`${req.file.originalname}\n${textLines.slice(0, 800)}`);
         cmsToTry = region.cmOrder;
-        if (region.city) console.log(`[KMZ-ÜRET] bölge tespiti: ${region.city}`);
+        provLon = region.provLon;
+        if (region.city) console.log(`[KMZ-ÜRET] bölge tespiti: ${region.city} (resmi CM ${cmsToTry[0]})`);
       }
       for (const cm of cmsToTry) {
         const converted: PolePoint[] = [];
@@ -148,12 +150,19 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
             converted.push({ name: u.name, lat, lon, alt: null });
           }
         }
-        if (converted.length > 0) {
-          poles = converted;
-          tm3CmUsed = cm;
-          console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (CM ${cm}) ile ${converted.length} direk çevrildi`);
-          break;
+        if (converted.length === 0) continue;
+        // İl tespit edildiyse: sonuç il merkezine yakın olmalı (hatlar komşu dilime taşabilir)
+        if (provLon != null) {
+          const meanLon = converted.reduce((s, p) => s + p.lon, 0) / converted.length;
+          if (Math.abs(meanLon - provLon) > 2.5) {
+            console.log(`[KMZ-ÜRET] CM ${cm} elendi: sonuç boylam ${meanLon.toFixed(2)} il merkezinden uzak (${provLon.toFixed(2)})`);
+            continue;
+          }
         }
+        poles = converted;
+        tm3CmUsed = cm;
+        console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (CM ${cm}) ile ${converted.length} direk çevrildi`);
+        break;
       }
     }
 
