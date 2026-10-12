@@ -27,10 +27,12 @@ export default function DocumentKmz() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [file, setFile] = useState(null);
+  const [files, setFiles] = useState([]);
   const [result, setResult] = useState(null);
   const [rows, setRows] = useState([]);
   const [preview, setPreview] = useState(null);
   const [utmZone, setUtmZone] = useState('42'); // ITRF-96 3°TM CM 42 (standart)
+  const [batchProgress, setBatchProgress] = useState(null); // {done, total, log: []}
 
   useEffect(() => {
     api.get('/api/projects')
@@ -40,6 +42,65 @@ export default function DocumentKmz() {
       })
       .catch(() => {});
   }, []);
+
+  // Toplu belge işleme: dosyalar sırayla okunur, direkler birleştirilir
+  async function parseBatch() {
+    if (files.length < 2 || projectId == null) return;
+    setBusy(true);
+    setMsg(null);
+    setResult(null);
+    setPreview(null);
+    setRows([]);
+    const log = [];
+    const collected = [];
+    let firstPreview = null;
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      setBatchProgress({ done: i, total: files.length, log });
+      const fd = new FormData();
+      fd.append('project_id', projectId);
+      fd.append('file', f);
+      fd.append('tm3_cm', utmZone === '0' ? 0 : utmZone);
+      try {
+        const res = await fetch('/api/kmz-generator/parse', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + getToken() },
+          body: fd,
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.error || 'Okuma başarısız.');
+        collected.push(d);
+        if (!firstPreview && d.ocr?.pages?.length) firstPreview = d.ocr.pages[0].preview;
+        log.push(`${i + 1}/${files.length} · ${f.name}: ${d.count} direk ✓`);
+        console.log(`[Belge→KMZ batch ${i + 1}/${files.length}]`, okumaBilgisi(d));
+      } catch (e) {
+        log.push(`${i + 1}/${files.length} · ${f.name}: HATA — ${e.message}`);
+      }
+      setBatchProgress({ done: i + 1, total: files.length, log });
+    }
+    setBatchProgress(null);
+    // Birleştir: aynı noktaya düşen tekrarları (≈15m) ele
+    const all = collected.flatMap((d) => d.poles || []);
+    const merged = [];
+    for (const p of all) {
+      const dup = merged.some((q) => Math.hypot((p.lat - q.lat) * 110900, (p.lon - q.lon) * 87300) < 15);
+      if (!dup) merged.push(p);
+    }
+    if (merged.length < 2) {
+      setMsg({ type: 'err', text: `Toplu işleme tamamlandı ama birleştirilebilir direk bulunamadı (${log.filter((l) => l.includes('HATA')).length} hata).` });
+      setBusy(false);
+      return;
+    }
+    setResult({ count: merged.length, poles: merged, file_name: `${files.length} belge` });
+    setRows(merged.map((p) => ({ name: p.name, lat: String(p.lat), lon: String(p.lon) })));
+    if (firstPreview) setPreview(firstPreview);
+    const hatalar = log.filter((l) => l.includes('HATA')).length;
+    setMsg({
+      type: 'ok',
+      text: `${files.length} belge işlendi → ${merged.length} direk birleştirildi` + (hatalar > 0 ? ` · ${hatalar} belge okunamadı` : '') + ' — kontrol edip KMZ üretin',
+    });
+    setBusy(false);
+  }
 
   async function parseFile() {
     if (!file || projectId == null) return;
@@ -121,7 +182,12 @@ export default function DocumentKmz() {
     try {
       const d = await api.post('/api/kmz-generator/from-rows', {
         project_id: projectId,
-        doc_name: file ? file.name.replace(/\.[^.]+$/, '') : 'belge',
+        doc_name:
+          files.length > 1
+            ? `${files.length}-belge`
+            : file
+              ? file.name.replace(/\.[^.]+$/, '')
+              : 'belge',
         poles: valid,
       });
       setResult((prev) => ({ ...prev, kmz: d.kmz }));
@@ -171,20 +237,38 @@ export default function DocumentKmz() {
             <input
               type="file"
               accept=".xlsx,.xls,.pdf,.tif,.tiff"
+              multiple
               onChange={(e) => {
-                setFile(e.target.files?.[0] || null);
+                const list = [...(e.target.files || [])];
+                setFiles(list);
+                setFile(list.length === 1 ? list[0] : null);
                 setMsg(null);
               }}
             />
             <span className="file-drop-ico"></span>
             <span className="file-drop-text" style={{ flex: 1, textAlign: 'left' }}>
-              {file ? file.name : 'Excel, PDF veya TIFF seçin — metin katmanı, taranmış belge, OCR otomatik seçilir…'}
+              {files.length > 1
+                ? `${files.length} belge seçildi (toplu işleme): ${files.map((f) => f.name).join(', ')}`
+                : file
+                  ? file.name
+                  : 'Excel, PDF veya TIFF seçin — birden çok dosya seçilebilir, metin katmanı / taranmış belge / OCR otomatik seçilir…'}
             </span>
           </label>
-          <button className="btn btn-accent" onClick={parseFile} disabled={busy || !file || projectId == null}>
-            {busy ? 'Okunuyor (OCR sürebilir)…' : 'Oku ve Analiz Et'}
+          <button className="btn btn-accent" onClick={files.length > 1 ? parseBatch : parseFile} disabled={busy || files.length === 0 || projectId == null}>
+            {busy
+              ? batchProgress
+                ? `İşleniyor ${batchProgress.done}/${batchProgress.total}…`
+                : 'Okunuyor (OCR sürebilir)…'
+              : files.length > 1
+                ? `Toplu İşle (${files.length} belge)`
+                : 'Oku ve Analiz Et'}
           </button>
         </div>
+        {batchProgress && (
+          <div className="notice-banner" style={{ marginTop: 10, marginBottom: 0, whiteSpace: 'pre-wrap', fontSize: 12.5 }}>
+            {batchProgress.log.join('\n')}
+          </div>
+        )}
         {msg && (
           <div className={msg.type === 'ok' ? 'notice-banner' : 'form-error'} style={{ marginTop: 10, marginBottom: 0 }}>
             {msg.text}
