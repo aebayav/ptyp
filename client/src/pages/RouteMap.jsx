@@ -49,9 +49,13 @@ function MapView({ poles, route, segments }) {
         }
         const map = L.map(divRef.current, { scrollWheelZoom: true });
         mapRef.current = map;
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '© OpenStreetMap',
+        // OSM tile sunucusu yayın alan adlarını 403 "usage policy" ile engelliyor;
+        // CARTO, OSM verisini herkese açık servis eder ve engelleme yapmaz.
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+          attribution: '© OpenStreetMap © CARTO',
           maxZoom: 19,
+          referrerPolicy: 'no-referrer',
+          crossOrigin: true,
         }).addTo(map);
 
         const bounds = [];
