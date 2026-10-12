@@ -31,7 +31,7 @@ export default function DocumentKmz() {
   const [result, setResult] = useState(null);
   const [rows, setRows] = useState([]);
   const [preview, setPreview] = useState(null);
-  const [utmZone, setUtmZone] = useState('42'); // ITRF-96 3°TM CM 42 (standart)
+  const [utmZone, setUtmZone] = useState('0'); // her zaman otomatik algıla (il tablosu + doğrulama)
   const [batchProgress, setBatchProgress] = useState(null); // {done, total, log: []}
 
   useEffect(() => {
@@ -236,16 +236,7 @@ export default function DocumentKmz() {
           ))}
         </select>
         <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>KOORDİNAT:</span>
-        <select value={utmZone} onChange={(e) => setUtmZone(e.target.value)} title="ITRF-96 3° TM orta meridyen seçimi">
-          <option value="0">ITRF-96 3°TM — Otomatik Algıla</option>
-          <option value="27">ITRF-96 3°TM (CM 27°)</option>
-          <option value="30">ITRF-96 3°TM (CM 30°)</option>
-          <option value="33">ITRF-96 3°TM (CM 33°)</option>
-          <option value="36">ITRF-96 3°TM (CM 36°)</option>
-          <option value="39">ITRF-96 3°TM (CM 39°)</option>
-          <option value="42">ITRF-96 3°TM (CM 42°)</option>
-          <option value="45">ITRF-96 3°TM (CM 45°)</option>
-        </select>
+        <span style={{ fontSize: 12.5 }}>ITRF-96 3°TM — Otomatik (il tablosuna göre)</span>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>

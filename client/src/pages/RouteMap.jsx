@@ -131,7 +131,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
   const [genFile, setGenFile] = useState(null);
   const [uploadMsg, setUploadMsg] = useState(null);
   const [genResult, setGenResult] = useState(null);
-  const [utmZone, setUtmZone] = useState('42'); // ITRF-96 3°TM CM 42 (standart)
+  const [utmZone, setUtmZone] = useState('0'); // her zaman otomatik algıla (il tablosu + doğrulama)
   const [refFile, setRefFile] = useState(null);
   const [calibBusy, setCalibBusy] = useState(false);
 
@@ -373,21 +373,6 @@ export default function RouteMap({ embedded = false, projectId = null }) {
           </label>
           {genMode ? (
             <>
-              <select
-                value={utmZone}
-                onChange={(e) => setUtmZone(e.target.value)}
-                title="ITRF-96 3° TM orta meridyen seçimi"
-                style={{ padding: '9px 10px', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--bg)' }}
-              >
-                <option value="0">ITRF-96 3°TM — Otomatik Algıla</option>
-                <option value="27">ITRF-96 3°TM (CM 27°)</option>
-                <option value="30">ITRF-96 3°TM (CM 30°)</option>
-                <option value="33">ITRF-96 3°TM (CM 33°)</option>
-                <option value="36">ITRF-96 3°TM (CM 36°)</option>
-                <option value="39">ITRF-96 3°TM (CM 39°)</option>
-                <option value="42">ITRF-96 3°TM (CM 42°)</option>
-                <option value="45">ITRF-96 3°TM (CM 45°)</option>
-              </select>
               <button className="btn btn-accent" onClick={uploadGen} disabled={busy || !genFile}>
                 {busy ? 'Dönüştürülüyor…' : 'KMZ Üret ve Aktar'}
               </button>
