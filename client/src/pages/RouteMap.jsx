@@ -49,13 +49,11 @@ function MapView({ poles, route, segments }) {
         }
         const map = L.map(divRef.current, { scrollWheelZoom: true });
         mapRef.current = map;
-        // OSM tile sunucusu yayın alan adlarını 403 "usage policy" ile engelliyor;
-        // CARTO, OSM verisini herkese açık servis eder ve engelleme yapmaz.
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-          attribution: '© OpenStreetMap © CARTO',
+        // OSM ve CARTO yayın alan adlarına 403/api-key uyguluyor;
+        // Esri World Street Map anahtarsız, her bölgede açık.
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+          attribution: 'Tiles © Esri — Source: Esri, HERE, Garmin, OpenStreetMap contributors',
           maxZoom: 19,
-          referrerPolicy: 'no-referrer',
-          crossOrigin: true,
         }).addTo(map);
 
         const bounds = [];
