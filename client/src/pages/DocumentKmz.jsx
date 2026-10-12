@@ -43,6 +43,26 @@ export default function DocumentKmz() {
       .catch(() => {});
   }, []);
 
+  function removeFile(i) {
+    setFiles((prev) => {
+      const next = prev.filter((_, idx) => idx !== i);
+      setFile(next.length === 1 ? next[0] : null);
+      return next;
+    });
+    setMsg(null);
+  }
+
+  function moveFile(i, dir) {
+    setFiles((prev) => {
+      const j = i + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      setFile(next.length === 1 ? next[0] : null);
+      return next;
+    });
+  }
+
   // Toplu belge işleme: dosyalar sırayla okunur, direkler birleştirilir
   async function parseBatch() {
     if (files.length < 2 || projectId == null) return;
@@ -239,19 +259,26 @@ export default function DocumentKmz() {
               accept=".xlsx,.xls,.pdf,.tif,.tiff"
               multiple
               onChange={(e) => {
-                const list = [...(e.target.files || [])];
-                setFiles(list);
-                setFile(list.length === 1 ? list[0] : null);
+                const picked = [...(e.target.files || [])];
+                if (!picked.length) return;
+                setFiles((prev) => {
+                  // aynı dosya iki kez eklenmesin (ad + boyut)
+                  const next = [...prev];
+                  for (const f of picked) {
+                    if (!next.some((x) => x.name === f.name && x.size === f.size)) next.push(f);
+                  }
+                  setFile(next.length === 1 ? next[0] : null);
+                  return next;
+                });
                 setMsg(null);
+                e.target.value = '';
               }}
             />
             <span className="file-drop-ico"></span>
             <span className="file-drop-text" style={{ flex: 1, textAlign: 'left' }}>
-              {files.length > 1
-                ? `${files.length} belge seçildi (toplu işleme): ${files.map((f) => f.name).join(', ')}`
-                : file
-                  ? file.name
-                  : 'Excel, PDF veya TIFF seçin — birden çok dosya seçilebilir, metin katmanı / taranmış belge / OCR otomatik seçilir…'}
+              {files.length > 0
+                ? `Listeye ${files.length} belge eklendi — devam etmek için tekrar tıklayın`
+                : 'Belge ekle — Excel, PDF veya TIFF; birden çok seçilebilir, tek tek de eklenebilir…'}
             </span>
           </label>
           <button className="btn btn-accent" onClick={files.length > 1 ? parseBatch : parseFile} disabled={busy || files.length === 0 || projectId == null}>
@@ -264,6 +291,22 @@ export default function DocumentKmz() {
                 : 'Oku ve Analiz Et'}
           </button>
         </div>
+        {files.length > 0 && (
+          <div className="card" style={{ marginTop: 10, marginBottom: 0, padding: 10 }}>
+            <div className="muted" style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+              İŞLEME SIRASI — oklarla değiştirin, sil ile çıkarın
+            </div>
+            {files.map((f, i) => (
+              <div key={`${f.name}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: i === files.length - 1 ? 'none' : '1px solid var(--border)' }}>
+                <span style={{ minWidth: 22, fontWeight: 700, color: 'var(--muted)' }}>{i + 1}.</span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                <button className="btn btn-sm" onClick={() => moveFile(i, -1)} disabled={i === 0 || busy} title="Yukarı taşı">↑</button>
+                <button className="btn btn-sm" onClick={() => moveFile(i, 1)} disabled={i === files.length - 1 || busy} title="Aşağı taşı">↓</button>
+                <button className="btn btn-sm btn-danger" onClick={() => removeFile(i)} disabled={busy} title="Listeden çıkar">Sil</button>
+              </div>
+            ))}
+          </div>
+        )}
         {batchProgress && (
           <div className="notice-banner" style={{ marginTop: 10, marginBottom: 0, whiteSpace: 'pre-wrap', fontSize: 12.5 }}>
             {batchProgress.log.join('\n')}
