@@ -91,8 +91,8 @@ PAGE_PROMPT = (
 ROW_PROMPT = (
     "Bu görüntüde solda direk numarası, sağda iki koordinat değeri (Y ve X) var. "
     "Şu formatta tek satır yaz: DIR | Y | X\n"
-    "DIR direk numarası (ör. D-14, P3, PB1, 5, Portal), Y ve X 6-7 haneli koordinat sayıları. "
-    "Sayıları dikkatle, aynen koru; uydurma. Başka bir şey yazma."
+    "DIR direk numarası (1-3 basamaklı sayı, ör. 41, 12, D-14, PB1) — TÜM basamaklarını eksiksiz yaz. "
+    "Y ve X 6-7 haneli koordinat sayıları, ondalık kısmı dahil aynen koru; uydurma. Başka bir şey yazma."
 )
 
 COORD_RE = re.compile(r"\b\d{6,7}(?:[.,]\d{1,4})?\b")
@@ -123,6 +123,13 @@ def parse_glm_line(line: str) -> dict | None:
         m2 = re.search(r"\b\d{1,4}\b", rest)
         if m2:
             pole = m2.group(0)
+            # DTL tablolarında direk no iki ayrı hücrede yazılır (onlar | birler):
+            # GLM '4 1' diye okur → bitişik '41' yap
+            if len(pole) == 1:
+                tail = rest[m2.end() :]
+                m3 = re.search(r"\b(\d)\b", tail)
+                if m3:
+                    pole = pole + m3.group(1)
     if len(coords) >= 2:
         return {"pole": pole, "coords": [coords[-2], coords[-1]], "text": text}
     return {"pole": pole, "coords": coords, "text": text, "weak": True}
@@ -236,22 +243,32 @@ def cells_from_parsed(parsed: dict) -> list[dict]:
 
 def compose_band(band_img: np.ndarray) -> np.ndarray:
     """Direk sütunu (sol) + koordinat sütunları (sağ) → tek odaklı görüntü.
-    Küçük yazıyı büyüt: yükseklik hedefi 96px (eski 64px'in 1.5 katı),
-    büyütme katsayısı en çok 3x, genişlik en çok 2400px."""
+    Küçük yazıyı büyüt: yükseklik hedefi 128px, büyütme en çok 4x,
+    genişlik en çok 2400px."""
     h, w = band_img.shape[:2]
     pole_crop = band_img[:, 0 : max(1, int(w * 0.20))]
     coord_crop = band_img[:, int(w * 0.55) :]
     gap = np.full((h, 30, 3), 255, np.uint8)
     composed = np.hstack([pole_crop, gap, coord_crop])
     scale = 1.0
-    if composed.shape[0] < 96:
-        scale = max(scale, 96 / composed.shape[0])
+    if composed.shape[0] < 128:
+        scale = max(scale, 128 / composed.shape[0])
     if composed.shape[1] * scale > 2400:
         scale = min(scale, 2400 / composed.shape[1])
-    scale = min(scale, 3.0)
+    scale = min(scale, 4.0)
     if scale > 1.0:
         composed = cv2.resize(composed, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
     return composed
+
+
+def _band_internal_gap(bbin: np.ndarray) -> int | None:
+    """Bant içindeki en derin yatay boşluk (birleşik bantları bölmek için)."""
+    proj = (bbin > 0).sum(axis=1)
+    h = len(proj)
+    mid_lo, mid_hi = int(h * 0.2), int(h * 0.8)
+    if mid_hi - mid_lo < 4:
+        return None
+    return mid_lo + int(np.argmin(proj[mid_lo:mid_hi]))
 
 
 async def _read_band(original: np.ndarray, y0: int, y1: int, rows: list[list[dict]]) -> None:
@@ -281,6 +298,32 @@ async def _read_band(original: np.ndarray, y0: int, y1: int, rows: list[list[dic
         rows.append(cells)
 
 
+def _finalize_rows(rows: list[list[dict]]) -> list[list[dict]]:
+    """DTL tablolarında direkler sıralıdır (1'er artar) ve güzergah northing'de
+    tekdüze ilerler: satırları northing'e göre sırala, direk numarasını diziden
+    tamamla (çapa = ilk okunan sayı)."""
+    valid = [r for r in rows if len(r) >= 3]
+    if len(valid) < 3:
+        return rows
+    try:
+        n0 = float(valid[0][2]["text"].replace(",", "."))
+        n1 = float(valid[-1][2]["text"].replace(",", "."))
+        desc = n0 > n1
+        valid.sort(key=lambda r: float(r[2]["text"].replace(",", ".")), reverse=desc)
+    except (ValueError, IndexError):
+        return rows
+    anchor = None
+    for i, r in enumerate(valid):
+        m = re.fullmatch(r"\d{1,3}", r[0]["text"].strip())
+        if m:
+            anchor = int(m.group(0)) - i
+            break
+    if anchor is not None:
+        for i, r in enumerate(valid):
+            r[0]["text"] = str(anchor + i)
+    return valid + [r for r in rows if len(r) < 3]
+
+
 async def ocr_page_glm(original: np.ndarray) -> tuple[list[list[dict]], int, int]:
     """Bir sayfayı GLM-OCR ile oku.
     - Seyrek sayfa (≤12 bant): önce tüm sayfa, gerekirse bant bant.
@@ -302,22 +345,25 @@ async def ocr_page_glm(original: np.ndarray) -> tuple[list[list[dict]], int, int
             rows.append(cells_from_parsed(parsed))
         valid = sum(1 for r in rows if len(r) >= 3)
         if valid >= max(2, len(bands) - 2):
-            return rows, len(bands), 0
+            return _finalize_rows(rows), len(bands), 0
         log.info("sayfa okuması zayıf (geçerli=%d, bant=%d) → bant bant oku", valid, len(bands))
         rows = []
 
     for y0, y1 in bands:
-        # Birleşik bantları ikiye böl (2 katından uzunsa 2 satır demektir)
+        # Birleşik bantları İÇ BOŞLUKTAN böl (kör orta nokta satırı keser)
         y0, y1 = int(y0), int(y1)
         if y1 - y0 > 2 * min(60, max(20, int(np.median([b[1] - b[0] for b in bands])))):
-            mid = (y0 + y1) // 2
+            band_gray = cv2.cvtColor(original[y0:y1], cv2.COLOR_RGB2GRAY)
+            _, bbin = cv2.threshold(band_gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+            gap_y = _band_internal_gap(bbin)
+            mid = y0 + gap_y if gap_y is not None else (y0 + y1) // 2
             for a0, a1 in ((y0, mid), (mid, y1)):
                 await _read_band(original, a0, a1, rows)
                 band_reads += 1
             continue
         await _read_band(original, y0, y1, rows)
         band_reads += 1
-    return rows, len(bands), band_reads
+    return _finalize_rows(rows), len(bands), band_reads
 
 
 # ---------- Uç noktalar ----------
