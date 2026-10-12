@@ -7,6 +7,7 @@
 #   OLLAMA_URL=http://127.0.0.1:11434 VISION_MODEL=glm-ocr \
 #     .venv/bin/uvicorn app:app --host 127.0.0.1 --port 8787
 import base64
+import asyncio
 import io
 import os
 import logging
@@ -132,7 +133,7 @@ async def glm_read(images_b64: list[str], prompt: str, num_predict: int, timeout
     if OLLAMA_ATTEMPTS <= 0:
         return None
     last_err = ""
-    for attempt in range(OLLAMA_ATTEMPTS):
+    for attempt in range(max(1, OLLAMA_ATTEMPTS)):
         try:
             async with httpx.AsyncClient(timeout=timeout or OLLAMA_TIMEOUT) as client:
                 r = await client.post(
@@ -153,20 +154,15 @@ async def glm_read(images_b64: list[str], prompt: str, num_predict: int, timeout
             last_err = f"HTTP {r.status_code}"
         except Exception as e:
             last_err = str(e)
-    log.warning("glm_read başarısız (%s): %s", OLLAMA_ATTEMPTS, last_err)
+            if attempt + 1 < max(1, OLLAMA_ATTEMPTS):
+                await asyncio.sleep(2 * (attempt + 1))  # geçici bağlantı kesintileri için geri çekilme
+    log.warning("glm_read başarısız (%d): %s", max(1, OLLAMA_ATTEMPTS), last_err)
     return None
 
 
-def row_bands(gray: np.ndarray, min_h: int = 8) -> list[tuple[int, int]]:
-    """Satır bantları: kural çizgilerini sök, kalan mürekkebi genişlik yüzdesiyle
-    izdüşümle (kısa dikey kalıntılar boşluğu kapatamaz)."""
-    h, w = gray.shape
-    _, bin_img = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    horiz = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (max(16, w // 4), 1)))
-    vert = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(16, h // 4))))
-    cleaned = cv2.subtract(cv2.subtract(bin_img, horiz), vert)
-    # Satır boşluğu: genişliğin %2'sinden azında mürekkep varsa boşluktur
-    proj_frac = (cleaned > 0).sum(axis=1) / max(w, 1)
+def _bands_from_gaps(proj_frac: np.ndarray, min_h: int) -> list[tuple[int, int]]:
+    """Genişliğin %2'sinden az mürekkep = boşluk (seyrek belgelerde çalışır)."""
+    h = len(proj_frac)
     bands = []
     start = None
     for y in range(h):
@@ -178,6 +174,46 @@ def row_bands(gray: np.ndarray, min_h: int = 8) -> list[tuple[int, int]]:
             start = None
     if start is not None and h - start >= min_h:
         bands.append((max(0, start - 4), h))
+    return bands
+
+
+def _bands_from_local_min(proj_frac: np.ndarray, min_h: int) -> list[tuple[int, int]]:
+    """Yoğun tablolarda boşluklar mutlak sıfıra inmez; satır araları göreli
+    çukurdur → yerel minimumlar satır sınırıdır."""
+    n = len(proj_frac)
+    win = 12
+    kernel = np.ones(2 * win + 1) / (2 * win + 1)
+    sm = np.convolve(proj_frac, kernel, "same")
+    local_min = (proj_frac <= sm) & (proj_frac < 0.04)
+    idx = [int(y) for y in np.where(local_min)[0]]
+    bounds = [0]
+    for y in idx:
+        if y - bounds[-1] >= 14:
+            bounds.append(y)
+    bounds.append(n)
+    bands = []
+    for a, b in zip(bounds, bounds[1:]):
+        if b - a >= min_h:
+            bands.append((a + 1, b - 1))
+    return bands
+
+
+def row_bands(gray: np.ndarray, min_h: int = 8) -> list[tuple[int, int]]:
+    """Satır bantları: kural çizgilerini sök; önce mutlak boşluk,
+    dev bant kalırsa yerel minimum segmentasyonu."""
+    h, w = gray.shape
+    _, bin_img = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    horiz = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (max(16, w // 4), 1)))
+    vert = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(16, h // 4))))
+    cleaned = cv2.subtract(cv2.subtract(bin_img, horiz), vert)
+    proj_frac = (cleaned > 0).sum(axis=1) / max(w, 1)
+
+    bands = _bands_from_gaps(proj_frac, min_h)
+    # Yoğun tablo: dev bantlar birleşik satır demektir → yerel minimum yöntemi
+    if not bands or len(bands) < 4 or max(b[1] - b[0] for b in bands) > 200:
+        alt = _bands_from_local_min(proj_frac, min_h)
+        if len(alt) > len(bands):
+            bands = alt
     return bands
 
 
@@ -199,15 +235,50 @@ def cells_from_parsed(parsed: dict) -> list[dict]:
 
 
 def compose_band(band_img: np.ndarray) -> np.ndarray:
-    """Direk sütunu (sol) + koordinat sütunları (sağ) → tek odaklı görüntü."""
+    """Direk sütunu (sol) + koordinat sütunları (sağ) → tek odaklı görüntü.
+    Küçük yazıyı büyüt: yükseklik hedefi 96px (eski 64px'in 1.5 katı),
+    büyütme katsayısı en çok 3x, genişlik en çok 2400px."""
     h, w = band_img.shape[:2]
     pole_crop = band_img[:, 0 : max(1, int(w * 0.20))]
     coord_crop = band_img[:, int(w * 0.55) :]
     gap = np.full((h, 30, 3), 255, np.uint8)
     composed = np.hstack([pole_crop, gap, coord_crop])
-    if composed.shape[0] < 64:
-        composed = cv2.resize(composed, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+    scale = 1.0
+    if composed.shape[0] < 96:
+        scale = max(scale, 96 / composed.shape[0])
+    if composed.shape[1] * scale > 2400:
+        scale = min(scale, 2400 / composed.shape[1])
+    scale = min(scale, 3.0)
+    if scale > 1.0:
+        composed = cv2.resize(composed, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
     return composed
+
+
+async def _read_band(original: np.ndarray, y0: int, y1: int, rows: list[list[dict]]) -> None:
+    """Tek bantı kompozit görüntü olarak GLM'e okutup satır listesine ekle."""
+    band_img = original[y0:y1]
+    if band_img.shape[0] < 8:
+        return
+    # Gürültü/boş bantları atla (mürekkep yoğunluğu çok düşükse okunacak şey yoktur)
+    band_gray = cv2.cvtColor(band_img, cv2.COLOR_RGB2GRAY)
+    _, bbin = cv2.threshold(band_gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    if (bbin > 0).mean() < 0.004:
+        return
+    # Direk + koordinat sütunlarını odaklı kompozit görüntüde GLM'e sor
+    composed = compose_band(band_img)
+    line = await glm_read([jpeg_b64(composed, max_w=2000)], ROW_PROMPT, 160)
+    parsed = parse_glm_line(line or "")
+    if parsed is None:
+        return
+    if parsed.get("weak"):
+        # Yalnızca koordinat kanıtı içeren zayıf satırları tut;
+        # prompt yankısı/başlık gürültüsünü at
+        t = parsed["text"].lower()
+        if not COORD_RE.search(parsed["text"]) or any(k in t for k in ECHO_WORDS):
+            return
+    cells = cells_from_parsed(parsed)
+    if cells:
+        rows.append(cells)
 
 
 async def ocr_page_glm(original: np.ndarray) -> tuple[list[list[dict]], int, int]:
@@ -236,30 +307,16 @@ async def ocr_page_glm(original: np.ndarray) -> tuple[list[list[dict]], int, int
         rows = []
 
     for y0, y1 in bands:
-        band_img = original[y0:y1]
-        if band_img.shape[0] < 8:
+        # Birleşik bantları ikiye böl (2 katından uzunsa 2 satır demektir)
+        y0, y1 = int(y0), int(y1)
+        if y1 - y0 > 2 * min(60, max(20, int(np.median([b[1] - b[0] for b in bands])))):
+            mid = (y0 + y1) // 2
+            for a0, a1 in ((y0, mid), (mid, y1)):
+                await _read_band(original, a0, a1, rows)
+                band_reads += 1
             continue
-        # Gürültü/boş bantları atla (mürekkep yoğunluğu çok düşükse okunacak şey yoktur)
-        band_gray = cv2.cvtColor(band_img, cv2.COLOR_RGB2GRAY)
-        _, bbin = cv2.threshold(band_gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        if (bbin > 0).mean() < 0.004:
-            continue
-        # Direk + koordinat sütunlarını odaklı kompozit görüntüde GLM'e sor
-        composed = compose_band(band_img)
-        line = await glm_read([jpeg_b64(composed, max_w=2000)], ROW_PROMPT, 160)
+        await _read_band(original, y0, y1, rows)
         band_reads += 1
-        parsed = parse_glm_line(line or "")
-        if parsed is None:
-            continue
-        if parsed.get("weak"):
-            # Yalnızca koordinat kanıtı içeren zayıf satırları tut;
-            # prompt yankısı/başlık gürültüsünü at
-            t = parsed["text"].lower()
-            if not COORD_RE.search(parsed["text"]) or any(k in t for k in ECHO_WORDS):
-                continue
-        cells = cells_from_parsed(parsed)
-        if cells:
-            rows.append(cells)
     return rows, len(bands), band_reads
 
 

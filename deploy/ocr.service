@@ -7,7 +7,7 @@ User=turguz
 WorkingDirectory=/home/turguz/ptyp/ocr-service
 Environment=OLLAMA_URL=http://127.0.0.1:11434
 Environment=VISION_MODEL=glm-ocr
-Environment=OLLAMA_ATTEMPTS=1
+Environment=OLLAMA_ATTEMPTS=2
 ExecStart=/home/turguz/ptyp/ocr-service/.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8787
 Restart=always
 RestartSec=5
