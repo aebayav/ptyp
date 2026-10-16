@@ -202,6 +202,8 @@ export function tm3ToWgs84(easting: number, northing: number, cm: number): { lat
   return tmToWgs84(easting, northing, cm, 1.0);
 }
 
+const POLE_TOKEN_RE = /^(?:portal|(?:d\s*p|p\s*b|d\s*m|d|p)[\s._\-]?\d{1,4}|\d{1,4}|[A-Za-z]{1,2}\d{1,4})$/i;
+
 // Satırlardan UTM koordinat çiftleri (easting ~6 hane, northing ~7 hane)
 // Türkçe ondalık virgülü desteklenir (592259,15 → 592259.15)
 export function parseUtmLines(text: string): { name: string; easting: number; northing: number }[] {
@@ -209,15 +211,14 @@ export function parseUtmLines(text: string): { name: string; easting: number; no
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
-    const m = line.match(/\b(\d{6})(?:[.,](\d{1,2}))?[\s|;,]+(\d{7})(?:[.,](\d{1,2}))?\b/);
+    const m = line.match(/\b(\d{6})(?:[.,](\d{1,4}))?[\s|;,]+(\d{7})(?:[.,](\d{1,4}))?\b/);
     if (!m) continue;
     const east = Number(m[1]) + (m[2] ? Number('0.' + m[2]) : 0);
     const north = Number(m[3]) + (m[4] ? Number('0.' + m[4]) : 0);
     if (east < 100000 || east > 900000) continue;
     if (north < 3000000 || north > 6000000) continue; // Türkiye kuzey aralığı
-    const firstWord = line.split(/\s+/)[0].replace(/[.:;]+$/, '');
-    // Direk no desenleri: "D-1", "DP-3", "P5", "d.2", "55", "A3" vb.
-    const nameUtm = /^(?:d\s*p|d|p)[\s._\-]?\d+$|^\d{1,4}$|^[A-Za-z]\d{1,4}$/i.test(firstWord) ? cleanName(firstWord) : '';
+    const firstWord = line.split(/\s+/)[0].replace(/[.:;|]+$/, '');
+    const nameUtm = POLE_TOKEN_RE.test(firstWord) ? cleanName(firstWord) : '';
     out.push({ name: nameUtm, easting: east, northing: north });
   }
   return out;
@@ -231,8 +232,8 @@ export function parseTm3Lines(text: string): { name: string; easting: number; no
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
-    // 7 haneli (önekli) veya 6 haneli easting + 7 haneli northing
-    const m = line.match(/\b(\d{7})(?:[.,](\d{1,2}))?[\s|;,]+(\d{7})(?:[.,](\d{1,2}))?\b/);
+    // 7 haneli (önekli) veya 6 haneli easting + 7 haneli northing (veya tersi 7+6)
+    const m = line.match(/\b(\d{7})(?:[.,](\d{1,4}))?[\s|;,]+(\d{7})(?:[.,](\d{1,4}))?\b/);
     let east: number | null = null;
     let north: number | null = null;
     if (m) {
@@ -241,17 +242,22 @@ export function parseTm3Lines(text: string): { name: string; easting: number; no
       // Önekli easting (dilim no + 6 hane) → öneki sök
       east = first >= 3000000 ? first % 1000000 : null;
     } else {
-      const m2 = line.match(/\b(\d{6})(?:[.,](\d{1,2}))?[\s|;,]+(\d{7})(?:[.,](\d{1,2}))?\b/);
-      if (!m2) continue;
-      east = Number(m2[1]) + (m2[2] ? Number('0.' + m2[2]) : 0);
-      north = Number(m2[3]) + (m2[4] ? Number('0.' + m2[4]) : 0);
+      const m2 = line.match(/\b(\d{6})(?:[.,](\d{1,4}))?[\s|;,]+(\d{7})(?:[.,](\d{1,4}))?\b/);
+      if (m2) {
+        east = Number(m2[1]) + (m2[2] ? Number('0.' + m2[2]) : 0);
+        north = Number(m2[3]) + (m2[4] ? Number('0.' + m2[4]) : 0);
+      } else {
+        const m3 = line.match(/\b(\d{7})(?:[.,](\d{1,4}))?[\s|;,]+(\d{6})(?:[.,](\d{1,4}))?\b/);
+        if (!m3) continue;
+        north = Number(m3[1]) + (m3[2] ? Number('0.' + m3[2]) : 0);
+        east = Number(m3[3]) + (m3[4] ? Number('0.' + m3[4]) : 0);
+      }
     }
     if (east == null || north == null) continue;
     if (east < 100000 || east > 900000) continue;
     if (north < 3000000 || north > 6000000) continue;
-    const firstWord = line.split(/\s+/)[0].replace(/[.:;]+$/, '');
-    // Direk no desenleri: "D-1", "DP-3", "P5", "d.2", "55", "A3" vb.
-    const nameTm = /^(?:d\s*p|d|p)[\s._\-]?\d+$|^\d{1,4}$|^[A-Za-z]\d{1,4}$/i.test(firstWord) ? cleanName(firstWord) : '';
+    const firstWord = line.split(/\s+/)[0].replace(/[.:;|]+$/, '');
+    const nameTm = POLE_TOKEN_RE.test(firstWord) ? cleanName(firstWord) : '';
     out.push({ name: nameTm, easting: east, northing: north });
   }
   return out;
