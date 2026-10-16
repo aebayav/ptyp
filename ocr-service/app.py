@@ -47,7 +47,9 @@ CONF_THRESHOLD = float(os.environ.get("CONF_THRESHOLD", "0.55"))
 OLLAMA_ATTEMPTS = int(os.environ.get("OLLAMA_ATTEMPTS", "1"))
 OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "240"))
 # Aynı anda Ollama'ya gönderilecek bant isteği (OLLAMA_NUM_PARALLEL ile uyumlu tutun)
-OCR_CONCURRENCY = max(1, int(os.environ.get("OCR_CONCURRENCY", "2")))
+# Ollama tek modeli sırayla işler; 2 eşzamanlı istek 1.3B f16 modelde
+# llama-server çökmelerine yol açtı (HTTP 500 + bağlantı kopması) → 1 kalmalı
+OCR_CONCURRENCY = max(1, int(os.environ.get("OCR_CONCURRENCY", "1")))
 # PDF render ölçeği (2.0 ≈ 144 dpi)
 PDF_SCALE = float(os.environ.get("PDF_SCALE", "2.0"))
 # Sayfa medyanından bu kadar metre sapan koordinat şüpheli sayılır
@@ -763,17 +765,17 @@ async def ocr_page_glm(original: np.ndarray) -> tuple[list[list[dict]], int, int
     bands = prep.bands
     log.info("hazırlık: bant=%d eğim=%.2f° gürültü=%s", len(bands), prep.skew, prep.noise)
 
+    page_rows: list[list[dict]] = []
     if len(bands) <= 12:
         text = await glm_read([encode_b64(prep.gray, fmt=".png")], PAGE_PROMPT, 2048)
-        rows: list[list[dict]] = []
         for l in (text or "").splitlines():
             parsed = parse_glm_line(l)
             if parsed is None or _is_noise_line(parsed):
                 continue
-            rows.append(cells_from_parsed(parsed))
-        valid = sum(1 for r in rows if len(r) >= 3)
+            page_rows.append(cells_from_parsed(parsed))
+        valid = sum(1 for r in page_rows if len(r) >= 3)
         if valid >= max(2, len(bands) - 2):
-            return _finalize_rows(rows), len(bands), 0
+            return _finalize_rows(page_rows), len(bands), 0
         log.info("sayfa okuması zayıf (geçerli=%d, bant=%d) → bant bant oku", valid, len(bands))
 
     plan = plan_bands(prep)
@@ -787,6 +789,10 @@ async def ocr_page_glm(original: np.ndarray) -> tuple[list[list[dict]], int, int
     results = await asyncio.gather(*(worker(a, b) for a, b in plan))
     rows = [cells for cells, _ in results if cells]
     band_reads = sum(n for _, n in results)
+    # Bant okuması sayfa okumasından kötü sonuç verdiyse sayfa sonucunu koru
+    if len(rows) < sum(1 for r in page_rows if len(r) >= 3):
+        log.info("bant okuması sayfadan kötü (%d < %d) → sayfa sonucu korundu", len(rows), len(page_rows))
+        rows = page_rows
     return _finalize_rows(rows), len(bands), band_reads
 
 
