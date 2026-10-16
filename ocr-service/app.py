@@ -401,13 +401,15 @@ def parse_glm_line(line: str) -> dict | None:
         m2 = re.search(r"\b\d{1,4}\b", rest)
         if m2:
             pole = m2.group(0)
-            # DTL tablolarında direk no iki ayrı hücrede yazılır (onlar | birler):
-            # GLM '4 1' diye okur → bitişik '41' yap
-            if len(pole) == 1:
-                tail = rest[m2.end() :]
+            # DTL tablolarında direk no ayrı hücrelerde yazılır (yüzler|onlar|birler):
+            # GLM '4 1' → '41', '1 0 0' → '100' (en çok 3 basamak)
+            tail = rest[m2.end() :]
+            while len(pole) < 3:
                 m3 = re.match(r"[\s|]+(\d)\b", tail)
-                if m3:
-                    pole = pole + m3.group(1)
+                if not m3:
+                    break
+                pole += m3.group(1)
+                tail = tail[m3.end() :]
     if len(coords) >= 2:
         return {"pole": pole, "coords": [coords[-2], coords[-1]], "text": text}
     return {"pole": pole, "coords": coords, "text": text, "weak": True}
