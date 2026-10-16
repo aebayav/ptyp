@@ -730,6 +730,7 @@ def _finalize_rows(rows: list[list[dict]]) -> list[list[dict]]:
 
     # 4. Sıralama — yalnız güvenilir satırlarla eksen/yön belirle
     iy, ix = ys[np.array(inlier)], xs[np.array(inlier)]
+    axis = 2
     if len(iy) >= 2:
         axis = 2 if np.ptp(ix) >= np.ptp(iy) else 1
         first = next(r for r, ok in zip(valid, inlier) if ok)
@@ -737,23 +738,44 @@ def _finalize_rows(rows: list[list[dict]]) -> list[list[dict]]:
         desc = _num(first[axis]["text"]) > _num(last[axis]["text"])
         valid.sort(key=lambda r: _num(r[axis]["text"]), reverse=desc)
 
-    # 5. Direk numarası
-    offsets = []
+    # 4b. Güzergah tekdüzelik kontrolü: HER İKİ eksende komşularına göre
+    # tersine dönen satırlar (rakam yanlış okumaları) belirsiz işaretlenir
+    if len(valid) >= 3:
+        other = 1 if axis == 2 else 2
+        for a in (axis, other):
+            vals = [_num(r[a]["text"]) for r in valid]
+            for i in range(1, len(vals) - 1):
+                x0, x1, x2 = vals[i - 1], vals[i], vals[i + 1]
+                if None in (x0, x1, x2):
+                    continue
+                d1, d2 = x1 - x0, x2 - x1
+                if d1 * d2 < 0 and abs(d1) + abs(d2) > 50:
+                    valid[i][1]["conf"] = valid[i][2]["conf"] = 0.4
+
+    # 5. Direk numarası — en uzun ARDIŞIK ofset dizisi çapayı belirler
+    # (tek tek hatalı okumalar olsa bile sıralı kısım numaralandırmayı kurtarır)
+    offsets: list[int | None] = []
     for i, r in enumerate(valid):
         t = r[0]["text"].strip()
-        if re.fullmatch(r"\d{1,3}", t):
-            offsets.append(int(t) - i)
-    if offsets:
-        anchor, votes = Counter(offsets).most_common(1)[0]
-        if votes >= max(2, int(0.3 * len(offsets))) or len(offsets) == 1:
-            for i, r in enumerate(valid):
-                t = r[0]["text"].strip()
-                if t and not re.fullmatch(r"\d{1,3}", t):
-                    continue  # PORTAL, D-14, PB1 gibi adlar olduğu gibi kalır
-                want = str(anchor + i)
-                if t != want:
-                    r[0]["text"] = want
-                    r[0]["conf"] = 0.7  # sıradan tamamlandı (belirsiz sayılmaz)
+        offsets.append(int(t) - i if re.fullmatch(r"\d{1,3}", t) else None)
+    best_anchor, best_run = None, 0
+    cur_anchor, cur_run = None, 0
+    for o in offsets + [None]:
+        if o is not None and o == cur_anchor:
+            cur_run += 1
+        else:
+            if cur_anchor is not None and cur_run > best_run:
+                best_anchor, best_run = cur_anchor, cur_run
+            cur_anchor, cur_run = o, 1 if o is not None else 0
+    if best_anchor is not None and best_run >= 3:
+        for i, r in enumerate(valid):
+            t = r[0]["text"].strip()
+            if t and not re.fullmatch(r"\d{1,3}", t):
+                continue  # PORTAL, D-14, PB1 gibi adlar olduğu gibi kalır
+            want = str(best_anchor + i)
+            if t != want:
+                r[0]["text"] = want
+                r[0]["conf"] = 0.7  # sıradan tamamlandı (belirsiz sayılmaz)
     return valid + weak
 
 
@@ -789,8 +811,36 @@ async def ocr_page_glm(original: np.ndarray) -> tuple[list[list[dict]], int, int
 
     # gather sırayı korur → satırlar sayfadaki sırayla gelir
     results = await asyncio.gather(*(worker(a, b) for a, b in plan))
-    rows = [cells for cells, _ in results if cells]
+    rows_with_band = [(cells, plan[i]) for i, (cells, _) in enumerate(results) if cells]
     band_reads = sum(n for _, n in results)
+
+    # Kuyruk çapraz kontrolü: son 6 satırın bandını TAM GENİŞLİK kırpıyla ikinci
+    # kez oku; iki okuma >100m uyuşmuyorsa belirsiz işaretle (silik tarama
+    # kuyruğunda GLM kararsız olabiliyor → kullanıcı düzeltmesine düşsün)
+    if len(rows_with_band) >= 3:
+        for cells, (y0, y1) in rows_with_band[-6:]:
+            if len(cells) < 3:
+                continue
+            try:
+                band_img = prep.gray[y0:y1]
+                if band_img.shape[0] < 60:
+                    band_img = cv2.resize(band_img, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+                line2 = await glm_read([encode_b64(band_img, fmt=".png")], ROW_PROMPT, 160)
+                p2 = parse_glm_line(line2 or "")
+                if not (p2 and len(p2.get("coords") or []) >= 2):
+                    continue
+                a1, a2 = _num(cells[1]["text"]), _num(cells[2]["text"])
+                b1, b2 = _num(p2["coords"][0]), _num(p2["coords"][1])
+                if None in (a1, a2, b1, b2):
+                    continue
+                d = ((a1 - b1) ** 2 + (a2 - b2) ** 2) ** 0.5
+                if d > 100:
+                    cells[1]["conf"] = cells[2]["conf"] = 0.4
+                    log.info("kuyruk çapraz kontrolü: bant y=%d-%d uyumsuz (fark=%.0fm)", y0, y1, d)
+            except Exception:
+                continue
+    rows = [cells for cells, _ in rows_with_band]
+
     # Bant okuması sayfa okumasından kötü sonuç verdiyse sayfa sonucunu koru
     if len(rows) < sum(1 for r in page_rows if len(r) >= 3):
         log.info("bant okuması sayfadan kötü (%d < %d) → sayfa sonucu korundu", len(rows), len(page_rows))
