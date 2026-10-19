@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
 import { parseExcelCoordinates, parsePdfText, parseTm3Lines, tm3ToWgs84, convertTm3List } from '../coord-parser';
+import { parseExcelDtl, parsePdfTextDtl, DtlParseResult } from '../dtl-parser';
 import { detectRegion } from '../turkiye-regions';
 import { detectDocumentKind, analyzePdf, isTiff } from '../document-reader';
 import { parseKmz } from '../kmz-parser';
@@ -77,6 +78,10 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
     let poles: PolePoint[] = [];
     let source: string = kind;
     let textLines: string | null = null;
+    let dtlResult: DtlParseResult = {
+      header: { title: '', voltage_kv: '', conductor: '', line_name: '', notes: '' },
+      rows: [],
+    };
     let ocrResult: {
       pages: { page: number; preview: string; rows: OcrCell[][] }[];
       uncertain: { row: number; text: string }[];
@@ -89,6 +94,7 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
         const parsed = parseExcelCoordinates(req.file.buffer);
         poles = parsed.poles;
         textLines = parsed.textLines;
+        dtlResult = parseExcelDtl(req.file.buffer);
       } catch (e: any) {
         return res.status(400).json({ error: 'Excel okunamadı: ' + (e.message || 'geçersiz içerik') });
       }
@@ -104,6 +110,7 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
         source = 'pdf-text';
         textLines = analysis.text;
         poles = parsePdfText(analysis.text).poles;
+        dtlResult = parsePdfTextDtl(analysis.text);
       }
       // Metin katmanı yoksa veya metin katmanından hiç koordinat (WGS84 / TM3) çıkmadıysa OCR'a düş
       if (!analysis.hasTextLayer || (poles.length === 0 && parseTm3Lines(analysis.text).length === 0)) {
@@ -111,7 +118,14 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
           const ocr = await callOcr(req.file.buffer, req.file.originalname);
           const { poles: p, uncertain, lines } = polesFromOcr(ocr);
           poles = p;
-          textLines = analysis.text ? `${analysis.text}\n${lines}` : lines;
+          if (ocr.dtl_header || (ocr.dtl_rows && ocr.dtl_rows.length > 0)) {
+            dtlResult = {
+              header: ocr.dtl_header || { title: '', voltage_kv: '', conductor: '', line_name: '', notes: '' },
+              rows: ocr.dtl_rows || [],
+            };
+          }
+          const hdrText = dtlResult.header.title || dtlResult.header.line_name || '';
+          textLines = [analysis.text, hdrText, lines].filter(Boolean).join('\n');
           ocrResult = { pages: ocr.pages.map((pg) => ({ page: pg.page, preview: pg.preview, rows: pg.rows })), uncertain };
         } catch (e: any) {
           return res.status(503).json({ error: 'Taranmış PDF için OCR servisi kullanılamıyor: ' + e.message });
@@ -124,7 +138,14 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
         const ocr = await callOcr(req.file.buffer, req.file.originalname);
         const { poles: p, uncertain, lines } = polesFromOcr(ocr);
         poles = p;
-        textLines = lines;
+        if (ocr.dtl_header || (ocr.dtl_rows && ocr.dtl_rows.length > 0)) {
+          dtlResult = {
+            header: ocr.dtl_header || { title: '', voltage_kv: '', conductor: '', line_name: '', notes: '' },
+            rows: ocr.dtl_rows || [],
+          };
+        }
+        const hdrText = dtlResult.header.title || dtlResult.header.line_name || '';
+        textLines = [hdrText, lines].filter(Boolean).join('\n');
         ocrResult = { pages: ocr.pages.map((pg) => ({ page: pg.page, preview: pg.preview, rows: pg.rows })), uncertain };
       } catch (e: any) {
         return res.status(503).json({ error: 'TIFF için OCR servisi kullanılamıyor: ' + e.message });
@@ -263,6 +284,7 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       saved,
       source,
       ocr: ocrResult,
+      dtl: dtlResult,
       tm3_cm_used: tm3CmUsed,
       grid_applied: gridApplied,
       connection_km: connectionKm,

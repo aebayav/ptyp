@@ -633,6 +633,385 @@ def compose_band(band_img: np.ndarray) -> np.ndarray:
     return composed
 
 
+def compose_full_band(band_img: np.ndarray) -> np.ndarray:
+    """Keşif/DTL okuması için tüm sütunları içeren tam genişlikli satır şeridi."""
+    h, w = band_img.shape[:2]
+    scale = max(1.0, min(2.2, 72.0 / max(1, h)))
+    if w * scale > 2200:
+        scale = 2200.0 / max(1, w)
+    if scale > 1.01:
+        band_img = cv2.resize(band_img, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    return band_img
+
+
+# ---------- Tam sütun DTL (Direk Tevzi Listesi) ayrıştırıcı ----------
+
+DTL_HEADER_PAT = re.compile(
+    r"(?i)(?:TOWER\s+NO|WIND\s+SPAN|WEIGHT\s+SPAN|INSULATOR|ARA\s+MESAFE|FONKS.YON|"
+    r"Tek\s+Ask|direklerin\s+ara|\(1\)\s*\(2\)|MAX\s+TOWER|S\.I\.NO\.)"
+)
+DTL_CENTER_RE = re.compile(
+    r"(?i)(?:(?P<func>\b(?:KD|KT|N|D|T|A|B|C)\b)\s+)?"
+    r"(?:(?P<pole2>\d{1,3}(?:\s*\([A-Z0-9]+\))?)\s+)?"
+    r"(?P<ttype>\b(?:P[A-F]\d|2F[SN]\d|[1-4][A-Z]\d?|(?:K|G|T|D|N|PB|PA|PC|PD|PE|PF)[-./]?\d{1,3})\b)\s+"
+    r"(?P<height>\d{1,2}(?:\.\d)?)\s+"
+    r"(?P<body_ext>[+-]?\d{1,2})\b"
+)
+
+
+def normalize_crossing(raw: str) -> str:
+    s = re.sub(r"[|]+", " ", raw or "")
+    s = re.sub(r"\s+", " ", s).strip()
+    if not s:
+        return ""
+    u = s.upper()
+    items: list[str] = []
+    if "ASFALT" in u or "YOL" in u or "ŞOSE" in u or "SOSE" in u:
+        items.append("ASFALT YOL")
+    if "P.T.T" in u or "PTT" in u or "TELEFON" in u or "TELEKOM" in u:
+        items.append("P.T.T.")
+    if any(k in u for k in ("34.5", "34,5", "E.İ.H", "E.I.H", "E.LH", "E I H", "E L H")):
+        items.append("34.5 kV E.İ.HATTI")
+    if "O.G" in u or "O G" in u or re.search(r"\bOG\b", u):
+        items.append("O.G.HATTI")
+    if "A.G" in u or re.search(r"\bAG\b", u):
+        items.append("A.G.HATTI")
+    if ("DO" in u and "GAZ" in u) or "BORU HATTI" in u:
+        items.append("DOĞALGAZ")
+    if "DEMİRYOLU" in u or "DEMIRYOLU" in u or "TCDD" in u:
+        items.append("DEMİRYOLU")
+    if "DERE" in u or "NEHİR" in u or "ÇAY" in u:
+        items.append("DERE / AKARSU")
+    return ", ".join(items) if items else s
+
+
+def normalize_remarks(raw: str) -> str:
+    s = re.sub(r"[|]+", " ", raw or "")
+    s = re.sub(r"\s+", " ", s).strip()
+    if not s:
+        return ""
+    u = s.upper()
+    items: list[str] = []
+    if any(k in u for k in ("ZEL", "ASK", "ASL", "TAK", "TOK")):
+        items.append("Özel Askı Takımı")
+    if "KATOD" in u:
+        items.append("KATODİK KORUMA")
+    if "EV" in u and "KONSOL" in u:
+        items.append("ÇEVİRME KONSOLLU")
+    return ", ".join(items) if items else s
+
+
+def parse_dtl_header_text(text: str) -> dict:
+    raw = (text or "").replace("\r", "\n")
+    m_v = re.search(r"(?i)\b(380|154|66|34[.,]5|33|31[.,]5|15[.,]8)\s*kV\b", raw)
+    voltage_kv = (m_v.group(1).replace(",", ".") + " kV") if m_v else ""
+
+    m_c = re.search(
+        r"(?i)\b(\d{3,4}\s*MCM|\d/\d\s*AWG|(?:CARDINAL|PHEASANT|HAWK|DRAKE|PARTRIDGE|RAVEN|SWALLOW|PIGEON)(?:\s*\d+\s*MCM)?)\b",
+        raw,
+    )
+    conductor = re.sub(r"\s+", " ", m_c.group(1)).upper() if m_c else ""
+
+    line_name = ""
+    for l in raw.splitlines():
+        clean = l.strip()
+        if not clean:
+            continue
+        if re.search(r"(?i)(?:TM|GES|RES|HES|OSB|HATTI|E\.İ\.H|E\.I\.H|E\.\s*[İI?]\.\s*HATTI|E\s+L\s+HATTI)", clean):
+            clean = re.sub(r"(?i)\bC35\s+POLU\b", "G25 BOLU", clean)
+            clean = re.sub(r"(?i)\bOSD\s+TM\b", "OSB TM", clean)
+            clean = re.sub(r"(?i)\bE\s+L\s+HATTI\b", "E.İ.HATTI", clean)
+            clean = re.sub(r"(?i)\bE\.\?\.HATTI\b", "E.İ.HATTI", clean)
+            line_name = clean
+            break
+
+    notes = ""
+    m_n = re.search(r"(?i)NOTLAR\s*:?\s*([^\n]+(?:\n[^\n]+)?)", raw)
+    if m_n:
+        notes = re.sub(r"\s+", " ", m_n.group(1)).strip()
+
+    parts = [p for p in (voltage_kv, conductor, line_name) if p]
+    return {
+        "title": " — ".join(parts) if parts else line_name,
+        "voltage_kv": voltage_kv,
+        "conductor": conductor,
+        "line_name": line_name,
+        "notes": notes,
+    }
+
+
+def parse_dtl_line(line: str) -> dict | None:
+    """Tam genişlikli DTL satır metnini 27 sütunlu sözlüğe ayrıştırır."""
+    if not line or DTL_HEADER_PAT.search(line):
+        return None
+    s = line.replace(",", ".")
+    s = re.sub(r"<[^>]+>", " ", s)  # olası HTML etiketlerini temizle
+    s = re.sub(r"[|]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    if not s:
+        return None
+
+    # Silik ondalık ve kilometraj noktalarını onar
+    s = re.sub(r"\b(\d{1,3})\s*[*+-]\s*(\d{3})[., ](\d{2})\b", r"\1+\2.\3", s)
+    s = re.sub(r"\b(\d{1,3}\+\d{3})\s+(\d{2})\b", r"\1.\2", s)
+    s = re.sub(r"\b(\d{6,7})\s+(\d{2})\b", r"\1.\2", s)
+    s = re.sub(r"\b([12]\d{3})\s+(\d{2})\b", r"\1.\2", s)
+    s = re.sub(r"^(\s*(?:PORTAL|\d{1,3}(?:\([A-Z0-9]+\))?)\s+\d{2,3})\s+(\d{2})\b", r"\1.\2", s, flags=re.I)
+    s = re.sub(r"\b(8|9|10|11|12|13)\s+(\d0)\b", r"\1.\2", s)
+    s = re.sub(r"([+-]0)\s+(\d0)\b", r"\1.\2", s)
+
+    if re.match(r"(?i)^PORTAL\b", s) and len(COORD_RE.findall(s)) < 2:
+        nums = re.findall(r"\b\d+(?:\.\d+)?\b", s)
+        span_m, angle, elev = None, None, None
+        for n in nums:
+            v = float(n)
+            if "." in n and len(n.split(".")[1]) >= 3 and 50 <= v <= 400:
+                angle = v
+            elif v >= 500:
+                elev = v
+            elif 5 <= v < 500 and span_m is None:
+                span_m = v
+        return {
+            "pole": "PORTAL",
+            "span_m": span_m,
+            "wind_span_m": None,
+            "weight_span_m": None,
+            "station_text": "",
+            "station_m": None,
+            "some_no": "",
+            "line_angle_grad": angle,
+            "crossing": "",
+            "function": "PORTAL",
+            "tower_type": "PORTAL",
+            "nominal_height_m": None,
+            "body_ext_m": None,
+            "hook_diff_m": None,
+            "center_ext_m": None,
+            "leg_a_m": None,
+            "leg_b_m": None,
+            "leg_c_m": None,
+            "leg_d_m": None,
+            "ground_elev_m": elev,
+            "insulator_set": "",
+            "insulator_count": "",
+            "insulator_ref": "",
+            "easting": None,
+            "northing": None,
+            "remarks": "",
+            "profile_no": None,
+            "ice_zone": None,
+        }
+
+    m = DTL_CENTER_RE.search(s)
+    if not m:
+        return None
+    left = s[: m.start()].strip()
+    right = s[m.end() :].strip()
+
+    func = (m.group("func") or "").upper()
+    pole2 = (m.group("pole2") or "").strip()
+    ttype = m.group("ttype").upper().replace("2FN1", "2FS1")
+    height = float(m.group("height"))
+    body_ext = float(m.group("body_ext"))
+
+    m_p1 = re.match(r"^(\d{1,3}(?:\([A-Z0-9]+\))?)\s+(.*)", left, flags=re.I)
+    if m_p1:
+        pole = m_p1.group(1)
+        left_rest = m_p1.group(2)
+    else:
+        pole = pole2
+        left_rest = left
+    pole = re.sub(r"(?i)\(N\)", "(S)", pole)
+    if not func and "(S)" in pole:
+        func = "N"
+
+    m_st = re.search(r"\b(\d{1,3})\+(\d{3}(?:\.\d{1,2})?)\b", left_rest)
+    station_text, station_m, before_st, after_st = "", None, left_rest, ""
+    if m_st:
+        station_text = m_st.group(0)
+        station_m = round(float(m_st.group(1)) * 1000.0 + float(m_st.group(2)), 2)
+        before_st = left_rest[: m_st.start()].strip()
+        after_st = left_rest[m_st.end() :].strip()
+
+    b_nums = [float(x) for x in re.findall(r"\b\d+(?:\.\d+)?\b", before_st)]
+    span_m = b_nums[0] if len(b_nums) >= 1 else None
+    wind_span_m = b_nums[1] if len(b_nums) >= 2 else None
+    weight_span_m = b_nums[2] if len(b_nums) >= 3 else None
+
+    some_no = ""
+    m_some = re.search(r"(?i)\b(ND\.[12]|[S8]\.\d{1,2}|S\.I)\b", after_st)
+    if m_some:
+        some_no = m_some.group(1).upper().replace("S.I", "S.1")
+        if some_no.startswith("8."):
+            some_no = "S." + some_no[2:]
+        after_st = (after_st[: m_some.start()] + " " + after_st[m_some.end() :]).strip()
+
+    line_angle = None
+    m_ang = re.search(r"\b(\d{2,3}\.\d{3,4})\b", after_st)
+    if m_ang:
+        line_angle = float(m_ang.group(1))
+        after_st = (after_st[: m_ang.start()] + " " + after_st[m_ang.end() :]).strip()
+
+    crossing = normalize_crossing(after_st)
+
+    coords = COORD_RE.findall(right)
+    easting = float(coords[-2]) if len(coords) >= 2 else None
+    northing = float(coords[-1]) if len(coords) >= 2 else None
+
+    if len(coords) >= 2:
+        c_idx = right.find(coords[-2])
+        c2_idx = right.rfind(coords[-1])
+        mid_right = right[:c_idx].strip()
+        tail_right = right[c2_idx + len(coords[-1]) :].strip()
+    else:
+        mid_right = right
+        tail_right = ""
+
+    ins_ref = ""
+    m_iref = re.search(r"(?i)\b(U\d{2,3}[A-Z]{1,3})\b", mid_right)
+    if m_iref:
+        ins_ref = m_iref.group(1).upper()
+        mid_right = mid_right[: m_iref.start()].strip()
+
+    ins_count = ""
+    m_icnt = re.search(r"\b(\d{1,2}(?:/\d{1,2})?)\s*$", mid_right)
+    if m_icnt:
+        ins_count = m_icnt.group(1)
+        mid_right = mid_right[: m_icnt.start()].strip()
+
+    ground_elev = None
+    ext_part = mid_right
+    for m_e in re.finditer(r"\b(\d{3,4}\.\d{1,2})\b", mid_right):
+        ground_elev = float(m_e.group(1))
+        ext_part = mid_right[: m_e.start()].strip()
+
+    if ins_count == "13":
+        ins_set = "A"
+    elif ins_count == "13/13":
+        ins_set = "ÇA"
+    elif "/" in ins_count:
+        ins_set = "ÇGÇG"
+    else:
+        ins_set = "A" if func == "T" else "ÇGÇG"
+
+    ext_nums = [float(x) for x in re.findall(r"[+-]?\d+(?:\.\d+)?", ext_part)]
+    hook_diff = ext_nums[0] if len(ext_nums) >= 1 else None
+    center_ext = ext_nums[1] if len(ext_nums) >= 2 else None
+    legs = [int(x) for x in ext_nums[2:6]]
+    while len(legs) < 4:
+        legs.append(legs[-1] if legs else 0)
+
+    tail_nums = re.findall(r"\b\d\b", tail_right)
+    profile_no = int(tail_nums[-2]) if len(tail_nums) >= 2 else None
+    ice_zone = int(tail_nums[-1]) if len(tail_nums) >= 2 else None
+    remarks_raw = re.sub(r"(?:^|\s+)\d(?:\s+\d)?\s*$", "", tail_right).strip()
+    remarks = normalize_remarks(remarks_raw)
+
+    if not func:
+        func = "T" if ins_set in ("A", "ÇA") else "KD"
+
+    h0_default = 13.0 if ttype.startswith(("PD", "PE", "PF")) else 16.0
+    if body_ext != 0 and height is not None:
+        ab = abs(body_ext)
+        body_ext = ab if abs((height - ab) - h0_default) < abs((height + ab) - h0_default) else -ab
+
+    return {
+        "pole": pole,
+        "span_m": span_m,
+        "wind_span_m": wind_span_m,
+        "weight_span_m": weight_span_m,
+        "station_text": station_text,
+        "station_m": station_m,
+        "some_no": some_no,
+        "line_angle_grad": line_angle,
+        "crossing": crossing,
+        "function": func,
+        "tower_type": ttype,
+        "nominal_height_m": height,
+        "body_ext_m": body_ext,
+        "hook_diff_m": hook_diff,
+        "center_ext_m": center_ext,
+        "leg_a_m": legs[0],
+        "leg_b_m": legs[1],
+        "leg_c_m": legs[2],
+        "leg_d_m": legs[3],
+        "ground_elev_m": ground_elev,
+        "insulator_set": ins_set,
+        "insulator_count": ins_count,
+        "insulator_ref": ins_ref,
+        "easting": easting,
+        "northing": northing,
+        "remarks": remarks,
+        "profile_no": profile_no,
+        "ice_zone": ice_zone,
+    }
+
+
+def _fmt_station(st_m: float) -> str:
+    km = int(st_m // 1000)
+    rem = max(0.0, st_m - km * 1000)
+    ip, dp = f"{rem:.2f}".split(".")
+    return f"{km}+{ip.zfill(3)}.{dp}"
+
+
+def finalize_dtl_rows(rows: list[dict]) -> list[dict]:
+    """DTL satırlarında ardışık direk numarası ve kilometraj/ara mesafe tutarlılığını doğrular."""
+    if not rows:
+        return []
+    out = [dict(r) for r in rows]
+
+    tower_indices: list[int] = []
+    offsets: list[int | None] = []
+    for idx, r in enumerate(out):
+        if r.get("pole") == "PORTAL" or r.get("tower_type") == "PORTAL":
+            continue
+        t_idx = len(tower_indices)
+        tower_indices.append(idx)
+        m = re.match(r"^(\d{1,3})", str(r.get("pole") or ""))
+        offsets.append(int(m.group(1)) - t_idx if m else None)
+
+    best_anchor, best_run = None, 0
+    cur_anchor, cur_run = None, 0
+    for o in offsets + [None]:
+        if o is not None and o == cur_anchor:
+            cur_run += 1
+        else:
+            if cur_anchor is not None and cur_run > best_run:
+                best_anchor, best_run = cur_anchor, cur_run
+            cur_anchor, cur_run = o, 1 if o is not None else 0
+
+    if best_anchor is not None and best_run >= 3:
+        for t_idx, row_idx in enumerate(tower_indices):
+            r = out[row_idx]
+            m_suf = re.search(r"(\([A-Z0-9]+\))$", str(r.get("pole") or ""), flags=re.I)
+            suffix = m_suf.group(1).upper() if m_suf else ""
+            r["pole"] = f"{best_anchor + t_idx}{suffix}"
+
+    for i in range(len(tower_indices) - 1):
+        cur = out[tower_indices[i]]
+        nxt = out[tower_indices[i + 1]]
+        cur_st, nxt_st, cur_sp = cur.get("station_m"), nxt.get("station_m"), cur.get("span_m")
+        if cur_st is not None and nxt_st is not None and cur_sp is not None:
+            expected_next = round(cur_st + cur_sp, 2)
+            if abs(nxt_st - expected_next) > 1.0:
+                fixed_cur_st = round(nxt_st - cur_sp, 2)
+                if fixed_cur_st >= 0 and abs(fixed_cur_st - cur_st) >= 900:
+                    cur["station_m"] = fixed_cur_st
+                    cur["station_text"] = _fmt_station(fixed_cur_st)
+                elif nxt_st > cur_st and (nxt_st - cur_st) < 1200:
+                    cur["span_m"] = round(nxt_st - cur_st, 2)
+
+    return out
+
+
+async def extract_dtl_header_from_page(prep: PreparedPage) -> dict:
+    """Sayfanın üst başlık bloğundan gerilim, iletken ve hat adını okur."""
+    h, w = prep.gray.shape
+    top_crop = prep.gray[0 : int(h * 0.22), int(w * 0.05) : int(w * 0.75)]
+    text = await glm_read([encode_b64(top_crop, max_w=1600, fmt=".png")], "Text Recognition:", 160)
+    return parse_dtl_header_text(text or "")
+
+
 def _band_internal_gap(bbin: np.ndarray) -> int | None:
     """Bant içindeki en derin yatay boşluk (birleşik bantları bölmek için)."""
     proj = _smooth((bbin > 0).sum(axis=1).astype(np.float64), 1)
@@ -663,7 +1042,7 @@ def plan_bands(prep: PreparedPage) -> list[tuple[int, int]]:
         else:
             parts = [(y0, y1)]
         for a0, a1 in parts:
-            if a1 - a0 < 8:
+            if a1 - a0 < 12:
                 continue
             # Gürültü/boş bantları ve koordinat bölgesinde hiç mürekkep olmayanları atla
             sub = prep.clean[a0:a1]
@@ -676,7 +1055,13 @@ def plan_bands(prep: PreparedPage) -> list[tuple[int, int]]:
     if prep.v_row is not None and len(prep.v_row) == prep.clean.shape[0] and out:
         vmax = float(prep.v_row.max())
         if vmax >= 20:
-            filtered = [(a0, a1) for (a0, a1) in out if float(prep.v_row[a0:a1].mean()) >= 0.40 * vmax]
+            h = prep.clean.shape[0]
+            # DTL şablonunda üst %21 başlık/sütun başlığıdır; veri satırları ≥%21'de başlar
+            filtered = [
+                (a0, a1)
+                for (a0, a1) in out
+                if float(prep.v_row[a0:a1].mean()) >= 0.40 * vmax and a1 >= int(h * 0.21)
+            ]
             if len(filtered) >= 3:
                 out = filtered
     return out
@@ -767,8 +1152,6 @@ def _finalize_rows(rows: list[list[dict]]) -> list[list[dict]]:
         inlier.append(not bad)
 
     # 4. Eksen belirleme — satırların sayfadaki yukarıdan aşağıya sırasını koru
-    # (koordinata göre sıralamak kıvrılan hatları ve tek rakam hatası olan satırları
-    # tablo boyunca sıçratıp direk sırasını bozar)
     iy, ix = ys[np.array(inlier)], xs[np.array(inlier)]
     axis = 2
     if len(iy) >= 2:
@@ -789,7 +1172,6 @@ def _finalize_rows(rows: list[list[dict]]) -> list[list[dict]]:
                     valid[i][1]["conf"] = valid[i][2]["conf"] = 0.4
 
     # 5. Direk numarası — en uzun ARDIŞIK ofset dizisi çapayı belirler
-    # (tek tek hatalı okumalar olsa bile sıralı kısım numaralandırmayı kurtarır)
     offsets: list[int | None] = []
     for i, r in enumerate(valid):
         t = r[0]["text"].strip()
@@ -815,17 +1197,24 @@ def _finalize_rows(rows: list[list[dict]]) -> list[list[dict]]:
     return valid + weak
 
 
-async def ocr_page_glm(original: np.ndarray, request: Request | None = None) -> tuple[list[list[dict]], int, int]:
+async def ocr_page_glm(
+    original: np.ndarray,
+    request: Request | None = None,
+    read_header: bool = False,
+) -> tuple[list[list[dict]], list[dict], dict | None, int, int]:
     """Bir sayfayı GLM-OCR ile oku.
-    - Seyrek sayfa (≤12 bant): önce tüm sayfa, gerekirse bant bant.
-    - Yoğun sayfa (>12 bant): doğrudan bant bant (1.3B model tam sayfada kararsız).
-    Döner: (rows, band_sayısı, bant_okuma_sayısı)"""
-    # CPU yoğun görüntü işleme olay döngüsünü kilitlemesin
+    Hem KMZ için 3 hücreli [direk, Y, X] satırlarını hem de keşif için 27 sütunlu
+    `dtl_rows` sözlüklerini tek geçişte üretir."""
     prep = await asyncio.to_thread(prepare_page, original)
     bands = prep.bands
     log.info("hazırlık: bant=%d eğim=%.2f° gürültü=%s", len(bands), prep.skew, prep.noise)
 
+    header_info: dict | None = None
+    if read_header:
+        header_info = await extract_dtl_header_from_page(prep)
+
     page_rows: list[list[dict]] = []
+    dtl_rows: list[dict] = []
     if len(bands) <= 12:
         text = await glm_read([encode_b64(prep.gray, fmt=".png")], PAGE_PROMPT, 2048)
         for l in (text or "").splitlines():
@@ -835,56 +1224,83 @@ async def ocr_page_glm(original: np.ndarray, request: Request | None = None) -> 
             page_rows.append(cells_from_parsed(parsed))
         valid = sum(1 for r in page_rows if len(r) >= 3)
         if valid >= max(2, len(bands) - 2):
-            return _finalize_rows(page_rows), len(bands), 0
+            return _finalize_rows(page_rows), dtl_rows, header_info, len(bands), 0
         log.info("sayfa okuması zayıf (geçerli=%d, bant=%d) → bant bant oku", valid, len(bands))
 
     plan = plan_bands(prep)
     parsed_list: list[dict | None] = []
+    dtl_by_idx: dict[int, dict] = {}
     band_reads = 0
 
-    # 1. Geçiş: her bandı tek sefer oku (başlık/imza bantlarında boşuna 2. okuma yapma)
-    for y0, y1 in plan:
+    # 1. Geçiş: tam genişlikli şeridi "Text Recognition:" ile oku (hem tüm DTL sütunları hem koordinatlar çıkar)
+    for idx, (y0, y1) in enumerate(plan):
         if request is not None and await request.is_disconnected():
             raise RuntimeError("İstemci bağlantıyı kapattı")
-        composed = compose_band(prep.gray[y0:y1])
-        line = await glm_read([encode_b64(composed, max_w=1600, fmt=".png")], ROW_PROMPT, 96)
+        full_band = compose_full_band(prep.gray[y0:y1, :])
+        line = await glm_read([encode_b64(full_band, max_w=2200, fmt=".png")], "Text Recognition:", 160)
         band_reads += 1
+        dtl = parse_dtl_line(line or "")
+        if dtl is not None:
+            dtl_by_idx[idx] = dtl
+            if dtl.get("easting") is not None and dtl.get("northing") is not None:
+                pole_clean = re.sub(r"\(.*\)", "", str(dtl.get("pole") or "")).strip() or str(dtl.get("pole") or "")
+                parsed_list.append(
+                    {
+                        "pole": pole_clean,
+                        "coords": [f"{dtl['easting']:.2f}", f"{dtl['northing']:.2f}"],
+                        "text": line or "",
+                    }
+                )
+                continue
+            if dtl.get("pole") == "PORTAL":
+                parsed_list.append({"pole": "PORTAL", "coords": [], "text": line or "", "portal": True})
+                continue
         parsed_list.append(parse_glm_line(line or ""))
 
-    # 2. Geçiş (RETRY_WEAK): yalnızca geçerli koordinat satırlarının ARASINDA kalan
-    # (veya sayfa çok az satır ürettiyse tüm) zayıf bantları ikili görüntüyle tekrar dene
+    # 2. Geçiş (RETRY_WEAK): geçerli koordinat satırlarının ARASINDA kalan zayıf bantları
+    # odaklı compose_band + ikili görüntüyle tekrar dene
     if RETRY_WEAK and plan:
-        valid_idx = [i for i, p in enumerate(parsed_list) if p and not p.get("weak")]
+        valid_idx = [i for i, p in enumerate(parsed_list) if p and not p.get("weak") and not p.get("portal")]
         if len(valid_idx) >= 2:
             retry_range = range(valid_idx[0], valid_idx[-1] + 1)
         else:
             retry_range = range(len(plan))
         for i in retry_range:
             p = parsed_list[i]
+            if p is not None and p.get("portal"):
+                continue
             if p is None or p.get("weak"):
                 if request is not None and await request.is_disconnected():
                     raise RuntimeError("İstemci bağlantıyı kapattı")
                 y0, y1 = plan[i]
-                bw = cv2.bitwise_not(prep.ink[y0:y1])
-                line2 = await glm_read([encode_b64(compose_band(bw), max_w=1600, fmt=".png")], ROW_PROMPT, 96)
+                composed = compose_band(prep.gray[y0:y1])
+                line2 = await glm_read([encode_b64(composed, max_w=1600, fmt=".png")], ROW_PROMPT, 96)
                 band_reads += 1
                 p2 = parse_glm_line(line2 or "")
-                if p2 is not None and (p is None or not p2.get("weak")):
+                if p2 is not None and not p2.get("weak"):
                     parsed_list[i] = p2
+                    continue
+                bw = cv2.bitwise_not(prep.ink[y0:y1])
+                line3 = await glm_read([encode_b64(compose_band(bw), max_w=1600, fmt=".png")], ROW_PROMPT, 96)
+                band_reads += 1
+                p3 = parse_glm_line(line3 or "")
+                if p3 is not None and (p is None or not p3.get("weak")):
+                    parsed_list[i] = p3
 
     rows: list[list[dict]] = []
-    for p in parsed_list:
-        if p is None or _is_noise_line(p):
+    for idx, p in enumerate(parsed_list):
+        if idx in dtl_by_idx:
+            dtl_rows.append(dtl_by_idx[idx])
+        if p is None or p.get("portal") or _is_noise_line(p):
             continue
         c = cells_from_parsed(p)
         if c:
             rows.append(c)
 
-    # Bant okuması sayfa okumasından kötü sonuç verdiyse sayfa sonucunu koru
     if len(rows) < sum(1 for r in page_rows if len(r) >= 3):
         log.info("bant okuması sayfadan kötü (%d < %d) → sayfa sonucu korundu", len(rows), len(page_rows))
         rows = page_rows
-    return _finalize_rows(rows), len(bands), band_reads
+    return _finalize_rows(rows), finalize_dtl_rows(dtl_rows), header_info, len(bands), band_reads
 
 
 # ---------- Uç noktalar ----------
@@ -968,6 +1384,7 @@ async def chat(req: ChatMsg):
 
 
 @app.post("/ocr/document")
+@app.post("/ocr/dtl")
 async def ocr_document(request: Request, file: UploadFile):
     t0 = time.time()
     buf = await file.read()
@@ -994,30 +1411,51 @@ async def ocr_document(request: Request, file: UploadFile):
 
     async with _ocr_lock:
         out_pages = []
+        all_dtl_rows: list[dict] = []
+        dtl_header: dict = {"title": "", "voltage_kv": "", "conductor": "", "line_name": "", "notes": ""}
+
         for page_idx, raw_page in enumerate(images):
             if await request.is_disconnected():
                 log.warning("istemci bağlantıyı kapattı: %s (sayfa %d/%d)", file.filename, page_idx + 1, len(images))
                 return JSONResponse(status_code=499, content={"error": "İstemci bağlantıyı kapattı"})
             try:
                 original = await asyncio.to_thread(auto_orient_page, raw_page)
-                rows, band_count, band_reads = await ocr_page_glm(original, request=request)
+                need_hdr = page_idx == 0 or not dtl_header.get("line_name")
+                rows, page_dtl_rows, hdr, band_count, band_reads = await ocr_page_glm(
+                    original, request=request, read_header=need_hdr
+                )
+                if hdr:
+                    for k in ("voltage_kv", "conductor", "line_name", "notes", "title"):
+                        if hdr.get(k) and not dtl_header.get(k):
+                            dtl_header[k] = hdr[k]
+                all_dtl_rows.extend(page_dtl_rows)
             except Exception as e:
                 log.exception("OCR hatası (sayfa %d)", page_idx + 1)
                 return JSONResponse(status_code=500, content={"error": f"OCR hatası: {e}"})
 
             low_conf = sum(1 for r in rows for c in r if c["conf"] < CONF_THRESHOLD)
             log.info(
-                "sayfa %d/%d: satır=%d bant=%d bant_okuma=%d düşük_güven=%d",
-                page_idx + 1, len(images), len(rows), band_count, band_reads, low_conf,
+                "sayfa %d/%d: satır=%d dtl_satır=%d bant=%d bant_okuma=%d düşük_güven=%d",
+                page_idx + 1, len(images), len(rows), len(page_dtl_rows), band_count, band_reads, low_conf,
             )
 
             out_pages.append(
                 {
                     "page": page_idx + 1,
-                    "preview": "data:image/jpeg;base64,"
-                    + await asyncio.to_thread(jpeg_b64, original),
+                    "preview": "data:image/jpeg;base64," + await asyncio.to_thread(jpeg_b64, original),
                     "rows": rows,
+                    "dtl_rows": page_dtl_rows,
                 }
             )
-    log.info("bitti: %s sayfa=%d süre=%.1fs", file.filename, len(out_pages), time.time() - t0)
-    return {"pages": out_pages, "pages_count": len(out_pages)}
+    final_dtl = finalize_dtl_rows(all_dtl_rows)
+    log.info(
+        "bitti: %s sayfa=%d dtl_toplam=%d süre=%.1fs",
+        file.filename, len(out_pages), len(final_dtl), time.time() - t0,
+    )
+    return {
+        "pages": out_pages,
+        "pages_count": len(out_pages),
+        "dtl_header": dtl_header,
+        "dtl_rows": final_dtl,
+    }
+

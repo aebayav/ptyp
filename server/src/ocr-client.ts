@@ -1,6 +1,7 @@
 // Python OCR servisi (FastAPI + GLM-OCR) istemcisi
 import http from 'http';
 import https from 'https';
+import { DtlHeader, DtlRow } from './dtl-parser';
 
 const OCR_URL = (process.env.OCR_URL || 'http://127.0.0.1:8787').replace(/\/$/, '');
 
@@ -14,11 +15,14 @@ export interface OcrPage {
   page: number;
   preview: string;
   rows: OcrCell[][];
+  dtl_rows?: DtlRow[];
 }
 
 export interface OcrResponse {
   pages: OcrPage[];
   pages_count: number;
+  dtl_header?: DtlHeader;
+  dtl_rows?: DtlRow[];
 }
 
 export async function callOcr(buffer: Buffer, filename: string): Promise<OcrResponse> {
