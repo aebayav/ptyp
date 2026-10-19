@@ -1263,8 +1263,8 @@ def _finalize_rows(rows: list[list[dict]]) -> list[list[dict]]:
     if best_anchor is not None and best_run >= 3:
         for i, r in enumerate(valid):
             t = r[0]["text"].strip()
-            if t and not re.fullmatch(r"\d{1,3}", t):
-                continue  # PORTAL, D-14, PB1 gibi adlar olduğu gibi kalır
+            if t and re.match(r"(?i)^portal\b", t):
+                continue  # Portal işaretleri olduğu gibi kalır
             want = str(best_anchor + i)
             if t != want:
                 r[0]["text"] = want

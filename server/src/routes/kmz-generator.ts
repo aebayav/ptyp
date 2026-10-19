@@ -6,7 +6,7 @@ import fs from 'fs';
 import * as XLSX from 'xlsx';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
-import { parseExcelCoordinates, parsePdfText, parseTm3Lines, tm3ToWgs84, convertTm3List } from '../coord-parser';
+import { parseExcelCoordinates, parsePdfText, parseTm3Lines, tm3ToWgs84, convertTm3List, wgs84ToTm3 } from '../coord-parser';
 import { parseExcelDtl, parsePdfTextDtl, DtlParseResult, DtlRow } from '../dtl-parser';
 import { detectRegion } from '../turkiye-regions';
 import { detectDocumentKind, analyzePdf, isTiff } from '../document-reader';
@@ -23,6 +23,28 @@ function cleanPoleKey(name: string): string {
   return s.replace(/\([A-Z0-9]+\)$/, '').trim();
 }
 
+// Meta taşıyan direklerden güzergahın 3° TM dilimini (CM) geri çıkar
+const TM3_CMS = [27, 30, 33, 36, 39, 42, 45];
+function inferTm3Cm(poles: PolePoint[]): number | null {
+  for (const p of poles) {
+    const e = p.meta?.easting;
+    const n = p.meta?.northing;
+    if (e == null || n == null || p.lat == null || p.lon == null) continue;
+    let best: number | null = null;
+    let bestErr = Infinity;
+    for (const cm of TM3_CMS) {
+      const r = wgs84ToTm3(p.lat, p.lon, cm);
+      const err = Math.hypot(r.easting - Number(e), r.northing - Number(n));
+      if (err < bestErr) {
+        bestErr = err;
+        best = cm;
+      }
+    }
+    if (bestErr < 2000) return best; // doğru dilim metre-altı uyum verir
+  }
+  return null;
+}
+
 function enrichPolesWithMetadata(
   poles: PolePoint[],
   tmRows: { name: string; easting: number; northing: number }[],
@@ -32,8 +54,17 @@ function enrichPolesWithMetadata(
   return poles.map((p, idx) => {
     const prevMeta: PoleMeta = p.meta ? { ...p.meta } : {};
     const tm = tmRows.length === poles.length ? tmRows[idx] : tmRows.find((t) => cleanPoleKey(t.name) === cleanPoleKey(p.name));
-    const easting = tm?.easting ?? prevMeta.easting ?? null;
-    const northing = tm?.northing ?? prevMeta.northing ?? null;
+    let easting: number | null = tm?.easting ?? prevMeta.easting ?? null;
+    let northing: number | null = tm?.northing ?? prevMeta.northing ?? null;
+    // Eksik TM3 değerlerini WGS84'ten geri hesapla (dilim, meta taşıyanlardan çıkarılır)
+    if ((easting == null || northing == null) && p.lat != null && p.lon != null) {
+      const cm = inferTm3Cm(poles);
+      if (cm != null) {
+        const back = wgs84ToTm3(p.lat, p.lon, cm);
+        easting = easting ?? back.easting;
+        northing = northing ?? back.northing;
+      }
+    }
 
     let dtl: DtlRow | undefined;
     if (easting != null && northing != null && dtlRows.length > 0) {
@@ -615,6 +646,17 @@ router.get('/from-project', async (req: Request, res: Response) => {
     [projectId]
   );
   if (poles.rows.length < 2) return res.status(400).json({ error: 'Bu projede güzergah için yeterli direk yok.' });
+  // Eksik TM3 meta'sını WGS84'ten geri doldur (dilim meta taşıyanlardan çıkarılır)
+  const cm = inferTm3Cm(poles.rows as PolePoint[]);
+  if (cm != null) {
+    for (const p of poles.rows) {
+      const m = p.meta || {};
+      if ((m.easting == null || m.northing == null) && p.lat != null && p.lon != null) {
+        const back = wgs84ToTm3(p.lat, p.lon, cm);
+        p.meta = { ...m, easting: m.easting ?? back.easting, northing: m.northing ?? back.northing };
+      }
+    }
+  }
   const kmzBuf = buildKmz(poles.rows, proj.rows[0].name);
   res.setHeader('Content-Type', 'application/vnd.google-earth.kmz');
   res.setHeader(
