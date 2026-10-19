@@ -351,8 +351,13 @@ export function parseTm3Lines(text: string): { name: string; easting: number; no
     if (m) {
       const first = Number(m[1]) + (m[2] ? Number('0.' + m[2]) : 0);
       north = Number(m[3]) + (m[4] ? Number('0.' + m[4]) : 0);
-      // Önekli easting (dilim no + 6 hane) → öneki sök
-      east = first >= 3000000 ? first % 1000000 : null;
+      // Önekli easting (dilim no + 6 hane) → öneki sök; kalan Türkiye TM3
+      // aralığında değilse satırı reddet (yanlış okunmuş northing çifti koruması)
+      if (first >= 3000000) {
+        const rem = first % 1000000;
+        if (rem < 300000 || rem > 700000) continue;
+        east = rem;
+      }
     } else {
       const m2 = line.match(/\b(\d{6})(?:[.,](\d{1,4}))?[\s|;,]+(\d{7})(?:[.,](\d{1,4}))?\b/);
       if (m2) {
@@ -366,7 +371,9 @@ export function parseTm3Lines(text: string): { name: string; easting: number; no
       }
     }
     if (east == null || north == null) continue;
-    if (east < 100000 || east > 900000) continue;
+    // Türkiye 3° TM easting aralığı (500km sahte doğu ± 1.5°): ~369k-631k;
+    // bunun dışı yanlış okumadır (örn. çift northing 4247726 → 247726)
+    if (east < 300000 || east > 700000) continue;
     if (north < 3000000 || north > 6000000) continue;
     const firstWord = line.split(/\s+/)[0].replace(/[.:;|]+$/, '');
     const nameTm = POLE_TOKEN_RE.test(firstWord) ? cleanName(firstWord) : '';

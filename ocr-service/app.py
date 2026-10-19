@@ -1389,8 +1389,8 @@ def _indra_rows_from_page(
             # Direk özellikleri eksikse GLM ikinci geçişine gönder
             if not (dtl.get("tower_type") and dtl.get("function") and dtl.get("station_text")):
                 dtl_weak.append((max(0, y0 - 4), y1 + 4, str(dtl.get("pole"))))
-        if len(cells) < 3:
-            # Direk benzeri başlangıcı olan eksik satır → GLM dolgusu için bant aralığı
+        if len(cells) < 3 or parsed.get("weak"):
+            # Direk benzeri başlangıcı olan eksik/çift-northing satır → GLM dolgusu
             if parsed.get("pole") or re.search(r"^\d{1,3}\b", joined):
                 weak_ranges.append((max(0, y0 - 4), y1 + 4))
             continue

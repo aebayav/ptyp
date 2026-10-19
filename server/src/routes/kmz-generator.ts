@@ -163,9 +163,16 @@ function polesFromOcr(ocr: { pages: { rows: OcrCell[][] }[] }): {
       rowNo++;
       const text = row.map((c) => c.text).join(' ').trim();
       if (!text) continue;
+      // Düşük güvenli KOORDİNAT hücresi olan satırlar parse edilmez:
+      // parseTm3Lines %1e6 kuralı bunları uydurma easting'e çevirebiliyordu
+      // (ör. D-8: 4247726.27 → 247726). Yalnız belirsiz listesine düşer.
+      const coordCells = row.filter((c) => /^\d{5,8}(?:[.,]\d+)?$/.test(c.text.trim()));
+      const lowCoord = coordCells.some((c) => c.conf != null && c.conf < 0.7 && !c.fallback);
+      if (lowCoord) {
+        uncertain.push({ row: rowNo, text });
+        continue;
+      }
       linesArr.push(text);
-      const low = row.filter((c) => c.conf != null && c.conf < 0.7 && !c.fallback);
-      if (low.length > 0) uncertain.push({ row: rowNo, text });
     }
   }
   const lines = linesArr.join('\n');
