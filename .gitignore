@@ -7,3 +7,4 @@ server/.env
 .DS_Store
 .hermes/
 __pycache__/
+.venv-bench/
