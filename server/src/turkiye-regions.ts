@@ -291,11 +291,29 @@ function buildCmOrder(cm: number): number[] {
   return order;
 }
 
+// Dilim sınırına yakın veya il merkezinden farklı dilimde (DOM 42° vb.) kalan ilçeler için özel koordinat/CM
+const DISTRICT_INFO_OVERRIDES: Record<string, ProvinceInfo> = {
+  lice:   { lon: 40.6420, lat: 38.4580, cm: 42, utmZone: 37, cm6: 39 },
+  silvan: { lon: 41.0080, lat: 38.1370, cm: 42, utmZone: 37, cm6: 39 },
+  kulp:   { lon: 41.0300, lat: 38.5000, cm: 42, utmZone: 37, cm6: 39 },
+  bismil: { lon: 40.6650, lat: 37.8460, cm: 42, utmZone: 37, cm6: 39 },
+  hazro:  { lon: 40.7930, lat: 38.2480, cm: 42, utmZone: 37, cm6: 39 },
+};
+
 export function detectRegion(text: string, approxLat?: number | null): RegionGuess {
   const norm = asciiTr(text || '');
   const matches: { city: string; info: ProvinceInfo }[] = [];
   const seen = new Set<string>();
 
+  for (const dist of DISTRICT_NAMES) {
+    if (containsToken(norm, dist)) {
+      const override = DISTRICT_INFO_OVERRIDES[dist];
+      if (override && !seen.has(dist)) {
+        seen.add(dist);
+        matches.push({ city: dist, info: override });
+      }
+    }
+  }
   for (const name of CITY_NAMES) {
     if (containsToken(norm, name)) {
       const info = PROVINCES[name];

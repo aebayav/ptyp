@@ -397,20 +397,43 @@ def _fix_digits(s: str) -> str:
     return s
 
 
+def _normalize_coord_str(s: str) -> str:
+    """Koordinat metnindeki OCR kaynaklı boşluk, nokta düşmesi ve harf-rakam karışıklıklarını onar."""
+    out = (s or "").replace(",", ".")
+    out = re.sub(r"(?<=[\d\s])<(?=\d)", "4", out)
+    out = _fix_digits(out)
+    # Binlik ayırıcı / OCR boşluğu: "4 256 007.40" → "4256007.40"
+    out = re.sub(r"\b(\d{1,3})[ ](\d{3})[ ](\d{3})(?=\.\d|\b)", r"\1\2\3", out)
+    out = re.sub(r"\b(\d{3})[ '’](\d{3})(?=\.\d|\b)", r"\1\2", out)
+    # 7 haneli Northing'de son basamağın boşlukla ayrılması: "425861 7 00" veya "425861 7.00" → "4258617.00"
+    out = re.sub(r"\b([345]\d{5})\s+(\d)[.\s](\d{2})\b", r"\1\2.\3", out)
+    # Ondalık noktası düşüp 8-9 haneye birleşmiş koordinatlar: "37315021" → "373150.21", "425734335" → "4257343.35"
+    out = re.sub(r"\b([345]\d{6})(\d{2})\b", r"\1.\2", out)
+    out = re.sub(r"\b([2-8]\d{5})(\d{2})\b", r"\1.\2", out)
+    # 6-7 haneli koordinat ile 2 haneli ondalık arasında nokta yerine boşluk: "380949 00" → "380949.00"
+    out = re.sub(r"\b([2-8]\d{5}|[345]\d{6})\s+(\d{2})\b", r"\1.\2", out)
+    return out
+
+
+def _is_valid_coord_pair(c1: str | float | None, c2: str | float | None) -> bool:
+    """Türkiye TM3 / UTM koordinat çifti doğrulaması:
+    biri 6 haneli Easting (200k..850k), diğeri 7 haneli Northing (3.5M..5.5M) olmalı."""
+    try:
+        v1 = float(c1) if isinstance(c1, (int, float)) else float(str(c1 or "").replace(",", "."))
+        v2 = float(c2) if isinstance(c2, (int, float)) else float(str(c2 or "").replace(",", "."))
+    except ValueError:
+        return False
+    return (200_000 <= v1 <= 850_000 and 3_500_000 <= v2 <= 5_500_000) or (
+        200_000 <= v2 <= 850_000 and 3_500_000 <= v1 <= 5_500_000
+    )
+
+
 def parse_glm_line(line: str) -> dict | None:
     """GLM çıktı satırını {pole, coords: [y, x], text} biçimine çevirir."""
     text = (line or "").strip().strip("|").strip()
     if not text:
         return None
-    norm = text.replace(",", ".")
-    norm = re.sub(r"(?<=[\d\s])<(?=\d)", "4", norm)
-    norm = _fix_digits(norm)
-    # Binlik ayırıcı / OCR boşluğu: "4 256 007.40" → "4256007.40" (yalnız koordinat boyunda)
-    norm = re.sub(r"\b(\d{1,3})[ ](\d{3})[ ](\d{3})(?=\.\d|\b)", r"\1\2\3", norm)
-    norm = re.sub(r"\b(\d{3})[ '’](\d{3})(?=\.\d|\b)", r"\1\2", norm)
-    # Ondalık noktası silik olup boşluk olarak okunmuşsa (ör. "448894.00 4494449 50"):
-    if re.search(r"\b\d{6,7}\.\d{1,4}\b", norm):
-        norm = re.sub(r"\b(\d{6,7})[ ](\d{2})(?=\b)", r"\1.\2", norm)
+    norm = _normalize_coord_str(text)
     coords = COORD_RE.findall(norm)
     # DTL tablolarında koordinatlar son iki büyük sayıdır
     coords = coords[-2:] if len(coords) >= 2 else coords
@@ -420,7 +443,9 @@ def parse_glm_line(line: str) -> dict | None:
     m_head = re.match(r"(?i)^\s*(portal|(?:pb|dp|dm|d|p)[-./]?\d{1,4}|\d{1,3})(?:\s*\([a-z0-9]+\))?\b", rest)
     if m_head:
         pole = m_head.group(1).strip()
-        if pole.isdigit():
+        if pole.upper() == "PORTAL":
+            pole = "PORTAL"
+        elif pole.isdigit():
             tail = rest[m_head.end() :]
             # Yalnızca "|" ile ayrılmış yüzler|onlar|birler hücrelerini birleştir (ara mesafe rakamını katma)
             while len(pole) < 3:
@@ -433,11 +458,13 @@ def parse_glm_line(line: str) -> dict | None:
         m = POLE_PAT_RE.search(rest)
         if m:
             pole = m.group(0).strip()
+            if pole.upper() == "PORTAL":
+                pole = "PORTAL"
         else:
             m2 = re.search(r"\b\d{1,4}\b", rest)
             if m2:
                 pole = m2.group(0)
-    if len(coords) >= 2:
+    if len(coords) >= 2 and _is_valid_coord_pair(coords[-2], coords[-1]):
         return {"pole": pole, "coords": [coords[-2], coords[-1]], "text": text}
     return {"pole": pole, "coords": coords, "text": text, "weak": True}
 
@@ -614,33 +641,36 @@ def cells_from_parsed(parsed: dict) -> list[dict]:
     return cells
 
 
-def compose_band(band_img: np.ndarray) -> np.ndarray:
-    """Direk sütunu (sol %0-15) + koordinat sütunları (sağ %60-96) → tek odaklı görüntü.
-    Ortadaki SOME NO (ND.1, S.1) ve en sağdaki PROFİL/DEVRE (1 | 4) sütunları dışarıda kalır."""
+def compose_band(band_img: np.ndarray, narrow: bool = False) -> np.ndarray:
+    """Direk sütunu (sol %0-12) + koordinat sütunları (sağ %68-94 veya dar %72-91) → tek odaklı görüntü.
+    Bant yüksekliği 64-88 px'e büyütülerek ardışık rakamların (ör. 4258333.00) kaynaması önlenir."""
     h, w = band_img.shape[:2]
-    pole_crop = band_img[:, 0 : max(1, int(w * 0.15))]
-    coord_crop = band_img[:, int(w * 0.60) : max(int(w * 0.60) + 1, int(w * 0.96))]
+    pole_end = 0.11 if narrow else 0.14
+    coord_start = 0.72 if narrow else 0.66
+    coord_end = 0.91 if narrow else 0.95
+    pole_crop = band_img[:, 0 : max(1, int(w * pole_end))]
+    coord_crop = band_img[:, int(w * coord_start) : max(int(w * coord_start) + 1, int(w * coord_end))]
     gap = np.full((h, 24) + band_img.shape[2:], 255, np.uint8)
     composed = np.hstack([pole_crop, gap, coord_crop])
     scale = 1.0
-    if composed.shape[0] < 88:
-        scale = max(scale, 88 / max(1, composed.shape[0]))
-    if composed.shape[1] * scale > 1280:
-        scale = min(scale, 1280 / max(1, composed.shape[1]))
-    scale = min(scale, 3.5)
-    if scale > 1.0:
+    if composed.shape[0] < 72:
+        scale = max(scale, 72.0 / max(1, composed.shape[0]))
+    if composed.shape[1] * scale > 2200:
+        scale = min(scale, 2200.0 / max(1, composed.shape[1]))
+    scale = min(scale, 3.0)
+    if scale > 1.01:
         composed = cv2.resize(composed, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
     return composed
 
 
 def compose_full_band(band_img: np.ndarray) -> np.ndarray:
-    """Keşif/DTL okuması için tüm sütunları içeren tam genişlikli satır şeridi."""
+    """Keşif/DTL okuması için tüm sütunları içeren tam genişlikli satır şeridi.
+    Yatayda ~1.35x, dikeyde ~2.0x büyütülerek 20 px yüksekliğindeki küçük rakamlar netleştirilir."""
     h, w = band_img.shape[:2]
-    scale = max(1.0, min(2.2, 72.0 / max(1, h)))
-    if w * scale > 2200:
-        scale = 2200.0 / max(1, w)
-    if scale > 1.01:
-        band_img = cv2.resize(band_img, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    fy = max(1.0, min(2.2, 52.0 / max(1, h)))
+    fx = max(1.0, min(1.4, 3400.0 / max(1, w)))
+    if fx > 1.01 or fy > 1.01:
+        band_img = cv2.resize(band_img, None, fx=fx, fy=fy, interpolation=cv2.INTER_CUBIC)
     return band_img
 
 
@@ -653,7 +683,7 @@ DTL_HEADER_PAT = re.compile(
 DTL_CENTER_RE = re.compile(
     r"(?i)(?:(?P<func>\b(?:KD|KT|N|D|T|A|B|C)\b)\s+)?"
     r"(?:(?P<pole2>\d{1,3}(?:\s*\([A-Z0-9]+\))?)\s+)?"
-    r"(?P<ttype>\b(?:P[A-F]\d|2F[SN]\d|[1-4][A-Z]\d?|(?:K|G|T|D|N|PB|PA|PC|PD|PE|PF)[-./]?\d{1,3})\b)\s+"
+    r"(?P<ttype>\b(?:C?P[A-F]\d?(?:\([A-Z0-9]+\))?|2F[SN]\d|[1-4][A-Z]\d?|(?:K|G|T|D|N|PB|PA|PC|PD|PE|PF)[-./]?\d{1,3})\b)\s+"
     r"(?P<height>\d{1,2}(?:\.\d)?)\s+"
     r"(?P<body_ext>[+-]?\d{1,2})\b"
 )
@@ -698,6 +728,8 @@ def normalize_remarks(raw: str) -> str:
         items.append("KATODİK KORUMA")
     if "EV" in u and "KONSOL" in u:
         items.append("ÇEVİRME KONSOLLU")
+    if "MIKROKAZ" in u or "MİKROKAZ" in u:
+        items.append("Mikrokazık Temelli")
     return ", ".join(items) if items else s
 
 
@@ -744,7 +776,7 @@ def parse_dtl_line(line: str) -> dict | None:
     """Tam genişlikli DTL satır metnini 27 sütunlu sözlüğe ayrıştırır."""
     if not line or DTL_HEADER_PAT.search(line):
         return None
-    s = line.replace(",", ".")
+    s = _normalize_coord_str(line)
     s = re.sub(r"<[^>]+>", " ", s)  # olası HTML etiketlerini temizle
     s = re.sub(r"[|]+", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
@@ -753,15 +785,27 @@ def parse_dtl_line(line: str) -> dict | None:
 
     # Silik ondalık ve kilometraj noktalarını onar
     s = re.sub(r"\b(\d{1,3})\s*[*+-]\s*(\d{3})[., ](\d{2})\b", r"\1+\2.\3", s)
+    s = re.sub(r"\b(\d{1,3}\+\d{3})(\d{2})\b", r"\1.\2", s)
     s = re.sub(r"\b(\d{1,3}\+\d{3})\s+(\d{2})\b", r"\1.\2", s)
     s = re.sub(r"\b(\d{6,7})\s+(\d{2})\b", r"\1.\2", s)
-    s = re.sub(r"\b([12]\d{3})\s+(\d{2})\b", r"\1.\2", s)
-    s = re.sub(r"^(\s*(?:PORTAL|\d{1,3}(?:\([A-Z0-9]+\))?)\s+\d{2,3})\s+(\d{2})\b", r"\1.\2", s, flags=re.I)
-    s = re.sub(r"\b(8|9|10|11|12|13)\s+(\d0)\b", r"\1.\2", s)
-    s = re.sub(r"([+-]0)\s+(\d0)\b", r"\1.\2", s)
+    s = re.sub(r"\b([12]\d{3}|[5-9]\d{2})\s+(\d{2})\b", r"\1.\2", s)
+    s = re.sub(r"\b([12]\d{3}|[5-9]\d{2})(\d{2})(?=\s+(?:[ÇC]?G|G/|[ÇC]?A\b|\d{1,2}(?:/\d{1,2})?\b|U\d{2,3}))", r"\1.\2", s, flags=re.I)
+    s = re.sub(r"^(\s*(?:PORTAL\.?|\d{1,3}(?:\([A-Z0-9]+\))?)\s+\d{2,3})(?:\s+|)(\d{2})\b", r"\1.\2", s, flags=re.I)
+    s = re.sub(r"\b(8|9|10|11|12|13)(?:\s+|)(\d0)\b", r"\1.\2", s)
+    s = re.sub(r"([+-]0)(?:\s+|)(\d0)\b", r"\1.\2", s)
 
-    if re.match(r"(?i)^PORTAL\b", s) and len(COORD_RE.findall(s)) < 2:
-        nums = re.findall(r"\b\d+(?:\.\d+)?\b", s)
+    if re.match(r"(?i)^PORTAL\b", s):
+        coords_p = COORD_RE.findall(s)
+        easting_p = float(coords_p[-2]) if len(coords_p) >= 2 else None
+        northing_p = float(coords_p[-1]) if len(coords_p) >= 2 else None
+        s_no_coord = COORD_RE.sub(" ", s)
+        m_st_p = re.search(r"\b(\d{1,3})\+(\d{3}(?:\.\d{1,2})?)\b", s_no_coord)
+        st_text_p, st_m_p = "", None
+        if m_st_p:
+            st_text_p = m_st_p.group(0)
+            st_m_p = round(float(m_st_p.group(1)) * 1000.0 + float(m_st_p.group(2)), 2)
+            s_no_coord = s_no_coord[: m_st_p.start()] + " " + s_no_coord[m_st_p.end() :]
+        nums = re.findall(r"\b\d+(?:\.\d+)?\b", s_no_coord)
         span_m, angle, elev = None, None, None
         for n in nums:
             v = float(n)
@@ -776,8 +820,8 @@ def parse_dtl_line(line: str) -> dict | None:
             "span_m": span_m,
             "wind_span_m": None,
             "weight_span_m": None,
-            "station_text": "",
-            "station_m": None,
+            "station_text": st_text_p,
+            "station_m": st_m_p,
             "some_no": "",
             "line_angle_grad": angle,
             "crossing": "",
@@ -795,8 +839,8 @@ def parse_dtl_line(line: str) -> dict | None:
             "insulator_set": "",
             "insulator_count": "",
             "insulator_ref": "",
-            "easting": None,
-            "northing": None,
+            "easting": easting_p,
+            "northing": northing_p,
             "remarks": "",
             "profile_no": None,
             "ice_zone": None,
@@ -1056,11 +1100,11 @@ def plan_bands(prep: PreparedPage) -> list[tuple[int, int]]:
         vmax = float(prep.v_row.max())
         if vmax >= 20:
             h = prep.clean.shape[0]
-            # DTL şablonunda üst %21 başlık/sütun başlığıdır; veri satırları ≥%21'de başlar
+            # DTL şablonunda üst %17.5 başlık/sütun başlığıdır; veri satırları (PORTAL, 1. direk) ≥%17.5'te başlar
             filtered = [
                 (a0, a1)
                 for (a0, a1) in out
-                if float(prep.v_row[a0:a1].mean()) >= 0.40 * vmax and a1 >= int(h * 0.21)
+                if float(prep.v_row[a0:a1].mean()) >= 0.40 * vmax and a1 >= int(h * 0.175)
             ]
             if len(filtered) >= 3:
                 out = filtered
@@ -1070,13 +1114,13 @@ def plan_bands(prep: PreparedPage) -> list[tuple[int, int]]:
 async def _read_band(prep: PreparedPage, y0: int, y1: int, allow_retry: bool = True) -> tuple[list[dict] | None, int]:
     """Tek bantı kompozit görüntü olarak GLM'e okut. Döner: (hücreler, okuma_sayısı)."""
     composed = compose_band(prep.gray[y0:y1])
-    line = await glm_read([encode_b64(composed, max_w=1600, fmt=".png")], ROW_PROMPT, 96)
+    line = await glm_read([encode_b64(composed, max_w=2200, fmt=".png")], ROW_PROMPT, 96)
     parsed = parse_glm_line(line or "")
     reads = 1
     if allow_retry and RETRY_WEAK and (parsed is None or parsed.get("weak")):
         # İkinci şans: ikili (siyah-beyaz) görüntü — gri gölge / soluk yazıda işe yarar
         bw = cv2.bitwise_not(prep.ink[y0:y1])
-        line2 = await glm_read([encode_b64(compose_band(bw), max_w=1600, fmt=".png")], ROW_PROMPT, 96)
+        line2 = await glm_read([encode_b64(compose_band(bw), max_w=2200, fmt=".png")], ROW_PROMPT, 96)
         reads += 1
         parsed2 = parse_glm_line(line2 or "")
         if parsed2 is not None and (parsed is None or not parsed2.get("weak")):
@@ -1215,7 +1259,8 @@ async def ocr_page_glm(
 
     page_rows: list[list[dict]] = []
     dtl_rows: list[dict] = []
-    if len(bands) <= 12:
+    has_table_grid = prep.v_row is not None and float(prep.v_row.max()) >= 20
+    if len(bands) <= 12 and not has_table_grid:
         text = await glm_read([encode_b64(prep.gray, fmt=".png")], PAGE_PROMPT, 2048)
         for l in (text or "").splitlines():
             parsed = parse_glm_line(l)
@@ -1237,12 +1282,12 @@ async def ocr_page_glm(
         if request is not None and await request.is_disconnected():
             raise RuntimeError("İstemci bağlantıyı kapattı")
         full_band = compose_full_band(prep.gray[y0:y1, :])
-        line = await glm_read([encode_b64(full_band, max_w=2200, fmt=".png")], "Text Recognition:", 160)
+        line = await glm_read([encode_b64(full_band, max_w=3400, fmt=".png")], "Text Recognition:", 160)
         band_reads += 1
         dtl = parse_dtl_line(line or "")
         if dtl is not None:
             dtl_by_idx[idx] = dtl
-            if dtl.get("easting") is not None and dtl.get("northing") is not None:
+            if _is_valid_coord_pair(dtl.get("easting"), dtl.get("northing")):
                 pole_clean = re.sub(r"\(.*\)", "", str(dtl.get("pole") or "")).strip() or str(dtl.get("pole") or "")
                 parsed_list.append(
                     {
@@ -1252,20 +1297,14 @@ async def ocr_page_glm(
                     }
                 )
                 continue
-            if dtl.get("pole") == "PORTAL":
+            if dtl.get("pole") == "PORTAL" and not COORD_RE.search(line or ""):
                 parsed_list.append({"pole": "PORTAL", "coords": [], "text": line or "", "portal": True})
                 continue
         parsed_list.append(parse_glm_line(line or ""))
 
-    # 2. Geçiş (RETRY_WEAK): geçerli koordinat satırlarının ARASINDA kalan zayıf bantları
-    # odaklı compose_band + ikili görüntüyle tekrar dene
+    # 2. Geçiş (RETRY_WEAK): zayıf bantları dar odaklı compose_band + ikili görüntüyle tekrar dene
     if RETRY_WEAK and plan:
-        valid_idx = [i for i, p in enumerate(parsed_list) if p and not p.get("weak") and not p.get("portal")]
-        if len(valid_idx) >= 2:
-            retry_range = range(valid_idx[0], valid_idx[-1] + 1)
-        else:
-            retry_range = range(len(plan))
-        for i in retry_range:
+        for i in range(len(plan)):
             p = parsed_list[i]
             if p is not None and p.get("portal"):
                 continue
@@ -1273,19 +1312,36 @@ async def ocr_page_glm(
                 if request is not None and await request.is_disconnected():
                     raise RuntimeError("İstemci bağlantıyı kapattı")
                 y0, y1 = plan[i]
-                composed = compose_band(prep.gray[y0:y1])
-                line2 = await glm_read([encode_b64(composed, max_w=1600, fmt=".png")], ROW_PROMPT, 96)
+                composed_narrow = compose_band(prep.gray[y0:y1], narrow=True)
+                b64_narrow = encode_b64(composed_narrow, max_w=2200, fmt=".png")
+                line2 = await glm_read([b64_narrow], ROW_PROMPT, 96)
                 band_reads += 1
                 p2 = parse_glm_line(line2 or "")
+                if p2 is None or p2.get("weak"):
+                    line2b = await glm_read([b64_narrow], "Text Recognition:", 96)
+                    band_reads += 1
+                    p2b = parse_glm_line(line2b or "")
+                    if p2b is not None and not p2b.get("weak"):
+                        p2 = p2b
                 if p2 is not None and not p2.get("weak"):
+                    if not p2.get("pole") and p and p.get("pole"):
+                        p2["pole"] = p["pole"]
                     parsed_list[i] = p2
+                    if i in dtl_by_idx and len(p2.get("coords") or []) >= 2:
+                        dtl_by_idx[i]["easting"] = float(p2["coords"][0])
+                        dtl_by_idx[i]["northing"] = float(p2["coords"][1])
                     continue
                 bw = cv2.bitwise_not(prep.ink[y0:y1])
-                line3 = await glm_read([encode_b64(compose_band(bw), max_w=1600, fmt=".png")], ROW_PROMPT, 96)
+                line3 = await glm_read([encode_b64(compose_band(bw), max_w=2200, fmt=".png")], ROW_PROMPT, 96)
                 band_reads += 1
                 p3 = parse_glm_line(line3 or "")
                 if p3 is not None and (p is None or not p3.get("weak")):
+                    if not p3.get("pole") and p and p.get("pole"):
+                        p3["pole"] = p["pole"]
                     parsed_list[i] = p3
+                    if i in dtl_by_idx and len(p3.get("coords") or []) >= 2 and not p3.get("weak"):
+                        dtl_by_idx[i]["easting"] = float(p3["coords"][0])
+                        dtl_by_idx[i]["northing"] = float(p3["coords"][1])
 
     rows: list[list[dict]] = []
     for idx, p in enumerate(parsed_list):

@@ -50,7 +50,7 @@ const HEADER_PAT =
   /(?:TOWER\s+NO|WIND\s+SPAN|WEIGHT\s+SPAN|INSULATOR|ARA\s+MESAFE|FONKS.YON|Tek\s+Ask|direklerin\s+ara|\(1\)\s*\(2\)|MAX\s+TOWER|S\.I\.NO\.)/i;
 
 const CENTER_RE =
-  /(?:(?<func>\b(?:KD|KT|N|D|T|A|B|C)\b)\s+)?(?:(?<pole2>\d{1,3}(?:\s*\([A-Z0-9]+\))?)\s+)?(?<ttype>\b(?:P[A-F]\d|2F[SN]\d|[1-4][A-Z]\d?|(?:K|G|T|D|N|PB|PA|PC|PD|PE|PF)[-./]?\d{1,3})\b)\s+(?<height>\d{1,2}(?:\.\d)?)\s+(?<body_ext>[+-]?\d{1,2})\b/i;
+  /(?:(?<func>\b(?:KD|KT|N|D|T|A|B|C)\b)\s+)?(?:(?<pole2>\d{1,3}(?:\s*\([A-Z0-9]+\))?)\s+)?(?<ttype>\b(?:C?P[A-F]\d?(?:\([A-Z0-9]+\))?|2F[SN]\d|[1-4][A-Z]\d?|(?:K|G|T|D|N|PB|PA|PC|PD|PE|PF)[-./]?\d{1,3})\b)\s+(?<height>\d{1,2}(?:\.\d)?)\s+(?<body_ext>[+-]?\d{1,2})\b/i;
 
 export function normalizeCrossing(raw: string): string {
   const s = (raw || '').replace(/[|]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -106,6 +106,9 @@ export function normalizeRemarks(raw: string): string {
   if (u.includes('EV') && u.includes('KONSOL')) {
     items.push('ÇEVİRME KONSOLLU');
   }
+  if (u.includes('MIKROKAZ') || u.includes('MİKROKAZ')) {
+    items.push('Mikrokazık Temelli');
+  }
   return items.length > 0 ? items.join(', ') : s;
 }
 
@@ -156,16 +159,28 @@ export function parseDtlLine(line: string): DtlRow | null {
 
   // Silik ondalık / kilometraj noktalarını onar
   s = s.replace(/\b(\d{1,3})\s*[*+-]\s*(\d{3})[., ](\d{2})\b/g, '$1+$2.$3');
+  s = s.replace(/\b(\d{1,3}\+\d{3})(\d{2})\b/g, '$1.$2');
   s = s.replace(/\b(\d{1,3}\+\d{3})\s+(\d{2})\b/g, '$1.$2');
   s = s.replace(/\b(\d{6,7})\s+(\d{2})\b/g, '$1.$2');
   s = s.replace(/\b([12]\d{3})\s+(\d{2})\b/g, '$1.$2');
-  s = s.replace(/^(\s*(?:PORTAL|\d{1,3}(?:\([A-Z0-9]+\))?)\s+\d{2,3})\s+(\d{2})\b/i, '$1.$2');
+  s = s.replace(/^(\s*(?:PORTAL\.?|\d{1,3}(?:\([A-Z0-9]+\))?)\s+\d{2,3})\s+(\d{2})\b/i, '$1.$2');
   s = s.replace(/\b(8|9|10|11|12|13)\s+(\d0)\b/g, '$1.$2');
   s = s.replace(/([+-]0)\s+(\d0)\b/g, '$1.$2');
 
-  const coordsAll = s.match(COORD_RE) || [];
-  if (/^PORTAL\b/i.test(s) && coordsAll.length < 2) {
-    const nums = s.match(/\b\d+(?:\.\d+)?\b/g) || [];
+  if (/^PORTAL\b/i.test(s)) {
+    const coordsAll = s.match(COORD_RE) || [];
+    const eastingP = coordsAll.length >= 2 ? parseFloat(coordsAll[coordsAll.length - 2]) : null;
+    const northingP = coordsAll.length >= 2 ? parseFloat(coordsAll[coordsAll.length - 1]) : null;
+    let sNoCoord = s.replace(COORD_RE, ' ');
+    let stTextP = '';
+    let stMP: number | null = null;
+    const mStP = sNoCoord.match(/\b(\d{1,3})\+(\d{3}(?:\.\d{1,2})?)\b/);
+    if (mStP && mStP.index !== undefined) {
+      stTextP = mStP[0];
+      stMP = Math.round((parseFloat(mStP[1]) * 1000 + parseFloat(mStP[2])) * 100) / 100;
+      sNoCoord = sNoCoord.slice(0, mStP.index) + ' ' + sNoCoord.slice(mStP.index + mStP[0].length);
+    }
+    const nums = sNoCoord.match(/\b\d+(?:\.\d+)?\b/g) || [];
     let span_m: number | null = null;
     let angle: number | null = null;
     let elev: number | null = null;
@@ -184,8 +199,8 @@ export function parseDtlLine(line: string): DtlRow | null {
       span_m,
       wind_span_m: null,
       weight_span_m: null,
-      station_text: '',
-      station_m: null,
+      station_text: stTextP,
+      station_m: stMP,
       some_no: '',
       line_angle_grad: angle,
       crossing: '',
@@ -203,8 +218,8 @@ export function parseDtlLine(line: string): DtlRow | null {
       insulator_set: '',
       insulator_count: '',
       insulator_ref: '',
-      easting: null,
-      northing: null,
+      easting: eastingP,
+      northing: northingP,
       remarks: '',
       profile_no: null,
       ice_zone: null,

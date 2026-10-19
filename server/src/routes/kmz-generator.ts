@@ -164,35 +164,60 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
         const medianN = sortedN[Math.floor(sortedN.length / 2)];
         const approxLat = tm3ToWgs84(500000, medianN, 39).lat;
 
-        if (tm3Cm >= 27 && tm3Cm <= 45) {
-          const conv = convertTm3List(tmRows, tm3Cm);
-          if (conv.length > 0) {
-            poles = conv;
-            tm3CmUsed = tm3Cm;
-            console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (seçili CM ${tm3CmUsed}) ile ${poles.length} direk çevrildi`);
-          }
-        } else {
-          // Otomatik: dosya adı + proje adı + belge metninden bölge tespiti
-          const region = detectRegion(`${req.file.originalname}\n${projectName}\n${textLines}`, approxLat);
-          const cmsToTry = region.cmOrder;
-          if (region.city) {
-            console.log(`[KMZ-ÜRET] bölge tespiti: ${region.city} (resmi CM ${cmsToTry[0]}, il boylamı ${region.provLon?.toFixed(2)})`);
-          }
+        // Dosya adı + proje adı + belge metninden bölge tespiti
+        const region = detectRegion(`${req.file.originalname}\n${projectName}\n${textLines}`, approxLat);
+        const cmsToTry = region.cmOrder;
+        if (region.city) {
+          console.log(`[KMZ-ÜRET] bölge tespiti: ${region.city} (resmi CM ${cmsToTry[0]}, referans boylam ${region.provLon?.toFixed(2)})`);
+        }
 
-          // Referans boylam(lar)ı: metinden tespit edilen iller; yoksa projedeki mevcut direklerin boylamı
-          const refLons: number[] = region.matches.map((m) => m.info.lon);
-          if (refLons.length === 0 && projectId != null) {
-            const existing = await pool.query(
-              'SELECT AVG(lat) AS lat, AVG(lon) AS lon FROM poles WHERE project_id = $1',
-              [projectId]
-            );
-            const exLat = Number(existing.rows[0]?.lat);
-            const exLon = Number(existing.rows[0]?.lon);
-            if (Number.isFinite(exLat) && Number.isFinite(exLon) && Math.abs(exLat - approxLat) <= 1.8) {
-              refLons.push(exLon);
+        // Referans boylam(lar)ı: metinden tespit edilen il/ilçeler; yoksa projedeki mevcut direklerin boylamı
+        const refLons: number[] = region.matches.map((m) => m.info.lon);
+        if (refLons.length === 0 && projectId != null) {
+          const existing = await pool.query(
+            'SELECT AVG(lat) AS lat, AVG(lon) AS lon FROM poles WHERE project_id = $1',
+            [projectId]
+          );
+          const exLat = Number(existing.rows[0]?.lat);
+          const exLon = Number(existing.rows[0]?.lon);
+          if (Number.isFinite(exLat) && Number.isFinite(exLon) && Math.abs(exLat - approxLat) <= 1.8) {
+            refLons.push(exLon);
+          }
+        }
+
+        if (tm3Cm >= 27 && tm3Cm <= 45) {
+          let chosenCm = tm3Cm;
+          let conv = convertTm3List(tmRows, chosenCm);
+          // Kullanıcı ör. "DOM 39° (Diyarbakır)" seçmiş olsa bile hat ilin doğu ilçesinde (ör. Lice, DOM 42°)
+          // ise seçili CM hattı ~270 km batıya (Malatya/K.Maraş'a) atar. Belgede/projede tespit edilen
+          // referans boylama göre >1.6° sapma varsa ve komşu dilim (±3°) tam bölgeye düşüyorsa otomatik düzelt.
+          if (conv.length > 0 && refLons.length > 0) {
+            const meanLon = conv.reduce((s, p) => s + p.lon, 0) / conv.length;
+            const distSel = Math.min(...refLons.map((rl) => Math.abs(meanLon - rl)));
+            if (distSel > 1.6) {
+              for (const adjCm of [tm3Cm + 3, tm3Cm - 3]) {
+                if (adjCm < 27 || adjCm > 45) continue;
+                const convAdj = convertTm3List(tmRows, adjCm);
+                if (convAdj.length === 0) continue;
+                const meanAdj = convAdj.reduce((s, p) => s + p.lon, 0) / convAdj.length;
+                const distAdj = Math.min(...refLons.map((rl) => Math.abs(meanAdj - rl)));
+                if (distAdj <= 1.2 && distAdj + 0.8 < distSel) {
+                  console.log(
+                    `[KMZ-ÜRET] Seçili CM ${tm3Cm} (${meanLon.toFixed(2)}°D) bölge referansından ${distSel.toFixed(2)}° uzakta → komşu dilim CM ${adjCm} (${meanAdj.toFixed(2)}°D, fark ${distAdj.toFixed(2)}°) kullanıldı`
+                  );
+                  chosenCm = adjCm;
+                  conv = convAdj;
+                  break;
+                }
+              }
             }
           }
-
+          if (conv.length > 0) {
+            poles = conv;
+            tm3CmUsed = chosenCm;
+            console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (CM ${tm3CmUsed}) ile ${poles.length} direk çevrildi`);
+          }
+        } else {
           if (refLons.length > 0) {
             let best: { poles: PolePoint[]; cm: number; dist: number } | null = null;
             for (const cm of cmsToTry) {

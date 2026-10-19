@@ -74,13 +74,14 @@ export default function DocumentKmz() {
     const log = [];
     const collected = [];
     let firstPreview = null;
+    let batchCmUsed = null;
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       setBatchProgress({ done: i, total: files.length, log });
       const fd = new FormData();
       fd.append('project_id', projectId);
       fd.append('file', f);
-      fd.append('tm3_cm', utmZone === '0' ? 0 : utmZone);
+      fd.append('tm3_cm', batchCmUsed ?? (utmZone === '0' ? 0 : utmZone));
       try {
         const res = await fetch('/api/kmz-generator/parse', {
           method: 'POST',
@@ -90,6 +91,7 @@ export default function DocumentKmz() {
         const d = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(d.error || 'Okuma başarısız.');
         collected.push(d);
+        if (!batchCmUsed && d.tm3_cm_used) batchCmUsed = d.tm3_cm_used;
         if (!firstPreview && d.ocr?.pages?.length) firstPreview = d.ocr.pages[0].preview;
         const domInfo = d.tm3_cm_used ? ` (DOM ${d.tm3_cm_used}°)` : '';
         log.push(`${i + 1}/${files.length} · ${f.name}: ${d.count} direk${domInfo} ✓`);
@@ -100,11 +102,16 @@ export default function DocumentKmz() {
       setBatchProgress({ done: i + 1, total: files.length, log });
     }
     setBatchProgress(null);
-    // Birleştir: aynı noktaya düşen tekrarları (≈15m) ele
+    // Birleştir: sayfa geçişlerinde tekrarlanan aynı direkleri (≈25m) veya birebir aynı koordinatı (≈2m) ele
     const all = collected.flatMap((d) => d.poles || []);
     const merged = [];
     for (const p of all) {
-      const dup = merged.some((q) => Math.hypot((p.lat - q.lat) * 110900, (p.lon - q.lon) * 87300) < 15);
+      const pName = String(p.name || '').trim().toUpperCase();
+      const dup = merged.some((q) => {
+        const qName = String(q.name || '').trim().toUpperCase();
+        const distM = Math.hypot((p.lat - q.lat) * 110900, (p.lon - q.lon) * 87300);
+        return pName && pName === qName ? distM < 25 : distM < 2;
+      });
       if (!dup) merged.push(p);
     }
     if (merged.length < 2) {
@@ -239,13 +246,13 @@ export default function DocumentKmz() {
         </select>
         <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>DİLİM ORTA MERİDYENİ (ITRF-96 3°):</span>
         <select value={utmZone} onChange={(e) => setUtmZone(e.target.value)}>
-          <option value="0">Otomatik (İl Tablosuna Göre)</option>
+          <option value="0">Otomatik (İl/İlçe Tablosu + Koordinat Doğrulama)</option>
           <option value="27">DOM 27° (İzmir, Aydın, Muğla, Manisa, Balıkesir, Çanakkale, Edirne, Tekirdağ)</option>
           <option value="30">DOM 30° (İstanbul, Bursa, Kocaeli, Sakarya, Eskişehir, Afyon, Antalya, Denizli)</option>
           <option value="33">DOM 33° (Ankara, Konya, Bolu, Zonguldak, Kastamonu, Kırıkkale, Aksaray, Karaman)</option>
           <option value="36">DOM 36° (Adana, Mersin, Hatay, Gaziantep, K.Maraş, Kayseri, Sivas, Samsun, Çorum)</option>
-          <option value="39">DOM 39° (Diyarbakır, Şanlıurfa, Malatya, Elazığ, Adıyaman, Trabzon, Ordu, Erzincan)</option>
-          <option value="42">DOM 42° (Erzurum, Van, Mardin, Batman, Siirt, Şırnak, Muş, Bitlis, Kars, Ağrı, Rize)</option>
+          <option value="39">DOM 39° (Diyarbakır Merkez/Batı, Şanlıurfa, Malatya, Elazığ, Adıyaman, Trabzon, Ordu, Erzincan)</option>
+          <option value="42">DOM 42° (Diyarbakır Doğu/Lice-Silvan-Bismil, Erzurum, Van, Mardin, Batman, Siirt, Şırnak, Muş, Bitlis, Kars, Ağrı)</option>
           <option value="45">DOM 45° (Hakkari, Iğdır)</option>
         </select>
       </div>
