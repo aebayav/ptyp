@@ -347,7 +347,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
           </div>
           {poles.length > 0 && (
             <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn" onClick={() => apiDownload('/api/kmz-generator/from-project?project_id=' + projectId, 'guzergah.kmz')}>KMZ İndir</button>
+              <button className="btn" onClick={() => apiDownload('/api/kmz-generator/from-project?project_id=' + projectId, (data?.file_name || 'guzergah').replace(/\.[^.]+$/, '') + '.kmz')}>KMZ İndir</button>
               <button className="btn" onClick={() => apiDownload('/api/export/poles?project_id=' + projectId, 'ptyp-direkler.xlsx')}>Excel İndir</button>
               <button className="btn" onClick={exportCsv}>CSV İndir</button>
               <button className="btn btn-danger" onClick={clearAll}>Temizle</button>

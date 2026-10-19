@@ -532,7 +532,14 @@ export default function DocumentKmz() {
               {busy ? 'Kaydediliyor…' : 'KMZ Üret ve Projeye Aktar'}
             </button>
             {result?.kmz && (
-              <button className="btn" onClick={() => apiDownload(result.kmz, 'olusturulan.kmz')}>Oluşan KMZ'yi İndir</button>
+              <button
+                className="btn"
+                onClick={() =>
+                  apiDownload(result.kmz, ((files.length ? files[0].name : file?.name) || 'guzergah').replace(/\.[^.]+$/, '') + '.kmz')
+                }
+              >
+                Oluşan KMZ'yi İndir
+              </button>
             )}
           </div>
           <div className="form-hint" style={{ marginTop: 8 }}>
