@@ -20,12 +20,18 @@
 import base64
 import asyncio
 import io
+import json
 import os
 import logging
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import time
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 
 import cv2
 import httpx
@@ -52,6 +58,13 @@ OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "240"))
 OCR_CONCURRENCY = max(1, int(os.environ.get("OCR_CONCURRENCY", "1")))
 # PDF render ölçeği (2.0 ≈ 144 dpi)
 PDF_SCALE = float(os.environ.get("PDF_SCALE", "2.0"))
+
+# ---------- Indra OCR (hızlı CPU motoru — ana yol) ----------
+# glm-ocr (VLM) yedek olarak duruyor: indra yetersizse / belirsiz doğrulamada.
+INDRA_BIN = os.environ.get("INDRA_BIN", "")  # boşsa venv/PATH'ten bulunur
+INDRA_CORES = int(os.environ.get("INDRA_CORES", "6"))
+INDRA_MIN_ROWS = int(os.environ.get("INDRA_MIN_ROWS", "2"))
+INDRA_ENABLED = os.environ.get("INDRA_ENABLED", "1") not in ("0", "false", "False")
 # Sayfa medyanından bu kadar metre sapan koordinat şüpheli sayılır
 OUTLIER_M = float(os.environ.get("OUTLIER_M", "25000"))
 # Zayıf bantları ikili görüntüyle yeniden okumayı aç/kapat
@@ -1216,18 +1229,21 @@ def _finalize_rows(rows: list[list[dict]]) -> list[list[dict]]:
     if len(iy) >= 2:
         axis = 2 if np.ptp(ix) >= np.ptp(iy) else 1
 
-    # 4b. Güzergah tekdüzelik kontrolü: HER İKİ eksende komşularına göre
-    # tersine dönen satırlar (rakam yanlış okumaları) belirsiz işaretlenir
-    if len(valid) >= 3:
-        other = 1 if axis == 2 else 2
-        for a in (axis, other):
+    # 4b. Zigzag tespiti: yalnız BÜYÜK ileri-geri sıçramalar (rakam hatası)
+    # belirsiz işaretlenir; küçük/sürekli yön değişimi = rota dönüşü, dokunma
+    if len(valid) >= 4:
+        for a in (1, 2):
             vals = [_num(r[a]["text"]) for r in valid]
+            if any(v is None for v in vals):
+                continue
+            ds = np.abs(np.diff(vals))
+            nonzero = ds[ds > 0]
+            if not len(nonzero):
+                continue
+            step = float(np.median(nonzero))
             for i in range(1, len(vals) - 1):
-                x0, x1, x2 = vals[i - 1], vals[i], vals[i + 1]
-                if None in (x0, x1, x2):
-                    continue
-                d1, d2 = x1 - x0, x2 - x1
-                if d1 * d2 < 0 and abs(d1) + abs(d2) > 50:
+                d1, d2 = vals[i] - vals[i - 1], vals[i + 1] - vals[i]
+                if d1 * d2 < 0 and abs(d1) > step * 1.5 and abs(d2) > step * 1.5:
                     valid[i][1]["conf"] = valid[i][2]["conf"] = 0.4
 
     # 5. Direk numarası — en uzun ARDIŞIK ofset dizisi çapayı belirler
@@ -1254,6 +1270,117 @@ def _finalize_rows(rows: list[list[dict]]) -> list[list[dict]]:
                 r[0]["text"] = want
                 r[0]["conf"] = 0.7  # sıradan tamamlandı (belirsiz sayılmaz)
     return valid + weak
+
+
+def _indra_bin() -> str | None:
+    """indra-ocr CLI'sinin yolunu bul (venv öncelikli, sonra PATH)."""
+    if INDRA_BIN:
+        return INDRA_BIN
+    exe = "indra-ocr.exe" if os.name == "nt" else "indra-ocr"
+    cand = Path(sys.executable).with_name(exe)
+    return str(cand) if cand.exists() else shutil.which(exe)
+
+
+def _indra_rows_from_page(page: dict) -> tuple[list[tuple[int, list[dict]]], list[tuple[int, int]]]:
+    """Indra sayfa JSON'undan satırları kutu (box) y-koordinatıyla gruplayıp
+    soldan sağa birleştirir; metin mevcut parse'tan geçer. Belge sırası korunur.
+    Döner: ([(y, cells)], zayıf_bant_aralıkları) — zayıf olanlar GLM dolgusuna kalır."""
+    lines = [l for l in (page.get("lines") or []) if l.get("text", "").strip()]
+    if not lines:
+        return [], []
+    # Direk hücresini çapa alarak kümele: DTL'de direk kolonu sayfanın solunda
+    # (x<380) ve her direk yeni satır başlatır. Açıklama/ek satırları komşu
+    # satıra yaklaşsa bile çapalar kesin ayırır. Çapa yoksa boşluk kümelemesi.
+    lines.sort(key=lambda l: float(l["box"][1]))
+    ANCHOR_RE = re.compile(r"^\s*-?\d{1,3}\.?\s*$|[Pp][A-Za-z]*\d*[A-Za-z]*|[Dd][A-Za-z]*[-.]?\d*")
+    anchors = [l for l in lines if float(l["box"][0]) < 380 and ANCHOR_RE.fullmatch(l["text"].strip())]
+    if len(anchors) >= 2:
+        anchors.sort(key=lambda l: float(l["box"][1]))
+        tops = [float(a["box"][1]) for a in anchors]
+        clusters: list[list[dict]] = []
+        for i, a in enumerate(tops):
+            b = tops[i + 1] if i + 1 < len(tops) else a + 120
+            clusters.append([l for l in lines if a - 6 <= float(l["box"][1]) < b - 6])
+    else:
+        clusters = []
+        for l in lines:
+            y = float(l["box"][1])
+            if clusters and y - float(clusters[-1][-1]["box"][1]) <= 16:
+                clusters[-1].append(l)
+            else:
+                clusters.append([l])
+    rows: list[tuple[int, list[dict]]] = []
+    weak_ranges: list[tuple[int, int]] = []
+    for items in clusters:
+        items.sort(key=lambda l: float(l["box"][0]))
+        joined = " | ".join(l["text"].strip() for l in items)
+        parsed = parse_glm_line(joined)
+        if parsed is None or _is_noise_line(parsed):
+            continue
+        cells = cells_from_parsed(parsed)
+        y0 = int(min(float(l["box"][1]) for l in items))
+        y1 = int(max(float(l["box"][3]) for l in items))
+        if len(cells) < 3:
+            # Direk benzeri başlangıcı olan eksik satır → GLM dolgusu için bant aralığı
+            if parsed.get("pole") or re.search(r"^\d{1,3}\b", joined):
+                weak_ranges.append((max(0, y0 - 4), y1 + 4))
+            continue
+        confs = [float(l.get("conf") or 0.0) for l in items if (l.get("conf") or 0) > 0]
+        avg = sum(confs) / len(confs) if confs else 0.0
+        for c in cells[1:3]:
+            c["conf"] = round(avg, 4) if avg >= 0.55 else 0.4
+        rows.append((y0, cells))
+    return rows, weak_ranges
+
+
+async def ocr_page_indra(original: np.ndarray) -> tuple[list[tuple[int, list[dict]]], list[tuple[int, int]], int]:
+    """Indra OCR: tam sayfayı CPU'da okur (genelde 2-6 sn).
+    Döner: ([(y, cells)], zayıf_bantlar, ms). rows yetersizse GLM yoluna düşülür."""
+    binp = await asyncio.to_thread(_indra_bin)
+    if not binp:
+        log.warning("indra ikili dosyası bulunamadı → GLM yoluna düşülür")
+        return [], [], 0
+    t0 = time.time()
+    tmp = ""
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            tmp = f.name
+        bgr = cv2.cvtColor(original, cv2.COLOR_RGB2BGR)
+        if not await asyncio.to_thread(cv2.imwrite, tmp, bgr):
+            return [], [], 0
+
+        def _run() -> subprocess.CompletedProcess:
+            return subprocess.run(
+                [binp, tmp, "--format", "json", "--mode", "ocr", "--cores", str(INDRA_CORES)],
+                capture_output=True, text=True, timeout=600,
+            )
+
+        proc = await asyncio.to_thread(_run)
+        if proc.returncode != 0:
+            log.warning("indra çalışmadı (rc=%d): %s", proc.returncode, (proc.stderr or "")[-200:])
+            return [], [], 0
+        rows: list[tuple[int, list[dict]]] = []
+        weak_ranges: list[tuple[int, int]] = []
+        for line in proc.stdout.splitlines():
+            try:
+                rs, ws = _indra_rows_from_page(json.loads(line))
+                rows.extend(rs)
+                weak_ranges.extend(ws)
+            except Exception:
+                continue
+        valid = sum(1 for _, r in rows if len(r) >= 3)
+        ms = int((time.time() - t0) * 1000)
+        log.info("indra: %d satır (%d geçerli, %d zayıf) %.0fms", len(rows), valid, len(weak_ranges), ms)
+        return rows, weak_ranges, ms
+    except Exception as e:
+        log.warning("indra hatası (%s) → GLM yoluna düşülür", e)
+        return [], [], 0
+    finally:
+        if tmp and os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 
 async def ocr_page_glm(
@@ -1492,9 +1619,33 @@ async def ocr_document(request: Request, file: UploadFile):
             try:
                 original = await asyncio.to_thread(auto_orient_page, raw_page)
                 need_hdr = page_idx == 0 or not dtl_header.get("line_name")
-                rows, page_dtl_rows, hdr, band_count, band_reads = await ocr_page_glm(
-                    original, request=request, read_header=need_hdr
-                )
+                indra_rows, indra_weak, indra_ms = (await ocr_page_indra(original)) if INDRA_ENABLED else ([], [], 0)
+                indra_valid = sum(1 for _, r in indra_rows if len(r) >= 3)
+                if indra_valid >= INDRA_MIN_ROWS:
+                    # GLM dolgusu: Indra'nın eksik bıraktığı bantları tek tek okut
+                    for fy0, fy1 in indra_weak[:8]:
+                        try:
+                            band_img = original[fy0:fy1]
+                            if band_img.shape[0] < 12:
+                                continue
+                            composed = await asyncio.to_thread(compose_band, band_img)
+                            line = await glm_read([encode_b64(composed, fmt=".png")], ROW_PROMPT, 160)
+                            p2 = parse_glm_line(line or "")
+                            if p2 and len(p2.get("coords") or []) >= 2:
+                                c2 = cells_from_parsed(p2)
+                                if len(c2) >= 3:
+                                    indra_rows.append((fy0, c2))
+                        except Exception:
+                            continue
+                    indra_rows.sort(key=lambda t: t[0])
+                    rows = _finalize_rows([cells for _, cells in indra_rows])
+                    page_dtl_rows, hdr = [], {}
+                    band_count, band_reads = 0, 0
+                    log.info("indra kullanıldı: sayfa %d (%dms, %d zayıf)", page_idx + 1, indra_ms, len(indra_weak))
+                else:
+                    rows, page_dtl_rows, hdr, band_count, band_reads = await ocr_page_glm(
+                        original, request=request, read_header=need_hdr
+                    )
                 if hdr:
                     for k in ("voltage_kv", "conductor", "line_name", "notes", "title"):
                         if hdr.get(k) and not dtl_header.get(k):
