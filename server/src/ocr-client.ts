@@ -1,4 +1,7 @@
-// Python OCR servisi (FastAPI + PaddleOCR) istemcisi
+// Python OCR servisi (FastAPI + GLM-OCR) istemcisi
+import http from 'http';
+import https from 'https';
+
 const OCR_URL = (process.env.OCR_URL || 'http://127.0.0.1:8787').replace(/\/$/, '');
 
 export interface OcrCell {
@@ -19,25 +22,70 @@ export interface OcrResponse {
 }
 
 export async function callOcr(buffer: Buffer, filename: string): Promise<OcrResponse> {
-  const fd = new FormData();
-  fd.append('file', new Blob([buffer]), filename);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10 * 60 * 1000); // OCR yavaş olabilir
-  try {
-    const res = await fetch(`${OCR_URL}/ocr/document`, {
-      method: 'POST',
-      body: fd,
-      signal: controller.signal,
+  // Node 22 yerleşik fetch (undici) varsayılan olarak 300 sn headersTimeout uygular;
+  // çok sayfalı PDF'lerde 5 dakikayı aşan OCR işlemlerinde "fetch failed" hatasını
+  // önlemek için doğrudan http.request (20 dk zaman aşımı) kullanılır.
+  const boundary = '----PtypOcrBoundary' + Date.now().toString(16) + Math.random().toString(16).slice(2);
+  const safeName = (filename || 'document.pdf').replace(/["\r\n]/g, '_');
+  const header = Buffer.from(
+    `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="file"; filename="${safeName}"\r\n` +
+      `Content-Type: application/octet-stream\r\n\r\n`,
+    'utf8'
+  );
+  const footer = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8');
+  const body = Buffer.concat([header, buffer, footer]);
+
+  const url = new URL(`${OCR_URL}/ocr/document`);
+  const lib = url.protocol === 'https:' ? https : http;
+  const timeoutMs = 20 * 60 * 1000;
+
+  return new Promise<OcrResponse>((resolve, reject) => {
+    const req = lib.request(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port || (url.protocol === 'https:' ? 443 : 80),
+        path: url.pathname + url.search,
+        method: 'POST',
+        headers: {
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          'Content-Length': body.length,
+        },
+        timeout: timeoutMs,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        res.on('end', () => {
+          const raw = Buffer.concat(chunks).toString('utf8');
+          let json: any = {};
+          try {
+            json = JSON.parse(raw);
+          } catch {
+            /* ignore */
+          }
+          if ((res.statusCode || 500) < 200 || (res.statusCode || 500) >= 300) {
+            return reject(new Error(json.error || `OCR servisi hata döndü (HTTP ${res.statusCode})`));
+          }
+          resolve(json as OcrResponse);
+        });
+      }
+    );
+
+    req.on('timeout', () => {
+      req.destroy(new Error('OCR servisi zaman aşımına uğradı (20 dk).'));
     });
-    const json = (await res.json().catch(() => ({}))) as { error?: string };
-    if (!res.ok) {
-      throw new Error(json.error || `OCR servisi hata döndü (HTTP ${res.status})`);
-    }
-    return json as unknown as OcrResponse;
-  } catch (e: any) {
-    if (e.name === 'AbortError') throw new Error('OCR servisi zaman aşımına uğradı (10 dk).');
-    throw new Error('OCR servisine ulaşılamadı: ' + (e.message || e));
-  } finally {
-    clearTimeout(timer);
-  }
+
+    req.on('error', (err: any) => {
+      if (String(err?.message || '').includes('zaman aşımına')) {
+        reject(err);
+      } else {
+        reject(new Error('OCR servisine ulaşılamadı: ' + (err?.message || err)));
+      }
+    });
+
+    req.write(body);
+    req.end();
+  });
 }

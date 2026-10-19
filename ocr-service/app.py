@@ -30,7 +30,7 @@ from dataclasses import dataclass
 import cv2
 import httpx
 import numpy as np
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse, StreamingResponse
 from pydantic import BaseModel
 from PIL import Image
@@ -287,6 +287,24 @@ class PreparedPage:
     bands: list[tuple[int, int]]
     skew: float
     noise: dict
+    v_row: np.ndarray | None = None  # her y satırındaki dikey tablo çizgisi piksel sayısı
+
+
+def auto_orient_page(img: np.ndarray) -> np.ndarray:
+    """Dikey (portre, h > w) taranmış yatay DTL tablolarını otomatik 90° döndürür.
+    Düz DTL sayfasında çok sütunlu tablo ızgarası üst/orta bölgede (0.20..0.55 H),
+    az dikey çizgili imza bloğu ise alt bölgede (0.80..0.95 H) yer alır."""
+    h, w = img.shape[:2]
+    if h <= w * 1.05:
+        return img
+    ccw = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    cw = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+    _, v_ccw = ruling_masks(binarize(_to_gray(ccw)))
+    v_row = (v_ccw > 0).sum(axis=1)
+    H = len(v_row)
+    top_v = float(v_row[int(H * 0.20) : int(H * 0.55)].mean()) if H > 10 else 0.0
+    bot_v = float(v_row[int(H * 0.80) : int(H * 0.95)].mean()) if H > 10 else 0.0
+    return ccw if top_v >= bot_v else cw
 
 
 def prepare_page(original: np.ndarray) -> PreparedPage:
@@ -309,12 +327,13 @@ def prepare_page(original: np.ndarray) -> PreparedPage:
         ink = remove_specks(binarize(gray), speck)
 
     horiz, vert = ruling_masks(ink)
+    v_row = (vert > 0).sum(axis=1)
     clean = cv2.subtract(ink, cv2.dilate(vert, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 1))))
     clean[horiz > 0] = 0
     clean = remove_specks(clean, speck, border_frac=1.1)
 
     bands = row_bands(clean)
-    return PreparedPage(gray=gray, ink=ink, clean=clean, bands=bands, skew=round(skew, 2), noise=noise)
+    return PreparedPage(gray=gray, ink=ink, clean=clean, bands=bands, skew=round(skew, 2), noise=noise, v_row=v_row)
 
 
 def preprocess_gray(img: np.ndarray) -> np.ndarray:
@@ -359,8 +378,8 @@ ROW_PROMPT = (
 )
 
 COORD_RE = re.compile(r"\b\d{6,7}(?:[.,]\d{1,4})?\b")
-# Direk kalıbı: PB1, D-14, P3, DP-2, Direk 5, Portal
-POLE_PAT_RE = re.compile(r"(?i)(?:direk\s*)?(?:portal|(?:d|p|dp|pb|dm)[-./]?\d{1,4})")
+# Direk kalıbı: PB1, D-14, P3, DP-2, Direk 5, Portal (kelime sınırı ile ND.1 içindeki D.1 eşleşmez)
+POLE_PAT_RE = re.compile(r"(?i)\b(?:direk\s*)?(?:portal|(?:d|p|dp|pb|dm)[-./]?\d{1,4})\b")
 # Prompt yankısı sayılan kalıplar (boş bantta model prompt'u tekrar eder)
 ECHO_WORDS = ("yalnızca", "formatta", "başka bir şey", "uydurma", "aynen koru", "koordinat değeri")
 # Rakam bağlamında sık OCR karışıklıkları
@@ -389,27 +408,35 @@ def parse_glm_line(line: str) -> dict | None:
     # Binlik ayırıcı / OCR boşluğu: "4 256 007.40" → "4256007.40" (yalnız koordinat boyunda)
     norm = re.sub(r"\b(\d{1,3})[ ](\d{3})[ ](\d{3})(?=\.\d|\b)", r"\1\2\3", norm)
     norm = re.sub(r"\b(\d{3})[ '’](\d{3})(?=\.\d|\b)", r"\1\2", norm)
+    # Ondalık noktası silik olup boşluk olarak okunmuşsa (ör. "448894.00 4494449 50"):
+    if re.search(r"\b\d{6,7}\.\d{1,4}\b", norm):
+        norm = re.sub(r"\b(\d{6,7})[ ](\d{2})(?=\b)", r"\1.\2", norm)
     coords = COORD_RE.findall(norm)
     # DTL tablolarında koordinatlar son iki büyük sayıdır
     coords = coords[-2:] if len(coords) >= 2 else coords
     rest = COORD_RE.sub(" ", norm).strip()
     pole = ""
-    m = POLE_PAT_RE.search(rest)
-    if m:
-        pole = m.group(0).strip()
-    else:
-        m2 = re.search(r"\b\d{1,4}\b", rest)
-        if m2:
-            pole = m2.group(0)
-            # DTL tablolarında direk no ayrı hücrelerde yazılır (yüzler|onlar|birler):
-            # GLM '4 1' → '41', '1 0 0' → '100' (en çok 3 basamak)
-            tail = rest[m2.end() :]
+    # Satır başındaki direk numarasını (ör. "1(S)", "85(S)", "PORTAL", "PB1", "2") önceliklendir
+    m_head = re.match(r"(?i)^\s*(portal|(?:pb|dp|dm|d|p)[-./]?\d{1,4}|\d{1,3})(?:\s*\([a-z0-9]+\))?\b", rest)
+    if m_head:
+        pole = m_head.group(1).strip()
+        if pole.isdigit():
+            tail = rest[m_head.end() :]
+            # Yalnızca "|" ile ayrılmış yüzler|onlar|birler hücrelerini birleştir (ara mesafe rakamını katma)
             while len(pole) < 3:
-                m3 = re.match(r"[\s|]+(\d)\b", tail)
+                m3 = re.match(r"\s*\|\s*(\d)\b", tail)
                 if not m3:
                     break
                 pole += m3.group(1)
                 tail = tail[m3.end() :]
+    else:
+        m = POLE_PAT_RE.search(rest)
+        if m:
+            pole = m.group(0).strip()
+        else:
+            m2 = re.search(r"\b\d{1,4}\b", rest)
+            if m2:
+                pole = m2.group(0)
     if len(coords) >= 2:
         return {"pole": pole, "coords": [coords[-2], coords[-1]], "text": text}
     return {"pole": pole, "coords": coords, "text": text, "weak": True}
@@ -425,6 +452,7 @@ def _is_noise_line(parsed: dict) -> bool:
 
 
 _client: httpx.AsyncClient | None = None
+_ocr_lock = asyncio.Lock()
 
 
 def _http() -> httpx.AsyncClient:
@@ -463,6 +491,7 @@ async def glm_read(images_b64: list[str], prompt: str, num_predict: int, timeout
                     "stream": False,
                     "think": False,
                     "options": {
+                        "num_ctx": 1024 if num_predict <= 200 else 2048,
                         "num_predict": num_predict,
                         "temperature": 0,
                         "top_k": 1,
@@ -586,20 +615,19 @@ def cells_from_parsed(parsed: dict) -> list[dict]:
 
 
 def compose_band(band_img: np.ndarray) -> np.ndarray:
-    """Direk sütunu (sol) + koordinat sütunları (sağ) → tek odaklı görüntü.
-    Küçük yazıyı büyüt: yükseklik hedefi 128px, büyütme en çok 4x,
-    genişlik en çok 2400px."""
+    """Direk sütunu (sol %0-15) + koordinat sütunları (sağ %60-96) → tek odaklı görüntü.
+    Ortadaki SOME NO (ND.1, S.1) ve en sağdaki PROFİL/DEVRE (1 | 4) sütunları dışarıda kalır."""
     h, w = band_img.shape[:2]
-    pole_crop = band_img[:, 0 : max(1, int(w * 0.20))]
-    coord_crop = band_img[:, int(w * 0.55) :]
-    gap = np.full((h, 30) + band_img.shape[2:], 255, np.uint8)
+    pole_crop = band_img[:, 0 : max(1, int(w * 0.15))]
+    coord_crop = band_img[:, int(w * 0.60) : max(int(w * 0.60) + 1, int(w * 0.96))]
+    gap = np.full((h, 24) + band_img.shape[2:], 255, np.uint8)
     composed = np.hstack([pole_crop, gap, coord_crop])
     scale = 1.0
-    if composed.shape[0] < 128:
-        scale = max(scale, 128 / composed.shape[0])
-    if composed.shape[1] * scale > 2400:
-        scale = min(scale, 2400 / composed.shape[1])
-    scale = min(scale, 4.0)
+    if composed.shape[0] < 88:
+        scale = max(scale, 88 / max(1, composed.shape[0]))
+    if composed.shape[1] * scale > 1280:
+        scale = min(scale, 1280 / max(1, composed.shape[1]))
+    scale = min(scale, 3.5)
     if scale > 1.0:
         composed = cv2.resize(composed, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
     return composed
@@ -617,7 +645,8 @@ def _band_internal_gap(bbin: np.ndarray) -> int | None:
 
 def plan_bands(prep: PreparedPage) -> list[tuple[int, int]]:
     """Okunacak bant listesi: birleşik bantları İÇ BOŞLUKTAN böl
-    (kör orta nokta satırı keser), mürekkepsiz bantları baştan ele."""
+    (kör orta nokta satırı keser), mürekkepsiz bantları ve tablo ızgarası
+    dışındaki üst başlık / alt imza bloklarını baştan ele."""
     bands = prep.bands
     if not bands:
         return []
@@ -641,19 +670,28 @@ def plan_bands(prep: PreparedPage) -> list[tuple[int, int]]:
             if (sub > 0).mean() < 0.003 or (sub[:, int(w * 0.55) :] > 0).mean() < 0.002:
                 continue
             out.append((a0, a1))
+
+    # Çok sütunlu tablo ızgarası varsa, dikey çizgi yoğunluğu düşük olan
+    # üst antet ve alt imza (HAZIRLAYAN / KONTROL EDEN / ONAY) bantlarını ele
+    if prep.v_row is not None and len(prep.v_row) == prep.clean.shape[0] and out:
+        vmax = float(prep.v_row.max())
+        if vmax >= 20:
+            filtered = [(a0, a1) for (a0, a1) in out if float(prep.v_row[a0:a1].mean()) >= 0.40 * vmax]
+            if len(filtered) >= 3:
+                out = filtered
     return out
 
 
-async def _read_band(prep: PreparedPage, y0: int, y1: int) -> tuple[list[dict] | None, int]:
+async def _read_band(prep: PreparedPage, y0: int, y1: int, allow_retry: bool = True) -> tuple[list[dict] | None, int]:
     """Tek bantı kompozit görüntü olarak GLM'e okut. Döner: (hücreler, okuma_sayısı)."""
     composed = compose_band(prep.gray[y0:y1])
-    line = await glm_read([encode_b64(composed, max_w=2000, fmt=".png")], ROW_PROMPT, 160)
+    line = await glm_read([encode_b64(composed, max_w=1600, fmt=".png")], ROW_PROMPT, 96)
     parsed = parse_glm_line(line or "")
     reads = 1
-    if RETRY_WEAK and (parsed is None or parsed.get("weak")):
+    if allow_retry and RETRY_WEAK and (parsed is None or parsed.get("weak")):
         # İkinci şans: ikili (siyah-beyaz) görüntü — gri gölge / soluk yazıda işe yarar
         bw = cv2.bitwise_not(prep.ink[y0:y1])
-        line2 = await glm_read([encode_b64(compose_band(bw), max_w=2000, fmt=".png")], ROW_PROMPT, 160)
+        line2 = await glm_read([encode_b64(compose_band(bw), max_w=1600, fmt=".png")], ROW_PROMPT, 96)
         reads += 1
         parsed2 = parse_glm_line(line2 or "")
         if parsed2 is not None and (parsed is None or not parsed2.get("weak")):
@@ -683,7 +721,7 @@ def _finalize_rows(rows: list[list[dict]]) -> list[list[dict]]:
       1. Ters okunmuş (X|Y) satırları düzelt (Easting 6 hane / Northing 7 hane)
       2. Aynı koordinatlı tekrar satırları at (bölünen bant / model tekrarı)
       3. Sayfa medyanından çok uzak koordinatları düşük güvenle işaretle
-      4. Güzergahın baskın eksenine göre sırala
+      4. Güzergahın baskın eksenini belirle (tablo sırasını koru)
       5. Direk numarasını çoğunluk (mod) çapasıyla tamamla — tek bir hatalı
          okuma artık tüm numaraları kaydırmaz; PORTAL vb. adlar korunur."""
     valid = [r for r in rows if len(r) >= 3 and _num(r[1]["text"]) is not None and _num(r[2]["text"]) is not None]
@@ -777,7 +815,7 @@ def _finalize_rows(rows: list[list[dict]]) -> list[list[dict]]:
     return valid + weak
 
 
-async def ocr_page_glm(original: np.ndarray) -> tuple[list[list[dict]], int, int]:
+async def ocr_page_glm(original: np.ndarray, request: Request | None = None) -> tuple[list[list[dict]], int, int]:
     """Bir sayfayı GLM-OCR ile oku.
     - Seyrek sayfa (≤12 bant): önce tüm sayfa, gerekirse bant bant.
     - Yoğun sayfa (>12 bant): doğrudan bant bant (1.3B model tam sayfada kararsız).
@@ -801,43 +839,46 @@ async def ocr_page_glm(original: np.ndarray) -> tuple[list[list[dict]], int, int
         log.info("sayfa okuması zayıf (geçerli=%d, bant=%d) → bant bant oku", valid, len(bands))
 
     plan = plan_bands(prep)
-    sem = asyncio.Semaphore(OCR_CONCURRENCY)
+    parsed_list: list[dict | None] = []
+    band_reads = 0
 
-    async def worker(y0: int, y1: int):
-        async with sem:
-            return await _read_band(prep, y0, y1)
+    # 1. Geçiş: her bandı tek sefer oku (başlık/imza bantlarında boşuna 2. okuma yapma)
+    for y0, y1 in plan:
+        if request is not None and await request.is_disconnected():
+            raise RuntimeError("İstemci bağlantıyı kapattı")
+        composed = compose_band(prep.gray[y0:y1])
+        line = await glm_read([encode_b64(composed, max_w=1600, fmt=".png")], ROW_PROMPT, 96)
+        band_reads += 1
+        parsed_list.append(parse_glm_line(line or ""))
 
-    # gather sırayı korur → satırlar sayfadaki sırayla gelir
-    results = await asyncio.gather(*(worker(a, b) for a, b in plan))
-    rows_with_band = [(cells, plan[i]) for i, (cells, _) in enumerate(results) if cells]
-    band_reads = sum(n for _, n in results)
-
-    # Kuyruk çapraz kontrolü: son 6 satırın bandını TAM GENİŞLİK kırpıyla ikinci
-    # kez oku; iki okuma >100m uyuşmuyorsa belirsiz işaretle (silik tarama
-    # kuyruğunda GLM kararsız olabiliyor → kullanıcı düzeltmesine düşsün)
-    if len(rows_with_band) >= 3:
-        for cells, (y0, y1) in rows_with_band[-6:]:
-            if len(cells) < 3:
-                continue
-            try:
-                band_img = prep.gray[y0:y1]
-                if band_img.shape[0] < 60:
-                    band_img = cv2.resize(band_img, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
-                line2 = await glm_read([encode_b64(band_img, fmt=".png")], ROW_PROMPT, 160)
+    # 2. Geçiş (RETRY_WEAK): yalnızca geçerli koordinat satırlarının ARASINDA kalan
+    # (veya sayfa çok az satır ürettiyse tüm) zayıf bantları ikili görüntüyle tekrar dene
+    if RETRY_WEAK and plan:
+        valid_idx = [i for i, p in enumerate(parsed_list) if p and not p.get("weak")]
+        if len(valid_idx) >= 2:
+            retry_range = range(valid_idx[0], valid_idx[-1] + 1)
+        else:
+            retry_range = range(len(plan))
+        for i in retry_range:
+            p = parsed_list[i]
+            if p is None or p.get("weak"):
+                if request is not None and await request.is_disconnected():
+                    raise RuntimeError("İstemci bağlantıyı kapattı")
+                y0, y1 = plan[i]
+                bw = cv2.bitwise_not(prep.ink[y0:y1])
+                line2 = await glm_read([encode_b64(compose_band(bw), max_w=1600, fmt=".png")], ROW_PROMPT, 96)
+                band_reads += 1
                 p2 = parse_glm_line(line2 or "")
-                if not (p2 and len(p2.get("coords") or []) >= 2):
-                    continue
-                a1, a2 = _num(cells[1]["text"]), _num(cells[2]["text"])
-                b1, b2 = _num(p2["coords"][0]), _num(p2["coords"][1])
-                if None in (a1, a2, b1, b2):
-                    continue
-                d = ((a1 - b1) ** 2 + (a2 - b2) ** 2) ** 0.5
-                if d > 100:
-                    cells[1]["conf"] = cells[2]["conf"] = 0.4
-                    log.info("kuyruk çapraz kontrolü: bant y=%d-%d uyumsuz (fark=%.0fm)", y0, y1, d)
-            except Exception:
-                continue
-    rows = [cells for cells, _ in rows_with_band]
+                if p2 is not None and (p is None or not p2.get("weak")):
+                    parsed_list[i] = p2
+
+    rows: list[list[dict]] = []
+    for p in parsed_list:
+        if p is None or _is_noise_line(p):
+            continue
+        c = cells_from_parsed(p)
+        if c:
+            rows.append(c)
 
     # Bant okuması sayfa okumasından kötü sonuç verdiyse sayfa sonucunu koru
     if len(rows) < sum(1 for r in page_rows if len(r) >= 3):
@@ -927,7 +968,7 @@ async def chat(req: ChatMsg):
 
 
 @app.post("/ocr/document")
-async def ocr_document(file: UploadFile):
+async def ocr_document(request: Request, file: UploadFile):
     t0 = time.time()
     buf = await file.read()
     name = (file.filename or "").lower()
@@ -951,27 +992,32 @@ async def ocr_document(file: UploadFile):
         return JSONResponse(status_code=400, content={"error": "Görüntü bulunamadı"})
     log.info("sayfalar: %d (%dx%d) — akıllı OCR (glm-ocr)", len(images), images[0].shape[1], images[0].shape[0])
 
-    out_pages = []
-    for page_idx, original in enumerate(images):
-        try:
-            rows, band_count, band_reads = await ocr_page_glm(original)
-        except Exception as e:
-            log.exception("OCR hatası (sayfa %d)", page_idx + 1)
-            return JSONResponse(status_code=500, content={"error": f"OCR hatası: {e}"})
+    async with _ocr_lock:
+        out_pages = []
+        for page_idx, raw_page in enumerate(images):
+            if await request.is_disconnected():
+                log.warning("istemci bağlantıyı kapattı: %s (sayfa %d/%d)", file.filename, page_idx + 1, len(images))
+                return JSONResponse(status_code=499, content={"error": "İstemci bağlantıyı kapattı"})
+            try:
+                original = await asyncio.to_thread(auto_orient_page, raw_page)
+                rows, band_count, band_reads = await ocr_page_glm(original, request=request)
+            except Exception as e:
+                log.exception("OCR hatası (sayfa %d)", page_idx + 1)
+                return JSONResponse(status_code=500, content={"error": f"OCR hatası: {e}"})
 
-        low_conf = sum(1 for r in rows for c in r if c["conf"] < CONF_THRESHOLD)
-        log.info(
-            "sayfa %d/%d: satır=%d bant=%d bant_okuma=%d düşük_güven=%d",
-            page_idx + 1, len(images), len(rows), band_count, band_reads, low_conf,
-        )
+            low_conf = sum(1 for r in rows for c in r if c["conf"] < CONF_THRESHOLD)
+            log.info(
+                "sayfa %d/%d: satır=%d bant=%d bant_okuma=%d düşük_güven=%d",
+                page_idx + 1, len(images), len(rows), band_count, band_reads, low_conf,
+            )
 
-        out_pages.append(
-            {
-                "page": page_idx + 1,
-                "preview": "data:image/jpeg;base64,"
-                + await asyncio.to_thread(jpeg_b64, original),
-                "rows": rows,
-            }
-        )
+            out_pages.append(
+                {
+                    "page": page_idx + 1,
+                    "preview": "data:image/jpeg;base64,"
+                    + await asyncio.to_thread(jpeg_b64, original),
+                    "rows": rows,
+                }
+            )
     log.info("bitti: %s sayfa=%d süre=%.1fs", file.filename, len(out_pages), time.time() - t0)
     return {"pages": out_pages, "pages_count": len(out_pages)}
