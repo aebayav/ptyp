@@ -6,7 +6,7 @@ import fs from 'fs';
 import * as XLSX from 'xlsx';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
-import { parseExcelCoordinates, parsePdfText, parseTm3Lines, tm3ToWgs84 } from '../coord-parser';
+import { parseExcelCoordinates, parsePdfText, parseTm3Lines, tm3ToWgs84, convertTm3List } from '../coord-parser';
 import { detectRegion } from '../turkiye-regions';
 import { detectDocumentKind, analyzePdf, isTiff } from '../document-reader';
 import { parseKmz } from '../kmz-parser';
@@ -67,12 +67,14 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
     }
 
     const projectId = req.body?.project_id ? Number(req.body.project_id) : null;
+    let projectName = '';
     if (projectId != null) {
-      const p = await pool.query('SELECT 1 FROM projects WHERE id = $1', [projectId]);
+      const p = await pool.query('SELECT name FROM projects WHERE id = $1', [projectId]);
       if (p.rowCount === 0) return res.status(404).json({ error: 'Proje bulunamadı.' });
+      projectName = String(p.rows[0]?.name || '');
     }
 
-    let poles;
+    let poles: PolePoint[] = [];
     let source: string = kind;
     let textLines: string | null = null;
     let ocrResult: {
@@ -84,7 +86,9 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
 
     if (kind === 'excel') {
       try {
-        poles = parseExcelCoordinates(req.file.buffer).poles;
+        const parsed = parseExcelCoordinates(req.file.buffer);
+        poles = parsed.poles;
+        textLines = parsed.textLines;
       } catch (e: any) {
         return res.status(400).json({ error: 'Excel okunamadı: ' + (e.message || 'geçersiz içerik') });
       }
@@ -96,22 +100,23 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       } catch (e: any) {
         return res.status(400).json({ error: 'PDF okunamadı: ' + (e.message || 'geçersiz içerik') });
       }
-      if (!analysis.hasTextLayer) {
-        // Taranmış PDF → OCR servisi
+      if (analysis.hasTextLayer) {
+        source = 'pdf-text';
+        textLines = analysis.text;
+        poles = parsePdfText(analysis.text).poles;
+      }
+      // Metin katmanı yoksa veya metin katmanından hiç koordinat (WGS84 / TM3) çıkmadıysa OCR'a düş
+      if (!analysis.hasTextLayer || (poles.length === 0 && parseTm3Lines(analysis.text).length === 0)) {
         try {
           const ocr = await callOcr(req.file.buffer, req.file.originalname);
           const { poles: p, uncertain, lines } = polesFromOcr(ocr);
           poles = p;
-          textLines = lines;
+          textLines = analysis.text ? `${analysis.text}\n${lines}` : lines;
           ocrResult = { pages: ocr.pages.map((pg) => ({ page: pg.page, preview: pg.preview, rows: pg.rows })), uncertain };
         } catch (e: any) {
           return res.status(503).json({ error: 'Taranmış PDF için OCR servisi kullanılamıyor: ' + e.message });
         }
         source = 'pdf-ocr';
-      } else {
-        source = 'pdf-text';
-        textLines = analysis.text;
-        poles = parsePdfText(analysis.text).poles;
       }
     } else {
       // TIFF → OCR servisi
@@ -127,42 +132,80 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       source = 'tiff-ocr';
     }
 
-    // WGS84 koordinat bulunamadıysa ITRF-96 / 3° TM ile dönüştür
+    // WGS84 koordinat bulunamadıysa ITRF-96 / 3° TM (veya 6° UTM) ile dönüştür
     // Türkiye 3 derecelik dilim orta meridyenleri: 27, 30, 33, 36, 39, 42, 45
     let tm3CmUsed: number | null = null;
     if (poles.length === 0 && textLines) {
-      let cmsToTry: number[];
-      let provLon: number | null = null;
-      if (tm3Cm >= 27 && tm3Cm <= 45) {
-        cmsToTry = [tm3Cm];
-      } else {
-        // Otomatik: dosya adı + belge metninden bölge tespiti → CM öncelik sırası
-        const region = detectRegion(`${req.file.originalname}\n${textLines.slice(0, 800)}`);
-        cmsToTry = region.cmOrder;
-        provLon = region.provLon;
-        if (region.city) console.log(`[KMZ-ÜRET] bölge tespiti: ${region.city} (resmi CM ${cmsToTry[0]})`);
-      }
-      for (const cm of cmsToTry) {
-        const converted: PolePoint[] = [];
-        for (const u of parseTm3Lines(textLines)) {
-          const { lat, lon } = tm3ToWgs84(u.easting, u.northing, cm);
-          if (lat >= 36 && lat <= 42 && lon >= 26 && lon <= 45) {
-            converted.push({ name: u.name, lat, lon, alt: null });
+      const tmRows = parseTm3Lines(textLines);
+      if (tmRows.length > 0) {
+        // Northing medyanından yaklaşık enlemi bul (CM'den bağımsızdır)
+        const sortedN = tmRows.map((r) => r.northing).sort((a, b) => a - b);
+        const medianN = sortedN[Math.floor(sortedN.length / 2)];
+        const approxLat = tm3ToWgs84(500000, medianN, 39).lat;
+
+        if (tm3Cm >= 27 && tm3Cm <= 45) {
+          const conv = convertTm3List(tmRows, tm3Cm);
+          if (conv.length > 0) {
+            poles = conv;
+            tm3CmUsed = tm3Cm;
+            console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (seçili CM ${tm3CmUsed}) ile ${poles.length} direk çevrildi`);
+          }
+        } else {
+          // Otomatik: dosya adı + proje adı + belge metninden bölge tespiti
+          const region = detectRegion(`${req.file.originalname}\n${projectName}\n${textLines}`, approxLat);
+          const cmsToTry = region.cmOrder;
+          if (region.city) {
+            console.log(`[KMZ-ÜRET] bölge tespiti: ${region.city} (resmi CM ${cmsToTry[0]}, il boylamı ${region.provLon?.toFixed(2)})`);
+          }
+
+          // Referans boylam(lar)ı: metinden tespit edilen iller; yoksa projedeki mevcut direklerin boylamı
+          const refLons: number[] = region.matches.map((m) => m.info.lon);
+          if (refLons.length === 0 && projectId != null) {
+            const existing = await pool.query(
+              'SELECT AVG(lat) AS lat, AVG(lon) AS lon FROM poles WHERE project_id = $1',
+              [projectId]
+            );
+            const exLat = Number(existing.rows[0]?.lat);
+            const exLon = Number(existing.rows[0]?.lon);
+            if (Number.isFinite(exLat) && Number.isFinite(exLon) && Math.abs(exLat - approxLat) <= 1.8) {
+              refLons.push(exLon);
+            }
+          }
+
+          if (refLons.length > 0) {
+            let best: { poles: PolePoint[]; cm: number; dist: number } | null = null;
+            for (const cm of cmsToTry) {
+              const conv = convertTm3List(tmRows, cm);
+              if (conv.length === 0) continue;
+              const meanLon = conv.reduce((s, p) => s + p.lon, 0) / conv.length;
+              const minDist = Math.min(...refLons.map((rl) => Math.abs(meanLon - rl)));
+              if (minDist > 2.2) {
+                console.log(`[KMZ-ÜRET] CM ${cm} elendi: sonuç boylam ${meanLon.toFixed(2)} referans boylamdan uzak (fark ${minDist.toFixed(2)}°)`);
+                continue;
+              }
+              if (!best || minDist < best.dist) {
+                best = { poles: conv, cm, dist: minDist };
+              }
+            }
+            if (best) {
+              poles = best.poles;
+              tm3CmUsed = best.cm;
+              console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (CM ${tm3CmUsed}) ile ${poles.length} direk çevrildi`);
+            }
+          }
+
+          if (poles.length === 0) {
+            for (const cm of cmsToTry) {
+              const conv = convertTm3List(tmRows, cm);
+              if (conv.length > 0) {
+                poles = conv;
+                tm3CmUsed = cm;
+                console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (CM ${tm3CmUsed}) ile ${poles.length} direk çevrildi`);
+                break;
+              }
+            }
           }
         }
-        if (converted.length === 0) continue;
-        // İl tespit edildiyse: sonuç il merkezine yakın olmalı (hatlar komşu dilime taşabilir)
-        if (provLon != null) {
-          const meanLon = converted.reduce((s, p) => s + p.lon, 0) / converted.length;
-          if (Math.abs(meanLon - provLon) > 2.5) {
-            console.log(`[KMZ-ÜRET] CM ${cm} elendi: sonuç boylam ${meanLon.toFixed(2)} il merkezinden uzak (${provLon.toFixed(2)})`);
-            continue;
-          }
-        }
-        poles = converted;
-        tm3CmUsed = cm;
-        console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (CM ${cm}) ile ${converted.length} direk çevrildi`);
-        break;
       }
     }
 

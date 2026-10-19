@@ -91,7 +91,8 @@ export default function DocumentKmz() {
         if (!res.ok) throw new Error(d.error || 'Okuma başarısız.');
         collected.push(d);
         if (!firstPreview && d.ocr?.pages?.length) firstPreview = d.ocr.pages[0].preview;
-        log.push(`${i + 1}/${files.length} · ${f.name}: ${d.count} direk ✓`);
+        const domInfo = d.tm3_cm_used ? ` (DOM ${d.tm3_cm_used}°)` : '';
+        log.push(`${i + 1}/${files.length} · ${f.name}: ${d.count} direk${domInfo} ✓`);
         console.log(`[Belge→KMZ batch ${i + 1}/${files.length}]`, okumaBilgisi(d));
       } catch (e) {
         log.push(`${i + 1}/${files.length} · ${f.name}: HATA — ${e.message}`);
@@ -149,6 +150,7 @@ export default function DocumentKmz() {
         type: 'ok',
         text:
           `${d.count} direk bulundu` +
+          (d.tm3_cm_used ? ` · DOM ${d.tm3_cm_used}°` : '') +
           (uncertainCount > 0 ? ` · ${uncertainCount} satır düşük güvenle okundu — aşağıdan kontrol edin` : '') +
           (d.saved > 0 ? ` · projeye ön aktarım yapıldı (${d.saved})` : ''),
       });
@@ -235,8 +237,17 @@ export default function DocumentKmz() {
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
-        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>KOORDİNAT:</span>
-        <span style={{ fontSize: 12.5 }}>ITRF-96 3°TM — Otomatik (il tablosuna göre)</span>
+        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>DİLİM ORTA MERİDYENİ (ITRF-96 3°):</span>
+        <select value={utmZone} onChange={(e) => setUtmZone(e.target.value)}>
+          <option value="0">Otomatik (İl Tablosuna Göre)</option>
+          <option value="27">DOM 27° (İzmir, Aydın, Muğla, Manisa, Balıkesir, Çanakkale, Edirne, Tekirdağ)</option>
+          <option value="30">DOM 30° (İstanbul, Bursa, Kocaeli, Sakarya, Eskişehir, Afyon, Antalya, Denizli)</option>
+          <option value="33">DOM 33° (Ankara, Konya, Bolu, Zonguldak, Kastamonu, Kırıkkale, Aksaray, Karaman)</option>
+          <option value="36">DOM 36° (Adana, Mersin, Hatay, Gaziantep, K.Maraş, Kayseri, Sivas, Samsun, Çorum)</option>
+          <option value="39">DOM 39° (Diyarbakır, Şanlıurfa, Malatya, Elazığ, Adıyaman, Trabzon, Ordu, Erzincan)</option>
+          <option value="42">DOM 42° (Erzurum, Van, Mardin, Batman, Siirt, Şırnak, Muş, Bitlis, Kars, Ağrı, Rize)</option>
+          <option value="45">DOM 45° (Hakkari, Iğdır)</option>
+        </select>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>

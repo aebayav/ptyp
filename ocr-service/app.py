@@ -728,15 +728,13 @@ def _finalize_rows(rows: list[list[dict]]) -> list[list[dict]]:
             r[1]["conf"] = r[2]["conf"] = 0.4
         inlier.append(not bad)
 
-    # 4. Sıralama — yalnız güvenilir satırlarla eksen/yön belirle
+    # 4. Eksen belirleme — satırların sayfadaki yukarıdan aşağıya sırasını koru
+    # (koordinata göre sıralamak kıvrılan hatları ve tek rakam hatası olan satırları
+    # tablo boyunca sıçratıp direk sırasını bozar)
     iy, ix = ys[np.array(inlier)], xs[np.array(inlier)]
     axis = 2
     if len(iy) >= 2:
         axis = 2 if np.ptp(ix) >= np.ptp(iy) else 1
-        first = next(r for r, ok in zip(valid, inlier) if ok)
-        last = next(r for r, ok in zip(reversed(valid), reversed(inlier)) if ok)
-        desc = _num(first[axis]["text"]) > _num(last[axis]["text"])
-        valid.sort(key=lambda r: _num(r[axis]["text"]), reverse=desc)
 
     # 4b. Güzergah tekdüzelik kontrolü: HER İKİ eksende komşularına göre
     # tersine dönen satırlar (rakam yanlış okumaları) belirsiz işaretlenir

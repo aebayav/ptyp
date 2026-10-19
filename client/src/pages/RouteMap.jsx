@@ -241,6 +241,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
         type: 'ok',
         text:
           `${d.count} direk bulundu, KMZ üretildi` +
+          (d.tm3_cm_used ? ` · DOM ${d.tm3_cm_used}°` : '') +
           (d.connection_km != null ? ` · hat ${d.connection_km} km` : '') +
           (d.saved > 0 ? ` · projeye aktarıldı (${d.saved})` : ''),
       });
@@ -373,6 +374,16 @@ export default function RouteMap({ embedded = false, projectId = null }) {
           </label>
           {genMode ? (
             <>
+              <select value={utmZone} onChange={(e) => setUtmZone(e.target.value)} title="ITRF-96 3° Dilim Orta Meridyeni">
+                <option value="0">DOM: Otomatik (İl Tablosu)</option>
+                <option value="27">DOM 27° (Ege / Trakya)</option>
+                <option value="30">DOM 30° (Marmara / Batı İç Anadolu)</option>
+                <option value="33">DOM 33° (İç Anadolu / Batı Karadeniz)</option>
+                <option value="36">DOM 36° (Çukurova / Orta Anadolu / Orta Karadeniz)</option>
+                <option value="39">DOM 39° (Güneydoğu / Doğu Karadeniz)</option>
+                <option value="42">DOM 42° (Doğu Anadolu)</option>
+                <option value="45">DOM 45° (Hakkari / Iğdır)</option>
+              </select>
               <button className="btn btn-accent" onClick={uploadGen} disabled={busy || !genFile}>
                 {busy ? 'Dönüştürülüyor…' : 'KMZ Üret ve Aktar'}
               </button>

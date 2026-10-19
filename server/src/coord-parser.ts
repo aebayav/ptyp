@@ -98,61 +98,97 @@ function splitCombined(raw: unknown): { lat: number; lon: number } | null {
   return null;
 }
 
-export function parseExcelCoordinates(buffer: Buffer): { poles: PolePoint[] } {
+export function parseExcelCoordinates(buffer: Buffer): { poles: PolePoint[]; textLines: string } {
   const wb = XLSX.read(buffer, { type: 'buffer' });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  if (!sheet) return { poles: [] };
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null }) as unknown[][];
-
-  const cols = detectColumns(rows);
   const poles: PolePoint[] = [];
+  const rawLines: string[] = [];
 
-  if (cols) {
-    const start = rows.findIndex((r) => {
-      const f0 = fold(String(r[cols.latIdx] ?? ''));
-      const f1 = fold(String(r[cols.lonIdx] ?? ''));
-      return (LAT_KEYS.some((k) => f0.includes(k)) || LON_KEYS.some((k) => f0.includes(k))) && (LAT_KEYS.some((k) => f1.includes(k)) || LON_KEYS.some((k) => f1.includes(k)));
-    });
-    for (let r = Math.max(0, start + 1); r < rows.length; r++) {
-      const row = rows[r];
+  for (const sheetName of wb.SheetNames) {
+    rawLines.push(sheetName);
+    const sheet = wb.Sheets[sheetName];
+    if (!sheet) continue;
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null }) as unknown[][];
+
+    // Metin/TM3 geri dönüşü için hücre içeriklerini ve olası (Direk, Y, X) satırlarını topla
+    for (const row of rows) {
       if (!row) continue;
-      let lat = parseCoordNumber(row[cols.latIdx]);
-      let lon = parseCoordNumber(row[cols.lonIdx]);
-      // Başlık "X/Y" yerine değer aralığına göre düzelt
-      if (lat != null && lon != null && isLon(lat) && isLat(lon)) {
-        const t = lat; lat = lon; lon = t;
-      }
-      if (lat == null || lon == null || !isLat(lat) || !isLon(lon)) continue;
-      poles.push({ name: cleanName(cols.nameIdx >= 0 ? row[cols.nameIdx] : ''), lat, lon, alt: null });
-    }
-  }
-
-  // Başlık algılanamadıysa: herhangi bir hücrede birleşik koordinat ara
-  if (poles.length === 0) {
-    for (let r = 0; r < rows.length; r++) {
-      const row = rows[r] || [];
-      let name = '';
-      let found: { lat: number; lon: number } | null = null;
+      const nonEmpty = row.filter((c) => c != null && String(c).trim() !== '');
+      if (nonEmpty.length === 0) continue;
+      let east: number | null = null;
+      let north: number | null = null;
+      let poleName = '';
       for (const cell of row) {
-        const c = splitCombined(cell);
-        if (c) {
-          found = c;
-        } else if (cell != null && String(cell).trim() && !found && !String(cell).includes('.')) {
-          name = name || cleanName(cell);
+        const n = parseCoordNumber(cell);
+        if (n != null && n >= 100000 && n <= 900000 && east == null) {
+          east = n;
+        } else if (n != null && n >= 3500000 && n <= 5000000 && north == null) {
+          north = n;
+        } else if (!poleName && cell != null) {
+          const s = String(cell).trim();
+          if (POLE_TOKEN_RE.test(s)) poleName = cleanName(s);
         }
       }
-      if (found) {
-        poles.push({ name: name || `Direk ${poles.length + 1}`, lat: found.lat, lon: found.lon, alt: null });
+      if (east != null && north != null) {
+        rawLines.push(`${poleName || ''} ${east} ${north}`.trim());
+      } else {
+        rawLines.push(nonEmpty.map((c) => String(c).trim()).join(' '));
+      }
+    }
+
+    if (poles.length > 0) continue;
+    const cols = detectColumns(rows);
+    if (cols) {
+      const start = rows.findIndex((r) => {
+        const f0 = fold(String(r[cols.latIdx] ?? ''));
+        const f1 = fold(String(r[cols.lonIdx] ?? ''));
+        return (
+          (LAT_KEYS.some((k) => f0.includes(k)) || LON_KEYS.some((k) => f0.includes(k))) &&
+          (LAT_KEYS.some((k) => f1.includes(k)) || LON_KEYS.some((k) => f1.includes(k)))
+        );
+      });
+      for (let r = Math.max(0, start + 1); r < rows.length; r++) {
+        const row = rows[r];
+        if (!row) continue;
+        let lat = parseCoordNumber(row[cols.latIdx]);
+        let lon = parseCoordNumber(row[cols.lonIdx]);
+        // Başlık "X/Y" yerine değer aralığına göre düzelt
+        if (lat != null && lon != null && isLon(lat) && isLat(lon)) {
+          const t = lat;
+          lat = lon;
+          lon = t;
+        }
+        if (lat == null || lon == null || !isLat(lat) || !isLon(lon)) continue;
+        poles.push({ name: cleanName(cols.nameIdx >= 0 ? row[cols.nameIdx] : ''), lat, lon, alt: null });
+      }
+    }
+
+    // Başlık algılanamadıysa: herhangi bir hücrede birleşik koordinat ara
+    if (poles.length === 0) {
+      for (let r = 0; r < rows.length; r++) {
+        const row = rows[r] || [];
+        let name = '';
+        let found: { lat: number; lon: number } | null = null;
+        for (const cell of row) {
+          const c = splitCombined(cell);
+          if (c) {
+            found = c;
+          } else if (cell != null && String(cell).trim() && !found && !String(cell).includes('.')) {
+            name = name || cleanName(cell);
+          }
+        }
+        if (found) {
+          poles.push({ name: name || `Direk ${poles.length + 1}`, lat: found.lat, lon: found.lon, alt: null });
+        }
       }
     }
   }
 
-  return { poles };
+  return { poles, textLines: rawLines.join('\n') };
 }
 
 // PDF metni: koordinat desenlerinden direkleri çıkar
 // (document-reader.analyzePdf ile metin katmanı önceden doğrulanır)
-// Enine Merkator ters izdüşümü (Krüger serisi) — WGS84/GRS80 elipsoidi
+// Enine Merkator ters izdüşümü (Redfearn / Snyder ayak noktası enlemi serisi) — WGS84/GRS80 elipsoidi
 // (ITRF-96 ≈ WGS84: fark cm düzeyinde, ihmal edilir)
 function tmToWgs84(easting: number, northing: number, lon0Deg: number, k0: number): { lat: number; lon: number } {
   const a = 6378137;
@@ -161,15 +197,22 @@ function tmToWgs84(easting: number, northing: number, lon0Deg: number, k0: numbe
   const ep2 = e2 / (1 - e2);
   const n = f / (2 - f);
   const A = (a / (1 + n)) * (1 + (n * n) / 4 + (n * n * n * n) / 64);
-  const alpha = [0, n / 2 - (2 * n * n) / 3 + (5 * n * n * n) / 16, (13 * n * n) / 48 - (3 * n * n * n) / 5, (61 * n * n * n) / 240];
+  // Ayak noktası enlemi (footpoint latitude φ1) katsayıları (Snyder Eq. 3-26):
+  // Önceki kodda yanlışlıkla ileri dönüşüm (α1 = n/2 - ...) kullanıldığı için
+  // enlem ~0.0937° (~10.4 km) güneye ve boylam ~150-300 m kayıyordu.
+  const c1 = (3 * n) / 2 - (27 * n * n * n) / 32 + (269 * Math.pow(n, 5)) / 512;
+  const c2 = (21 * n * n) / 16 - (55 * Math.pow(n, 4)) / 32;
+  const c3 = (151 * n * n * n) / 96 - (417 * Math.pow(n, 5)) / 128;
+  const c4 = (1097 * Math.pow(n, 4)) / 512;
   const x = easting - 500000;
   const y = northing;
-  const mu = y / k0 / A;
+  const mu = y / (k0 * A);
   const phi1 =
     mu +
-    alpha[1] * Math.sin(2 * mu) +
-    alpha[2] * Math.sin(4 * mu) +
-    alpha[3] * Math.sin(6 * mu);
+    c1 * Math.sin(2 * mu) +
+    c2 * Math.sin(4 * mu) +
+    c3 * Math.sin(6 * mu) +
+    c4 * Math.sin(8 * mu);
   const sinP = Math.sin(phi1);
   const cosP = Math.cos(phi1);
   const tanP = Math.tan(phi1);
@@ -200,6 +243,36 @@ export function utmToWgs84(easting: number, northing: number, zone: number): { l
 // k0 = 1.0, sahte doğu 500000 m, sahte kuzey 0
 export function tm3ToWgs84(easting: number, northing: number, cm: number): { lat: number; lon: number } {
   return tmToWgs84(easting, northing, cm, 1.0);
+}
+
+// Aynı güzergahta 3° dilim sınırı geçişi varsa (ör. CM 30 doğu ucu E≈629k → CM 33 batı ucu E≈371k),
+// komşu dilime geçen noktaların CM değerini (±3°) otomatik uyarla.
+export function convertTm3List(
+  rows: { name: string; easting: number; northing: number }[],
+  baseCm: number
+): PolePoint[] {
+  if (rows.length === 0) return [];
+  const hasHigh = rows.some((r) => r.easting > 580000);
+  const hasLow = rows.some((r) => r.easting < 420000);
+  const hasMid = rows.some((r) => r.easting >= 430000 && r.easting <= 570000);
+  const straddlesBoundary = hasHigh && hasLow && !hasMid;
+  // Baskın grubun hangi tarafta olduğunu belirle (baseCm baskın gruba aittir)
+  const highCount = rows.filter((r) => r.easting > 500000).length;
+  const baseIsHigh = highCount >= rows.length - highCount;
+
+  const out: PolePoint[] = [];
+  for (const u of rows) {
+    let cm = baseCm;
+    if (straddlesBoundary) {
+      if (baseIsHigh && u.easting < 420000 && baseCm + 3 <= 45) cm = baseCm + 3;
+      else if (!baseIsHigh && u.easting > 580000 && baseCm - 3 >= 27) cm = baseCm - 3;
+    }
+    const { lat, lon } = tm3ToWgs84(u.easting, u.northing, cm);
+    if (lat >= 35.5 && lat <= 42.5 && lon >= 25.5 && lon <= 45.5) {
+      out.push({ name: u.name, lat, lon, alt: null });
+    }
+  }
+  return out;
 }
 
 const POLE_TOKEN_RE = /^(?:portal|(?:d\s*p|p\s*b|d\s*m|d|p)[\s._\-]?\d{1,4}|\d{1,4}|[A-Za-z]{1,2}\d{1,4})$/i;
