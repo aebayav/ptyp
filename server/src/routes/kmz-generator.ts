@@ -133,7 +133,7 @@ function polesFromOcr(ocr: { pages: { rows: OcrCell[][] }[] }): {
       const text = row.map((c) => c.text).join(' ').trim();
       if (!text) continue;
       linesArr.push(text);
-      const low = row.filter((c) => c.conf != null && c.conf < 0.55 && !c.fallback);
+      const low = row.filter((c) => c.conf != null && c.conf < 0.7 && !c.fallback);
       if (low.length > 0) uncertain.push({ row: rowNo, text });
     }
   }
