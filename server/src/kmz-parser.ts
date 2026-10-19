@@ -2,11 +2,31 @@
 import { XMLParser } from 'fast-xml-parser';
 import AdmZip from 'adm-zip';
 
+export interface PoleMeta {
+  tower_type?: string;
+  function?: string;
+  station_text?: string;
+  span_m?: number | null;
+  easting?: number | null;
+  northing?: number | null;
+  crossing?: string;
+  remarks?: string;
+  nominal_height_m?: number | null;
+  body_ext_m?: number | null;
+  ground_elev_m?: number | null;
+  insulator_set?: string;
+  insulator_count?: string;
+  insulator_ref?: string;
+  description?: string;
+  style?: string;
+}
+
 export interface PolePoint {
   name: string;
   lat: number;
   lon: number;
   alt: number | null;
+  meta?: PoleMeta;
 }
 
 export interface KmzResult {
@@ -15,8 +35,8 @@ export interface KmzResult {
   placemarkCount: number;
 }
 
-// "D-1", "P12", "DP3", "direk 4", "5" gibi adlar direk sayılır
-const POLE_NAME_RE = /direk|^d[-._\s]?\d+$|^p[-._\s]?\d+$|^dp[-._\s]?\d+$|^\d+$/i;
+// "D-1", "P12", "DP3", "direk 4", "5", "Portal-Başlangıç" gibi adlar direk/nokta sayılır
+const POLE_NAME_RE = /direk|portal|^d[-._\s]?\d+$|^p[-._\s]?\d+$|^dp[-._\s]?\d+$|^\d+$/i;
 
 // Metre cinsinden yaklaşık mesafe (hızlı, küçük ölçekte yeterli)
 export function distM(
@@ -45,13 +65,14 @@ export function dedupePoles(points: PolePoint[], radiusM = 15): PolePoint[] {
       c.find((x) => x.alt != null && x.alt < 10000)?.alt ??
       null;
     // Öncelik: "D-1"/"P2"/"direk 4" deseni > düz rakam > herhangi bir isim
-    const DASH_RE = /direk|^d[-._\s]?\d+$|^p[-._\s]?\d+$|^dp[-._\s]?\d+$/i;
+    const DASH_RE = /direk|portal|^d[-._\s]?\d+$|^p[-._\s]?\d+$|^dp[-._\s]?\d+$/i;
     const best =
       c.find((x) => DASH_RE.test(x.name)) ||
       c.find((x) => POLE_NAME_RE.test(x.name)) ||
       c.find((x) => x.name) ||
       null;
-    return { name: best ? best.name : '', lat, lon, alt };
+    const meta = c.find((x) => x.meta && Object.keys(x.meta).length > 0)?.meta ?? best?.meta;
+    return { name: best ? best.name : '', lat, lon, alt, ...(meta ? { meta } : {}) };
   });
 }
 
@@ -111,13 +132,56 @@ export function parseKmz(buffer: Buffer): KmzResult {
   return parseKmlText(kml);
 }
 
+function parseDescriptionMeta(desc: string, styleUrl?: string, name?: string): PoleMeta | undefined {
+  const meta: PoleMeta = {};
+  if (styleUrl) {
+    meta.style = styleUrl.replace(/^#/, '').trim();
+  }
+  if (/portal/i.test(name || '') || meta.style === 'portal') {
+    meta.tower_type = 'PORTAL';
+    meta.function = 'PORTAL';
+  }
+  const clean = (desc || '').trim();
+  if (clean) {
+    meta.description = clean;
+    const lines = clean
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    for (const line of lines) {
+      const m = line.match(/^([^:]+):\s*(.+)$/);
+      if (!m) continue;
+      const k = m[1].trim().toLowerCase();
+      const v = m[2].trim();
+      if (k.includes('direk tipi') || k === 'tip') {
+        meta.tower_type = v;
+      } else if (k.includes('fonksiyon')) {
+        meta.function = v;
+      } else if (k.includes('istasyon') || k.includes('İstasyon'.toLowerCase())) {
+        meta.station_text = v;
+      } else if (k === 'x(e)' || k === 'x') {
+        const num = Number(v.replace(',', '.'));
+        if (Number.isFinite(num)) meta.easting = num;
+      } else if (k === 'y(n)' || k === 'y') {
+        const num = Number(v.replace(',', '.'));
+        if (Number.isFinite(num)) meta.northing = num;
+      } else if (k.includes('geçiş') || k.includes('gecis') || k.includes('açıklama')) {
+        meta.crossing = v;
+      }
+    }
+  }
+  return Object.keys(meta).length > 0 ? meta : undefined;
+}
+
 // KML metnini ayrıştır (hem KMZ içinden hem doğrudan .kml yüklemesinden)
 export function parseKmlText(kml: string): KmzResult {
   if (!kml || kml.length < 20) throw new Error('KML içeriği okunamadı.');
 
   const doc = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' }).parse(kml);
 
-  const points: { name: string; coord: string }[] = [];
+  const points: { name: string; coord: string; meta?: PoleMeta }[] = [];
   const lines: [number, number][][] = [];
 
   function walk(node: unknown): void {
@@ -131,9 +195,14 @@ export function parseKmlText(kml: string): KmzResult {
       for (const p of Array.isArray(obj.Placemark) ? obj.Placemark : [obj.Placemark]) {
         const pm = p as Record<string, any>;
         const name = pm.name != null ? String(pm.name).trim() : '';
+        const desc = pm.description != null ? String(pm.description).trim() : '';
+        const styleUrl = pm.styleUrl != null ? String(pm.styleUrl).trim() : '';
         const point = pm.Point || pm.MultiGeometry?.Point;
         const coord = point?.coordinates != null ? String(point.coordinates).trim() : '';
-        if (coord) points.push({ name, coord });
+        if (coord) {
+          const meta = parseDescriptionMeta(desc, styleUrl, name);
+          points.push({ name, coord, ...(meta ? { meta } : {}) });
+        }
       }
     }
     if (obj.LineString) {
@@ -157,9 +226,9 @@ export function parseKmlText(kml: string): KmzResult {
   walk(doc);
 
   const allPoints = points
-    .map((p) => {
+    .map((p): PolePoint | null => {
       const c = parseCoord(p.coord);
-      return c ? { name: p.name, lon: c.lon, lat: c.lat, alt: c.alt } : null;
+      return c ? { name: p.name, lon: c.lon, lat: c.lat, alt: c.alt, ...(p.meta ? { meta: p.meta } : {}) } : null;
     })
     .filter((p): p is PolePoint => p !== null);
 

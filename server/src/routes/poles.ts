@@ -35,7 +35,7 @@ router.get('/', async (req: Request, res: Response) => {
   if (proj.rowCount === 0) return res.status(404).json({ error: 'Proje bulunamadı.' });
 
   const poles = await pool.query(
-    'SELECT id, name, lat, lon, alt, idx FROM poles WHERE project_id = $1 ORDER BY idx',
+    'SELECT id, name, lat, lon, alt, idx, meta FROM poles WHERE project_id = $1 ORDER BY idx',
     [projectId]
   );
   const p = proj.rows[0];

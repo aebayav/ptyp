@@ -57,19 +57,44 @@ function MapView({ poles, route, segments }) {
         }).addTo(map);
 
         const bounds = [];
+        let towerSeq = 0;
         poles.forEach((p, i) => {
           const latlng = [p.lat, p.lon];
           bounds.push(latlng);
+          const m = p.meta || {};
+          const isPortal =
+            /^portal/i.test(p.name || '') ||
+            m.tower_type === 'PORTAL' ||
+            m.function === 'PORTAL' ||
+            m.style === 'portal';
+          if (!isPortal) towerSeq += 1;
+          const fn = (m.function || '').toUpperCase();
+          const isDead = m.style === 'dead' || ['KD', 'KT', 'N', 'D'].includes(fn);
+          const pinBg = isPortal ? '#2563eb' : isDead ? '#dc2626' : '#d97706';
+          const pinLabel = isPortal ? 'P' : towerSeq;
+
+          const details = [];
+          if (m.tower_type && m.tower_type !== 'PORTAL') details.push(`<b>Direk Tipi:</b> ${m.tower_type}`);
+          if (m.function && m.function !== 'PORTAL') details.push(`<b>Fonksiyon:</b> ${m.function}`);
+          if (m.station_text) details.push(`<b>İstasyon:</b> ${m.station_text}`);
+          if (m.easting != null) details.push(`<b>X(E):</b> ${Number(m.easting).toFixed(2)}`);
+          if (m.northing != null) details.push(`<b>Y(N):</b> ${Number(m.northing).toFixed(2)}`);
+          const cr = (m.crossing || '').trim();
+          const rm = (m.remarks || '').trim();
+          const gecis = cr && rm && !cr.toLowerCase().includes(rm.toLowerCase()) ? `${cr} (${rm})` : cr || rm || '';
+          if (gecis) details.push(`<b>Geçiş:</b> ${gecis}`);
+          details.push(`<span style="color:#666">${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}</span>`);
+
           L.marker(latlng, {
             icon: L.divIcon({
               className: 'pole-marker',
-              html: `<span class="pole-pin">${i + 1}</span>`,
+              html: `<span class="pole-pin" style="background:${pinBg};color:#fff">${pinLabel}</span>`,
               iconSize: [24, 24],
               iconAnchor: [12, 12],
             }),
           })
             .addTo(map)
-            .bindPopup(`<b>${p.name}</b><br/>${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}`);
+            .bindPopup(`<b>${p.name}</b><br/>${details.join('<br/>')}`);
         });
 
         if (route && route.length >= 2) {
@@ -267,8 +292,26 @@ export default function RouteMap({ embedded = false, projectId = null }) {
 
   function exportCsv() {
     if (!data?.poles?.length) return;
-    const rows = [['Sıra', 'Ad', 'Enlem', 'Boylam', 'Rakım (m)']];
-    data.poles.forEach((p, i) => rows.push([i + 1, p.name, p.lat, p.lon, p.alt ?? '']));
+    const rows = [['Sıra', 'Ad', 'Direk Tipi', 'Fonksiyon', 'İstasyon', 'X(E)', 'Y(N)', 'Geçiş / Açıklama', 'Enlem', 'Boylam', 'Rakım (m)']];
+    data.poles.forEach((p, i) => {
+      const m = p.meta || {};
+      const cr = (m.crossing || '').trim();
+      const rm = (m.remarks || '').trim();
+      const gecis = cr && rm && !cr.toLowerCase().includes(rm.toLowerCase()) ? `${cr} (${rm})` : cr || rm || '';
+      rows.push([
+        i + 1,
+        p.name,
+        m.tower_type || '',
+        m.function || '',
+        m.station_text || '',
+        m.easting != null ? Number(m.easting).toFixed(2) : '',
+        m.northing != null ? Number(m.northing).toFixed(2) : '',
+        gecis,
+        p.lat,
+        p.lon,
+        p.alt ?? '',
+      ]);
+    });
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
@@ -456,19 +499,40 @@ export default function RouteMap({ embedded = false, projectId = null }) {
                 <tr>
                   <th className="num">#</th>
                   <th>Direk</th>
+                  <th>Tip</th>
+                  <th>Fonksiyon</th>
+                  <th>İstasyon</th>
+                  <th className="num">X(E) / Y(N)</th>
+                  <th>Geçiş / Açıklama</th>
                   <th className="num">Enlem</th>
                   <th className="num">Boylam</th>
                 </tr>
               </thead>
               <tbody>
-                {poles.map((p, i) => (
-                  <tr key={p.id}>
-                    <td className="num muted">{i + 1}</td>
-                    <td style={{ fontWeight: 600 }}>{p.name}</td>
-                    <td className="num">{p.lat.toFixed(6)}</td>
-                    <td className="num">{p.lon.toFixed(6)}</td>
-                  </tr>
-                ))}
+                {poles.map((p, i) => {
+                  const m = p.meta || {};
+                  const cr = (m.crossing || '').trim();
+                  const rm = (m.remarks || '').trim();
+                  const gecis =
+                    cr && rm && !cr.toLowerCase().includes(rm.toLowerCase()) ? `${cr} (${rm})` : cr || rm || '';
+                  return (
+                    <tr key={p.id}>
+                      <td className="num muted">{i + 1}</td>
+                      <td style={{ fontWeight: 600 }}>{p.name}</td>
+                      <td>{m.tower_type || '—'}</td>
+                      <td>{m.function || '—'}</td>
+                      <td>{m.station_text || '—'}</td>
+                      <td className="num muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                        {m.easting != null && m.northing != null
+                          ? `${Number(m.easting).toFixed(2)} / ${Number(m.northing).toFixed(2)}`
+                          : '—'}
+                      </td>
+                      <td>{gecis || '—'}</td>
+                      <td className="num">{p.lat.toFixed(6)}</td>
+                      <td className="num">{p.lon.toFixed(6)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

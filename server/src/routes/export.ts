@@ -139,10 +139,28 @@ router.get('/poles', async (req: Request, res: Response) => {
     params.push(Number(pid));
     where = ` WHERE project_id = $${params.length}`;
   }
-  const { rows } = await pool.query(`SELECT name, lat, lon, idx FROM poles${where} ORDER BY idx`, params);
+  const { rows } = await pool.query(`SELECT name, lat, lon, alt, idx, meta FROM poles${where} ORDER BY idx`, params);
   const data: (string | number | null)[][] = [
-    ['Sıra', 'Direk', 'Enlem', 'Boylam'],
-    ...rows.map((p: any, i: number) => [i + 1, p.name, p.lat, p.lon]),
+    ['Sıra', 'Direk', 'Direk Tipi', 'Fonksiyon', 'İstasyon', 'X (E)', 'Y (N)', 'Geçiş / Açıklama', 'Enlem', 'Boylam', 'Rakım (m)'],
+    ...rows.map((p: any, i: number) => {
+      const m = p.meta || {};
+      const cr = String(m.crossing || '').trim();
+      const rm = String(m.remarks || '').trim();
+      const gecis = cr && rm && !cr.toLowerCase().includes(rm.toLowerCase()) ? `${cr} (${rm})` : cr || rm || '';
+      return [
+        i + 1,
+        p.name,
+        m.tower_type || '',
+        m.function || '',
+        m.station_text || '',
+        m.easting != null ? Number(m.easting) : null,
+        m.northing != null ? Number(m.northing) : null,
+        gecis,
+        p.lat,
+        p.lon,
+        p.alt ?? null,
+      ];
+    }),
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, sheet(data), 'Direkler');

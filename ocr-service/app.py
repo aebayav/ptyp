@@ -382,10 +382,10 @@ COORD_RE = re.compile(r"\b\d{6,7}(?:[.,]\d{1,4})?\b")
 POLE_PAT_RE = re.compile(r"(?i)\b(?:direk\s*)?(?:portal|(?:d|p|dp|pb|dm)[-./]?\d{1,4})\b")
 # Prompt yankısı sayılan kalıplar (boş bantta model prompt'u tekrar eder)
 ECHO_WORDS = ("yalnızca", "formatta", "başka bir şey", "uydurma", "aynen koru", "koordinat değeri")
-# Rakam bağlamında sık OCR karışıklıkları
+# Rakam bağlamında sık OCR karışıklıkları (yalnızca rakam veya rakam+nokta sonrasında)
 _DIGIT_FIX = {"O": "0", "o": "0", "D": "0", "Q": "0", "l": "1", "I": "1", "i": "1",
               "S": "5", "s": "5", "B": "8", "Z": "2", "z": "2", "G": "6", "g": "9", "<": "4"}
-_DIGIT_FIX_RE = re.compile(r"(?<=[\d.])[OoDQlIiSsBZzGg<](?=[\d.OoDQlIiSsBZzGg<\s|]|$)")
+_DIGIT_FIX_RE = re.compile(r"(\d\.?)([OoDQlIiSsBZzGg<])(?=[\d.OoDQlIiSsBZzGg<\s|]|$)")
 
 
 def _fix_digits(s: str) -> str:
@@ -393,7 +393,7 @@ def _fix_digits(s: str) -> str:
     (ör. 4256O07.4O → 4256007.40, 369O4O.OO → 369040.00). Ardışık karışıklıklar
     (4OO1, .OO) için üç geçiş uygulanır."""
     for _ in range(3):
-        s = _DIGIT_FIX_RE.sub(lambda m: _DIGIT_FIX[m.group(0)], s)
+        s = _DIGIT_FIX_RE.sub(lambda m: m.group(1) + _DIGIT_FIX[m.group(2)], s)
     return s
 
 
@@ -683,7 +683,7 @@ DTL_HEADER_PAT = re.compile(
 DTL_CENTER_RE = re.compile(
     r"(?i)(?:(?P<func>\b(?:KD|KT|N|D|T|A|B|C)\b)\s+)?"
     r"(?:(?P<pole2>\d{1,3}(?:\s*\([A-Z0-9]+\))?)\s+)?"
-    r"(?P<ttype>\b(?:C?P[A-F]\d?(?:\([A-Z0-9]+\))?|2F[SN]\d|[1-4][A-Z]\d?|(?:K|G|T|D|N|PB|PA|PC|PD|PE|PF)[-./]?\d{1,3})\b)\s+"
+    r"(?P<ttype>\b(?:C?P[A-F]\d?(?:\([A-Z0-9]+\))?|2F[SN]\d|[1-4][A-Z]\d?|(?:K|G|T|D|N|PB|PA|PC|PD|PE|PF)[-./]?\d{1,3}))\s+"
     r"(?P<height>\d{1,2}(?:\.\d)?)\s+"
     r"(?P<body_ext>[+-]?\d{1,2})\b"
 )
@@ -696,23 +696,29 @@ def normalize_crossing(raw: str) -> str:
         return ""
     u = s.upper()
     items: list[str] = []
-    if "ASFALT" in u or "YOL" in u or "ŞOSE" in u or "SOSE" in u:
+    if "380" in u and any(k in u for k in ("E.İ.H", "E.I.H", "E.LH", "E.L.H", "E I H", "E L H", "KV")):
+        items.append("380 kV E.İ.H.")
+    elif "154" in u and any(k in u for k in ("E.İ.H", "E.I.H", "E.LH", "E.L.H", "E I H", "E L H", "KV")):
+        items.append("154 kV E.İ.H.")
+    elif any(k in u for k in ("34.5", "34,5", "E.İ.H", "E.I.H", "E.LH", "E.L.H", "E I H", "E L H")):
+        items.append("34.5 kV E.İ.HATTI")
+    if "O.G" in u or "O.6" in u or "O G" in u or re.search(r"\bOG\b", u):
+        items.append("O.G. HATTI")
+    if "A.G" in u or re.search(r"\bAG\b", u):
+        items.append("A.G. HATTI")
+    if "TOPRAK" in u:
+        items.append("TOPRAK YOL")
+    elif "ASFALT" in u or "ŞOSE" in u or "SOSE" in u or ("YOL" in u and "DEMİR" not in u and "DEMIR" not in u):
         items.append("ASFALT YOL")
     if "P.T.T" in u or "PTT" in u or "TELEFON" in u or "TELEKOM" in u:
         items.append("P.T.T.")
-    if any(k in u for k in ("34.5", "34,5", "E.İ.H", "E.I.H", "E.LH", "E I H", "E L H")):
-        items.append("34.5 kV E.İ.HATTI")
-    if "O.G" in u or "O G" in u or re.search(r"\bOG\b", u):
-        items.append("O.G.HATTI")
-    if "A.G" in u or re.search(r"\bAG\b", u):
-        items.append("A.G.HATTI")
     if ("DO" in u and "GAZ" in u) or "BORU HATTI" in u:
         items.append("DOĞALGAZ")
     if "DEMİRYOLU" in u or "DEMIRYOLU" in u or "TCDD" in u:
         items.append("DEMİRYOLU")
     if "DERE" in u or "NEHİR" in u or "ÇAY" in u:
         items.append("DERE / AKARSU")
-    return ", ".join(items) if items else s
+    return " + ".join(items) if items else s
 
 
 def normalize_remarks(raw: str) -> str:
@@ -724,12 +730,15 @@ def normalize_remarks(raw: str) -> str:
     items: list[str] = []
     if any(k in u for k in ("ZEL", "ASK", "ASL", "TAK", "TOK")):
         items.append("Özel Askı Takımı")
-    if "KATOD" in u:
-        items.append("KATODİK KORUMA")
+    if "KATOD" in u or "KATAT" in u:
+        items.append("Katodik Koruma")
     if "EV" in u and "KONSOL" in u:
         items.append("ÇEVİRME KONSOLLU")
     if "MIKROKAZ" in u or "MİKROKAZ" in u:
         items.append("Mikrokazık Temelli")
+    m_dr = re.search(r"(?i)\*?DR\.?\s*(\d+)\s+\S*stikametinde\s+hatta\s+dik", s)
+    if m_dr:
+        items.append(f"DR.{m_dr.group(1)} istikametinde hatta dik tesis")
     return ", ".join(items) if items else s
 
 
@@ -784,6 +793,9 @@ def parse_dtl_line(line: str) -> dict | None:
         return None
 
     # Silik ondalık ve kilometraj noktalarını onar
+    s = re.sub(r"\b[S$B]\+(\d{3})", r"8+\1", s)
+    s = re.sub(r"\bO\+(\d{3})", r"0+\1", s)
+    s = re.sub(r"\bK[↑|1I]\s+(?=\d{1,3}\b)", "KD ", s)
     s = re.sub(r"\b(\d{1,3})\s*[*+-]\s*(\d{3})[., ](\d{2})\b", r"\1+\2.\3", s)
     s = re.sub(r"\b(\d{1,3}\+\d{3})(\d{2})\b", r"\1.\2", s)
     s = re.sub(r"\b(\d{1,3}\+\d{3})\s+(\d{2})\b", r"\1.\2", s)
@@ -792,7 +804,7 @@ def parse_dtl_line(line: str) -> dict | None:
     s = re.sub(r"\b([12]\d{3}|[5-9]\d{2})(\d{2})(?=\s+(?:[ÇC]?G|G/|[ÇC]?A\b|\d{1,2}(?:/\d{1,2})?\b|U\d{2,3}))", r"\1.\2", s, flags=re.I)
     s = re.sub(r"^(\s*(?:PORTAL\.?|\d{1,3}(?:\([A-Z0-9]+\))?)\s+\d{2,3})(?:\s+|)(\d{2})\b", r"\1.\2", s, flags=re.I)
     s = re.sub(r"\b(8|9|10|11|12|13)(?:\s+|)(\d0)\b", r"\1.\2", s)
-    s = re.sub(r"([+-]0)(?:\s+|)(\d0)\b", r"\1.\2", s)
+    s = re.sub(r"(?<!\S)([+-]0)\s+(\d0)\b", r"\1.\2", s)
 
     if re.match(r"(?i)^PORTAL\b", s):
         coords_p = COORD_RE.findall(s)
@@ -854,7 +866,10 @@ def parse_dtl_line(line: str) -> dict | None:
 
     func = (m.group("func") or "").upper()
     pole2 = (m.group("pole2") or "").strip()
-    ttype = m.group("ttype").upper().replace("2FN1", "2FS1")
+    raw_ttype = m.group("ttype").upper().replace("2FN1", "2FS1")
+    if not func and ("(N)" in raw_ttype or "(S)" in raw_ttype):
+        func = "N"
+    ttype = re.sub(r"\([A-Z0-9]+\)$", "", raw_ttype)
     height = float(m.group("height"))
     body_ext = float(m.group("body_ext"))
 

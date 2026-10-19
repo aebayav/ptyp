@@ -7,15 +7,104 @@ import * as XLSX from 'xlsx';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
 import { parseExcelCoordinates, parsePdfText, parseTm3Lines, tm3ToWgs84, convertTm3List } from '../coord-parser';
-import { parseExcelDtl, parsePdfTextDtl, DtlParseResult } from '../dtl-parser';
+import { parseExcelDtl, parsePdfTextDtl, DtlParseResult, DtlRow } from '../dtl-parser';
 import { detectRegion } from '../turkiye-regions';
 import { detectDocumentKind, analyzePdf, isTiff } from '../document-reader';
-import { parseKmz } from '../kmz-parser';
+import { parseKmz, routeLengthKm, PolePoint, PoleMeta } from '../kmz-parser';
 import { callOcr, OcrCell } from '../ocr-client';
-import { buildKmz } from '../kmz-builder';
-import { routeLengthKm } from '../kmz-parser';
+import { buildKmz, formatPoleDisplayName, formatPoleDescription, isPortalPoint } from '../kmz-builder';
 import { importPolesForProject } from '../pole-importer';
-import { PolePoint } from '../kmz-parser';
+
+function cleanPoleKey(name: string): string {
+  const s = (name || '').trim().toUpperCase();
+  if (/^PORTAL/.test(s)) return 'PORTAL';
+  const m = s.match(/^(?:D[-._\s]?|direk\s*)?(\d+)(?:\([A-Z0-9]+\))?$/i);
+  if (m) return m[1];
+  return s.replace(/\([A-Z0-9]+\)$/, '').trim();
+}
+
+function enrichPolesWithMetadata(
+  poles: PolePoint[],
+  tmRows: { name: string; easting: number; northing: number }[],
+  dtlRows: DtlRow[]
+): PolePoint[] {
+  let towerSeq = 0;
+  return poles.map((p, idx) => {
+    const prevMeta: PoleMeta = p.meta ? { ...p.meta } : {};
+    const tm = tmRows.length === poles.length ? tmRows[idx] : tmRows.find((t) => cleanPoleKey(t.name) === cleanPoleKey(p.name));
+    const easting = tm?.easting ?? prevMeta.easting ?? null;
+    const northing = tm?.northing ?? prevMeta.northing ?? null;
+
+    let dtl: DtlRow | undefined;
+    if (easting != null && northing != null && dtlRows.length > 0) {
+      dtl = dtlRows.find(
+        (d) =>
+          d.easting != null &&
+          d.northing != null &&
+          Math.hypot(Number(d.easting) - easting, Number(d.northing) - northing) < 2.5
+      );
+    }
+    if (!dtl && dtlRows.length > 0) {
+      const key = cleanPoleKey(p.name);
+      if (key === 'PORTAL') {
+        const portals = dtlRows.filter((d) => cleanPoleKey(d.pole) === 'PORTAL' || d.tower_type === 'PORTAL');
+        if (portals.length > 0) {
+          dtl = idx < poles.length / 2 ? portals[0] : portals[portals.length - 1];
+        }
+      } else if (key) {
+        dtl = dtlRows.find((d) => cleanPoleKey(d.pole) === key);
+      }
+    }
+
+    const portal =
+      isPortalPoint(p) ||
+      dtl?.tower_type === 'PORTAL' ||
+      dtl?.function === 'PORTAL' ||
+      cleanPoleKey(p.name) === 'PORTAL';
+    if (!portal) towerSeq += 1;
+
+    const func = (dtl?.function || prevMeta.function || (portal ? 'PORTAL' : '')).toUpperCase();
+    const ttype = dtl?.tower_type || prevMeta.tower_type || (portal ? 'PORTAL' : '');
+    const style = portal
+      ? 'portal'
+      : prevMeta.style || (['KD', 'KT', 'N', 'D'].includes(func) ? 'dead' : 'tower');
+
+    const meta: PoleMeta = {
+      ...prevMeta,
+      ...(ttype ? { tower_type: ttype } : {}),
+      ...(func ? { function: func } : {}),
+      ...(dtl?.station_text || prevMeta.station_text ? { station_text: dtl?.station_text || prevMeta.station_text } : {}),
+      span_m: dtl?.span_m ?? prevMeta.span_m ?? null,
+      easting: easting ?? dtl?.easting ?? null,
+      northing: northing ?? dtl?.northing ?? null,
+      ...(dtl?.crossing || prevMeta.crossing ? { crossing: dtl?.crossing || prevMeta.crossing } : {}),
+      ...(dtl?.remarks || prevMeta.remarks ? { remarks: dtl?.remarks || prevMeta.remarks } : {}),
+      nominal_height_m: dtl?.nominal_height_m ?? prevMeta.nominal_height_m ?? null,
+      body_ext_m: dtl?.body_ext_m ?? prevMeta.body_ext_m ?? null,
+      ground_elev_m: dtl?.ground_elev_m ?? prevMeta.ground_elev_m ?? null,
+      ...(dtl?.insulator_set || prevMeta.insulator_set ? { insulator_set: dtl?.insulator_set || prevMeta.insulator_set } : {}),
+      ...(dtl?.insulator_count || prevMeta.insulator_count
+        ? { insulator_count: dtl?.insulator_count || prevMeta.insulator_count }
+        : {}),
+      ...(dtl?.insulator_ref || prevMeta.insulator_ref ? { insulator_ref: dtl?.insulator_ref || prevMeta.insulator_ref } : {}),
+      style,
+    };
+
+    const tempPoint: PolePoint = {
+      ...p,
+      alt: p.alt ?? meta.ground_elev_m ?? null,
+      meta,
+    };
+    const displayName = formatPoleDisplayName(tempPoint, idx, poles.length, towerSeq);
+    meta.description = formatPoleDescription({ ...tempPoint, name: displayName });
+
+    return {
+      ...tempPoint,
+      name: displayName,
+      meta,
+    };
+  });
+}
 
 const router = Router();
 
@@ -156,99 +245,97 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
     // WGS84 koordinat bulunamadıysa ITRF-96 / 3° TM (veya 6° UTM) ile dönüştür
     // Türkiye 3 derecelik dilim orta meridyenleri: 27, 30, 33, 36, 39, 42, 45
     let tm3CmUsed: number | null = null;
-    if (poles.length === 0 && textLines) {
-      const tmRows = parseTm3Lines(textLines);
-      if (tmRows.length > 0) {
-        // Northing medyanından yaklaşık enlemi bul (CM'den bağımsızdır)
-        const sortedN = tmRows.map((r) => r.northing).sort((a, b) => a - b);
-        const medianN = sortedN[Math.floor(sortedN.length / 2)];
-        const approxLat = tm3ToWgs84(500000, medianN, 39).lat;
+    const tmRows = textLines ? parseTm3Lines(textLines) : [];
+    if (poles.length === 0 && tmRows.length > 0) {
+      // Northing medyanından yaklaşık enlemi bul (CM'den bağımsızdır)
+      const sortedN = tmRows.map((r) => r.northing).sort((a, b) => a - b);
+      const medianN = sortedN[Math.floor(sortedN.length / 2)];
+      const approxLat = tm3ToWgs84(500000, medianN, 39).lat;
 
-        // Dosya adı + proje adı + belge metninden bölge tespiti
-        const region = detectRegion(`${req.file.originalname}\n${projectName}\n${textLines}`, approxLat);
-        const cmsToTry = region.cmOrder;
-        if (region.city) {
-          console.log(`[KMZ-ÜRET] bölge tespiti: ${region.city} (resmi CM ${cmsToTry[0]}, referans boylam ${region.provLon?.toFixed(2)})`);
+      // Dosya adı + proje adı + belge metninden bölge tespiti
+      const region = detectRegion(`${req.file.originalname}\n${projectName}\n${textLines}`, approxLat);
+      const cmsToTry = region.cmOrder;
+      if (region.city) {
+        console.log(`[KMZ-ÜRET] bölge tespiti: ${region.city} (resmi CM ${cmsToTry[0]}, referans boylam ${region.provLon?.toFixed(2)})`);
+      }
+
+      // Referans boylam(lar)ı: metinden tespit edilen il/ilçeler; yoksa projedeki mevcut direklerin boylamı
+      const refLons: number[] = region.matches.map((m) => m.info.lon);
+      if (refLons.length === 0 && projectId != null) {
+        const existing = await pool.query(
+          'SELECT AVG(lat) AS lat, AVG(lon) AS lon FROM poles WHERE project_id = $1',
+          [projectId]
+        );
+        const exLat = Number(existing.rows[0]?.lat);
+        const exLon = Number(existing.rows[0]?.lon);
+        if (Number.isFinite(exLat) && Number.isFinite(exLon) && Math.abs(exLat - approxLat) <= 1.8) {
+          refLons.push(exLon);
         }
+      }
 
-        // Referans boylam(lar)ı: metinden tespit edilen il/ilçeler; yoksa projedeki mevcut direklerin boylamı
-        const refLons: number[] = region.matches.map((m) => m.info.lon);
-        if (refLons.length === 0 && projectId != null) {
-          const existing = await pool.query(
-            'SELECT AVG(lat) AS lat, AVG(lon) AS lon FROM poles WHERE project_id = $1',
-            [projectId]
-          );
-          const exLat = Number(existing.rows[0]?.lat);
-          const exLon = Number(existing.rows[0]?.lon);
-          if (Number.isFinite(exLat) && Number.isFinite(exLon) && Math.abs(exLat - approxLat) <= 1.8) {
-            refLons.push(exLon);
-          }
-        }
-
-        if (tm3Cm >= 27 && tm3Cm <= 45) {
-          let chosenCm = tm3Cm;
-          let conv = convertTm3List(tmRows, chosenCm);
-          // Kullanıcı ör. "DOM 39° (Diyarbakır)" seçmiş olsa bile hat ilin doğu ilçesinde (ör. Lice, DOM 42°)
-          // ise seçili CM hattı ~270 km batıya (Malatya/K.Maraş'a) atar. Belgede/projede tespit edilen
-          // referans boylama göre >1.6° sapma varsa ve komşu dilim (±3°) tam bölgeye düşüyorsa otomatik düzelt.
-          if (conv.length > 0 && refLons.length > 0) {
-            const meanLon = conv.reduce((s, p) => s + p.lon, 0) / conv.length;
-            const distSel = Math.min(...refLons.map((rl) => Math.abs(meanLon - rl)));
-            if (distSel > 1.6) {
-              for (const adjCm of [tm3Cm + 3, tm3Cm - 3]) {
-                if (adjCm < 27 || adjCm > 45) continue;
-                const convAdj = convertTm3List(tmRows, adjCm);
-                if (convAdj.length === 0) continue;
-                const meanAdj = convAdj.reduce((s, p) => s + p.lon, 0) / convAdj.length;
-                const distAdj = Math.min(...refLons.map((rl) => Math.abs(meanAdj - rl)));
-                if (distAdj <= 1.2 && distAdj + 0.8 < distSel) {
-                  console.log(
-                    `[KMZ-ÜRET] Seçili CM ${tm3Cm} (${meanLon.toFixed(2)}°D) bölge referansından ${distSel.toFixed(2)}° uzakta → komşu dilim CM ${adjCm} (${meanAdj.toFixed(2)}°D, fark ${distAdj.toFixed(2)}°) kullanıldı`
-                  );
-                  chosenCm = adjCm;
-                  conv = convAdj;
-                  break;
-                }
-              }
-            }
-          }
-          if (conv.length > 0) {
-            poles = conv;
-            tm3CmUsed = chosenCm;
-            console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (CM ${tm3CmUsed}) ile ${poles.length} direk çevrildi`);
-          }
-        } else {
-          if (refLons.length > 0) {
-            let best: { poles: PolePoint[]; cm: number; dist: number } | null = null;
-            for (const cm of cmsToTry) {
-              const conv = convertTm3List(tmRows, cm);
-              if (conv.length === 0) continue;
-              const meanLon = conv.reduce((s, p) => s + p.lon, 0) / conv.length;
-              const minDist = Math.min(...refLons.map((rl) => Math.abs(meanLon - rl)));
-              if (minDist > 2.2) {
-                console.log(`[KMZ-ÜRET] CM ${cm} elendi: sonuç boylam ${meanLon.toFixed(2)} referans boylamdan uzak (fark ${minDist.toFixed(2)}°)`);
-                continue;
-              }
-              if (!best || minDist < best.dist) {
-                best = { poles: conv, cm, dist: minDist };
-              }
-            }
-            if (best) {
-              poles = best.poles;
-              tm3CmUsed = best.cm;
-              console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (CM ${tm3CmUsed}) ile ${poles.length} direk çevrildi`);
-            }
-          }
-
-          if (poles.length === 0) {
-            for (const cm of cmsToTry) {
-              const conv = convertTm3List(tmRows, cm);
-              if (conv.length > 0) {
-                poles = conv;
-                tm3CmUsed = cm;
-                console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (CM ${tm3CmUsed}) ile ${poles.length} direk çevrildi`);
+      if (tm3Cm >= 27 && tm3Cm <= 45) {
+        let chosenCm = tm3Cm;
+        let conv = convertTm3List(tmRows, chosenCm);
+        // Kullanıcı ör. "DOM 39° (Diyarbakır)" seçmiş olsa bile hat ilin doğu ilçesinde (ör. Lice, DOM 42°)
+        // ise seçili CM hattı ~270 km batıya (Malatya/K.Maraş'a) atar. Belgede/projede tespit edilen
+        // referans boylama göre >1.6° sapma varsa ve komşu dilim (±3°) tam bölgeye düşüyorsa otomatik düzelt.
+        if (conv.length > 0 && refLons.length > 0) {
+          const meanLon = conv.reduce((s, p) => s + p.lon, 0) / conv.length;
+          const distSel = Math.min(...refLons.map((rl) => Math.abs(meanLon - rl)));
+          if (distSel > 1.6) {
+            for (const adjCm of [tm3Cm + 3, tm3Cm - 3]) {
+              if (adjCm < 27 || adjCm > 45) continue;
+              const convAdj = convertTm3List(tmRows, adjCm);
+              if (convAdj.length === 0) continue;
+              const meanAdj = convAdj.reduce((s, p) => s + p.lon, 0) / convAdj.length;
+              const distAdj = Math.min(...refLons.map((rl) => Math.abs(meanAdj - rl)));
+              if (distAdj <= 1.2 && distAdj + 0.8 < distSel) {
+                console.log(
+                  `[KMZ-ÜRET] Seçili CM ${tm3Cm} (${meanLon.toFixed(2)}°D) bölge referansından ${distSel.toFixed(2)}° uzakta → komşu dilim CM ${adjCm} (${meanAdj.toFixed(2)}°D, fark ${distAdj.toFixed(2)}°) kullanıldı`
+                );
+                chosenCm = adjCm;
+                conv = convAdj;
                 break;
               }
+            }
+          }
+        }
+        if (conv.length > 0) {
+          poles = conv;
+          tm3CmUsed = chosenCm;
+          console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (CM ${tm3CmUsed}) ile ${poles.length} direk çevrildi`);
+        }
+      } else {
+        if (refLons.length > 0) {
+          let best: { poles: PolePoint[]; cm: number; dist: number } | null = null;
+          for (const cm of cmsToTry) {
+            const conv = convertTm3List(tmRows, cm);
+            if (conv.length === 0) continue;
+            const meanLon = conv.reduce((s, p) => s + p.lon, 0) / conv.length;
+            const minDist = Math.min(...refLons.map((rl) => Math.abs(meanLon - rl)));
+            if (minDist > 2.2) {
+              console.log(`[KMZ-ÜRET] CM ${cm} elendi: sonuç boylam ${meanLon.toFixed(2)} referans boylamdan uzak (fark ${minDist.toFixed(2)}°)`);
+              continue;
+            }
+            if (!best || minDist < best.dist) {
+              best = { poles: conv, cm, dist: minDist };
+            }
+          }
+          if (best) {
+            poles = best.poles;
+            tm3CmUsed = best.cm;
+            console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (CM ${tm3CmUsed}) ile ${poles.length} direk çevrildi`);
+          }
+        }
+
+        if (poles.length === 0) {
+          for (const cm of cmsToTry) {
+            const conv = convertTm3List(tmRows, cm);
+            if (conv.length > 0) {
+              poles = conv;
+              tm3CmUsed = cm;
+              console.log(`[KMZ-ÜRET] ${req.file.originalname}: ITRF-96 3°TM (CM ${tm3CmUsed}) ile ${poles.length} direk çevrildi`);
+              break;
             }
           }
         }
@@ -280,14 +367,19 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       console.log(`[KMZ-ÜRET] ${req.file.originalname} → ${source}: yalnız ${poles.length} direk`);
       return res.status(400).json({ error: 'En az 2 direk bulunmalı (güzergah çizgisi için).' });
     }
+
+    // Direkleri DTL ve TM3 öznitelikleriyle zenginleştir (Direk Tipi, Fonksiyon, İstasyon, X/Y, Geçiş vb.)
+    poles = enrichPolesWithMetadata(poles, tmRows, dtlResult.rows || []);
+
     console.log(
       `[KMZ-ÜRET] ${req.file.originalname} → ${source}: ${poles.length} direk` +
         (ocrResult ? `, belirsiz satır: ${ocrResult.uncertain.length}` : '')
     );
 
     // KMZ üret
-    const docName = path.basename(req.file.originalname, path.extname(req.file.originalname));
-    const kmzBuf = buildKmz(poles, docName);
+    const baseDocName = path.basename(req.file.originalname, path.extname(req.file.originalname));
+    const docTitle = dtlResult.header?.line_name || dtlResult.header?.title || baseDocName;
+    const kmzBuf = buildKmz(poles, docTitle);
     const kmzFile = `generated-${Date.now()}.kmz`;
     fs.writeFileSync(path.join(UPLOADS_DIR, kmzFile), kmzBuf);
 
@@ -304,7 +396,14 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
     }
 
     res.json({
-      poles: poles.map((p, i) => ({ no: i + 1, name: p.name || `Direk ${i + 1}`, lat: p.lat, lon: p.lon })),
+      poles: poles.map((p, i) => ({
+        no: i + 1,
+        name: p.name || `D-${i + 1}`,
+        lat: p.lat,
+        lon: p.lon,
+        alt: p.alt ?? null,
+        meta: p.meta || null,
+      })),
       count: poles.length,
       saved,
       source,
@@ -413,7 +512,7 @@ router.post('/from-rows', async (req: Request, res: Response, next: NextFunction
     if (p.rowCount === 0) return res.status(404).json({ error: 'Proje bulunamadı.' });
 
     const raw = Array.isArray(req.body?.poles) ? req.body.poles : [];
-    const poles: PolePoint[] = [];
+    let poles: PolePoint[] = [];
     for (const r of raw) {
       const lat = Number(r?.lat);
       const lon = Number(r?.lon);
@@ -421,11 +520,20 @@ router.post('/from-rows', async (req: Request, res: Response, next: NextFunction
       if (lat < 36 || lat > 42 || lon < 26 || lon > 45) {
         return res.status(400).json({ error: `Geçersiz koordinat: ${r?.name || ''} (${lat}, ${lon})` });
       }
-      poles.push({ name: String(r?.name || '').trim(), lat, lon, alt: null });
+      const meta: PoleMeta | undefined = r?.meta && typeof r.meta === 'object' ? r.meta : undefined;
+      poles.push({
+        name: String(r?.name || '').trim(),
+        lat,
+        lon,
+        alt: r?.alt != null ? Number(r.alt) : null,
+        ...(meta ? { meta } : {}),
+      });
     }
     if (poles.length < 2) {
       return res.status(400).json({ error: 'En az 2 geçerli direk satırı gerekli.' });
     }
+
+    poles = enrichPolesWithMetadata(poles, [], []);
 
     const docName = String(req.body?.doc_name || 'belge');
     const kmzBuf = buildKmz(poles, docName);
@@ -453,9 +561,26 @@ router.post('/from-rows', async (req: Request, res: Response, next: NextFunction
 // Düzeltilmiş satırları Excel (.xlsx) olarak indir
 router.post('/export-rows', async (req: Request, res: Response) => {
   const raw = Array.isArray(req.body?.poles) ? req.body.poles : [];
-  const rows: (string | number)[][] = [['Sıra', 'Direk', 'Enlem', 'Boylam']];
+  const rows: (string | number)[][] = [
+    ['Sıra', 'Direk', 'Direk Tipi', 'Fonksiyon', 'İstasyon', 'X (E)', 'Y (N)', 'Geçiş / Açıklama', 'Enlem', 'Boylam'],
+  ];
   raw.forEach((r: any, i: number) => {
-    rows.push([i + 1, String(r?.name || ''), Number(r?.lat) || 0, Number(r?.lon) || 0]);
+    const m: PoleMeta = r?.meta || {};
+    const cr = (m.crossing || '').trim();
+    const rm = (m.remarks || '').trim();
+    const gecis = cr && rm && !cr.toLowerCase().includes(rm.toLowerCase()) ? `${cr} (${rm})` : cr || rm || '';
+    rows.push([
+      i + 1,
+      String(r?.name || ''),
+      String(m.tower_type || ''),
+      String(m.function || ''),
+      String(m.station_text || ''),
+      m.easting != null ? Number(m.easting) : '',
+      m.northing != null ? Number(m.northing) : '',
+      gecis,
+      Number(r?.lat) || 0,
+      Number(r?.lon) || 0,
+    ]);
   });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Direkler');
@@ -486,7 +611,7 @@ router.get('/from-project', async (req: Request, res: Response) => {
   const proj = await pool.query('SELECT name FROM projects WHERE id = $1', [projectId]);
   if (proj.rowCount === 0) return res.status(404).json({ error: 'Proje bulunamadı.' });
   const poles = await pool.query(
-    'SELECT name, lat, lon FROM poles WHERE project_id = $1 ORDER BY idx',
+    'SELECT name, lat, lon, alt, meta FROM poles WHERE project_id = $1 ORDER BY idx',
     [projectId]
   );
   if (poles.rows.length < 2) return res.status(400).json({ error: 'Bu projede güzergah için yeterli direk yok.' });

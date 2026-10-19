@@ -26,8 +26,16 @@ export async function importPolesForProject(
     for (let i = 0; i < poles.length; i++) {
       const p = poles[i];
       await client.query(
-        'INSERT INTO poles (name, lat, lon, alt, idx, project_id) VALUES ($1, $2, $3, $4, $5, $6)',
-        [p.name || `Direk ${i + 1}`, p.lat, p.lon, p.alt ?? null, i, projectId]
+        'INSERT INTO poles (name, lat, lon, alt, idx, project_id, meta) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [
+          p.name || `Direk ${i + 1}`,
+          p.lat,
+          p.lon,
+          p.alt ?? null,
+          i,
+          projectId,
+          p.meta && Object.keys(p.meta).length > 0 ? JSON.stringify(p.meta) : null,
+        ]
       );
     }
     await client.query(

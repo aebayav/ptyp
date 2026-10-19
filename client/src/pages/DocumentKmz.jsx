@@ -119,13 +119,51 @@ export default function DocumentKmz() {
       setBusy(false);
       return;
     }
-    setResult({ count: merged.length, poles: merged, file_name: `${files.length} belge` });
-    setRows(merged.map((p) => ({ name: p.name, lat: String(p.lat), lon: String(p.lon) })));
+    const batchHeader =
+      collected.map((d) => d.dtl?.header).find((h) => h && (h.line_name || h.title)) ||
+      { title: '', voltage_kv: '', conductor: '', line_name: '', notes: '' };
+    const docTitle = batchHeader.line_name || batchHeader.title || `${files.length}-belge`;
+    let batchKmz = null;
+    try {
+      const savedRes = await api.post('/api/kmz-generator/from-rows', {
+        project_id: projectId,
+        doc_name: docTitle,
+        poles: merged.map((p) => ({
+          name: p.name,
+          lat: Number(p.lat),
+          lon: Number(p.lon),
+          alt: p.alt ?? null,
+          meta: p.meta || null,
+        })),
+      });
+      batchKmz = savedRes.kmz;
+    } catch {
+      /* kullanıcı aşağıdan tekrar kaydedebilir */
+    }
+    setResult({
+      count: merged.length,
+      poles: merged,
+      file_name: `${files.length} belge`,
+      dtl: { header: batchHeader, rows: collected.flatMap((d) => d.dtl?.rows || []) },
+      kmz: batchKmz,
+    });
+    setRows(
+      merged.map((p) => ({
+        name: p.name,
+        lat: String(p.lat),
+        lon: String(p.lon),
+        alt: p.alt ?? null,
+        meta: p.meta || {},
+      }))
+    );
     if (firstPreview) setPreview(firstPreview);
     const hatalar = log.filter((l) => l.includes('HATA')).length;
     setMsg({
       type: 'ok',
-      text: `${files.length} belge işlendi → ${merged.length} direk birleştirildi` + (hatalar > 0 ? ` · ${hatalar} belge okunamadı` : '') + ' — kontrol edip KMZ üretin',
+      text:
+        `${files.length} belge işlendi → ${merged.length} nokta birleştirildi` +
+        (hatalar > 0 ? ` · ${hatalar} belge okunamadı` : '') +
+        (batchKmz ? ' · projeye aktarıldı ve KMZ hazır' : ' — kontrol edip KMZ üretin'),
     });
     setBusy(false);
   }
@@ -150,7 +188,15 @@ export default function DocumentKmz() {
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || 'Okuma başarısız.');
       setResult(d);
-      setRows(d.poles.map((p) => ({ name: p.name, lat: String(p.lat), lon: String(p.lon) })));
+      setRows(
+        d.poles.map((p) => ({
+          name: p.name,
+          lat: String(p.lat),
+          lon: String(p.lon),
+          alt: p.alt ?? null,
+          meta: p.meta || {},
+        }))
+      );
       if (d.ocr?.pages?.length) setPreview(d.ocr.pages[0].preview);
       const uncertainCount = d.ocr?.uncertain?.length || 0;
       setMsg({
@@ -172,16 +218,40 @@ export default function DocumentKmz() {
   function updateRow(i, field, value) {
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)));
   }
+  function updateRowMeta(i, field, value) {
+    setRows((prev) =>
+      prev.map((r, idx) => (idx === i ? { ...r, meta: { ...(r.meta || {}), [field]: value } } : r))
+    );
+  }
   function deleteRow(i) {
     setRows((prev) => prev.filter((_, idx) => idx !== i));
   }
   function addRow() {
-    setRows((prev) => [...prev, { name: '', lat: '', lon: '' }]);
+    setRows((prev) => [...prev, { name: '', lat: '', lon: '', alt: null, meta: {} }]);
   }
 
   function downloadCsv() {
-    const head = 'Sıra;Direk;Enlem;Boylam\n';
-    const body = rows.map((r, i) => `${i + 1};${r.name};${r.lat};${r.lon}`).join('\n');
+    const head = 'Sıra;Direk;Direk Tipi;Fonksiyon;İstasyon;X(E);Y(N);Geçiş / Açıklama;Enlem;Boylam\n';
+    const body = rows
+      .map((r, i) => {
+        const m = r.meta || {};
+        const cr = (m.crossing || '').trim();
+        const rm = (m.remarks || '').trim();
+        const gecis = cr && rm && !cr.toLowerCase().includes(rm.toLowerCase()) ? `${cr} (${rm})` : cr || rm || '';
+        return [
+          i + 1,
+          r.name,
+          m.tower_type || '',
+          m.function || '',
+          m.station_text || '',
+          m.easting != null ? Number(m.easting).toFixed(2) : '',
+          m.northing != null ? Number(m.northing).toFixed(2) : '',
+          gecis,
+          r.lat,
+          r.lon,
+        ].join(';');
+      })
+      .join('\n');
     const blob = new Blob(['\ufeff' + head + body], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -201,7 +271,13 @@ export default function DocumentKmz() {
   async function submitRows() {
     if (projectId == null) return;
     const valid = rows
-      .map((r) => ({ name: r.name.trim(), lat: Number(r.lat), lon: Number(r.lon) }))
+      .map((r) => ({
+        name: r.name.trim(),
+        lat: Number(r.lat),
+        lon: Number(r.lon),
+        alt: r.alt ?? null,
+        meta: r.meta || null,
+      }))
       .filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lon));
     if (valid.length < 2) {
       setMsg({ type: 'err', text: 'En az 2 geçerli satır (enlem + boylam) gerekli.' });
@@ -209,14 +285,16 @@ export default function DocumentKmz() {
     }
     setBusy(true);
     try {
+      const hdrName = result?.dtl?.header?.line_name || result?.dtl?.header?.title;
       const d = await api.post('/api/kmz-generator/from-rows', {
         project_id: projectId,
         doc_name:
-          files.length > 1
+          hdrName ||
+          (files.length > 1
             ? `${files.length}-belge`
             : file
               ? file.name.replace(/\.[^.]+$/, '')
-              : 'belge',
+              : 'belge'),
         poles: valid,
       });
       setResult((prev) => ({ ...prev, kmz: d.kmz }));
@@ -353,29 +431,99 @@ export default function DocumentKmz() {
                 <tr>
                   <th className="num">#</th>
                   <th>Direk</th>
+                  <th>Tip</th>
+                  <th>Fonksiyon</th>
+                  <th>İstasyon</th>
+                  <th className="num">X(E) / Y(N)</th>
+                  <th>Geçiş / Açıklama</th>
                   <th className="num">Enlem</th>
                   <th className="num">Boylam</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i}>
-                    <td className="num muted">{i + 1}</td>
-                    <td>
-                      <input value={r.name} onChange={(e) => updateRow(i, 'name', e.target.value)} style={{ width: '100%' }} />
-                    </td>
-                    <td>
-                      <input type="number" step="any" value={r.lat} onChange={(e) => updateRow(i, 'lat', e.target.value)} style={{ width: 130 }} />
-                    </td>
-                    <td>
-                      <input type="number" step="any" value={r.lon} onChange={(e) => updateRow(i, 'lon', e.target.value)} style={{ width: 130 }} />
-                    </td>
-                    <td>
-                      <button className="btn btn-sm btn-danger" onClick={() => deleteRow(i)} title="Satırı sil">Sil</button>
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((r, i) => {
+                  const m = r.meta || {};
+                  const cr = (m.crossing || '').trim();
+                  const rm = (m.remarks || '').trim();
+                  const gecisVal =
+                    cr && rm && !cr.toLowerCase().includes(rm.toLowerCase()) ? `${cr} (${rm})` : cr || rm || '';
+                  return (
+                    <tr key={i}>
+                      <td className="num muted">{i + 1}</td>
+                      <td>
+                        <input
+                          value={r.name}
+                          onChange={(e) => updateRow(i, 'name', e.target.value)}
+                          style={{ width: 120 }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          value={m.tower_type || ''}
+                          onChange={(e) => updateRowMeta(i, 'tower_type', e.target.value)}
+                          placeholder="-"
+                          style={{ width: 68 }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          value={m.function || ''}
+                          onChange={(e) => updateRowMeta(i, 'function', e.target.value)}
+                          placeholder="-"
+                          style={{ width: 58 }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          value={m.station_text || ''}
+                          onChange={(e) => updateRowMeta(i, 'station_text', e.target.value)}
+                          placeholder="-"
+                          style={{ width: 92 }}
+                        />
+                      </td>
+                      <td className="num muted" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>
+                        {m.easting != null && m.northing != null
+                          ? `${Number(m.easting).toFixed(2)} / ${Number(m.northing).toFixed(2)}`
+                          : '—'}
+                      </td>
+                      <td>
+                        <input
+                          value={gecisVal}
+                          onChange={(e) => {
+                            updateRowMeta(i, 'crossing', e.target.value);
+                            updateRowMeta(i, 'remarks', '');
+                          }}
+                          placeholder="-"
+                          style={{ width: 180 }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          step="any"
+                          value={r.lat}
+                          onChange={(e) => updateRow(i, 'lat', e.target.value)}
+                          style={{ width: 115 }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          step="any"
+                          value={r.lon}
+                          onChange={(e) => updateRow(i, 'lon', e.target.value)}
+                          style={{ width: 115 }}
+                        />
+                      </td>
+                      <td>
+                        <button className="btn btn-sm btn-danger" onClick={() => deleteRow(i)} title="Satırı sil">
+                          Sil
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

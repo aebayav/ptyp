@@ -211,6 +211,9 @@ export async function initSchema(): Promise<void> {
   if (!poleCols.rows.some((r: any) => r.column_name === 'project_id')) {
     await pool.query('ALTER TABLE poles ADD COLUMN project_id INTEGER');
   }
+  if (!poleCols.rows.some((r: any) => r.column_name === 'meta')) {
+    await pool.query('ALTER TABLE poles ADD COLUMN meta JSONB');
+  }
   await pool.query('UPDATE poles SET project_id = $1 WHERE project_id IS NULL', [firstProj.rows[0].id]);
   await pool.query('ALTER TABLE poles ALTER COLUMN project_id SET NOT NULL');
   try {
