@@ -413,6 +413,10 @@ def _fix_digits(s: str) -> str:
 def _normalize_coord_str(s: str) -> str:
     """Koordinat metnindeki OCR kaynaklı boşluk, nokta düşmesi ve harf-rakam karışıklıklarını onar."""
     out = (s or "").replace(",", ".")
+    # Token başında yutulmuş "5": Indra "594377.00"i "$94377.00" / "S94377.00" okuyabilir.
+    # 5 haneye düşünce COORD_RE göremez; "son iki 6-7 haneli sayı" kuralı istasyon hücresini
+    # (örn. "22+122.18" → "224122.18") easting sanar (D-65 vakası). Bu yüzden önce onarılmalı.
+    out = re.sub(r"(?<![\w.,])([$S])(?=\d{3,})", "5", out)
     out = re.sub(r"(?<=[\d\s])<(?=\d)", "4", out)
     out = _fix_digits(out)
     # Binlik ayırıcı / OCR boşluğu: "4 256 007.40" → "4256007.40"
@@ -1375,6 +1379,31 @@ def _indra_rows_from_page(
         cells = cells_from_parsed(parsed)
         y0 = int(min(float(l["box"][1]) for l in items))
         y1 = int(max(float(l["box"][3]) for l in items))
+        # İstasyon tuzağı: easting adayı sol bölgeden (istasyon sütunu) geliyorsa VE
+        # sağdaki koordinat sütunlarında COORD_RE'nin kaçırdığı rakam benzeri hücre
+        # varsa satırı zayıf say → GLM dolgusu gerçek easting'i okusun (D-65 sınıfı).
+        if len(cells) >= 3 and not parsed.get("weak"):
+            w = max((float(l["box"][2]) for l in lines), default=0.0)
+            if w > 0:
+                def _core(t: str) -> str:
+                    norm = _normalize_coord_str(t).strip()
+                    m = COORD_RE.search(norm)
+                    return m.group(0) if m else norm
+
+                e_core = _core(cells[1]["text"])
+                n_core = _core(cells[2]["text"])
+                src_x = min(
+                    (float(l["box"][0]) for l in items if _core(l["text"]) == e_core),
+                    default=float("inf"),
+                )
+                right_missed = any(
+                    float(l["box"][0]) >= 0.6 * w
+                    and _core(l["text"]) not in (e_core, n_core)
+                    and re.search(r"\d{4,8}(?:[.,]\d{1,4})?", _normalize_coord_str(l["text"]))
+                    for l in items
+                )
+                if src_x < 0.45 * w and right_missed:
+                    parsed["weak"] = True
         # 27 sütunlu DTL analizi — KMZ nokta bilgileri (tip, fonksiyon, istasyon, geçiş)
         dtl = parse_dtl_line(joined)
         if not (dtl and dtl.get("pole")):
