@@ -1350,13 +1350,50 @@ def _indra_rows_from_page(
     lines.sort(key=lambda l: float(l["box"][1]))
     ANCHOR_RE = re.compile(r"^\s*-?\d{1,3}\.?\s*$|[Pp][A-Za-z]*\d*[A-Za-z]*|[Dd][A-Za-z]*[-.]?\d*")
     anchors = [l for l in lines if float(l["box"][0]) < 380 and ANCHOR_RE.fullmatch(l["text"].strip())]
+    anchor_is_mid: dict[int, bool] = {}
     if len(anchors) >= 2:
         anchors.sort(key=lambda l: float(l["box"][1]))
         tops = [float(a["box"][1]) for a in anchors]
+        med = float(np.median(np.diff(tops))) if len(tops) > 1 else 0.0
+        if med > 0:
+            # Sol direk hücresi okunamayan satır komşu satıra yapışır (D-8 vakası:
+            # easting/northing okunmuş ama sol direk no BOŞ). DTL'de direk no ikinci
+            # kez orta D.NO sütununda yazılır; o sütunu SOL DİREK SÜTUNUYLA DEĞER
+            # UYUMUNDAN tanı (x>380'deki en soldaki küme rüzgar/açıklık sütunudur,
+            # yanıltır!) ve boşluklara çapa olarak ekle.
+            cands = [l for l in lines if float(l["box"][0]) >= 380 and ANCHOR_RE.fullmatch(l["text"].strip())]
+            xcl: list[list[dict]] = []
+            for l in sorted(cands, key=lambda l: float(l["box"][0])):
+                if xcl and float(l["box"][0]) - float(xcl[-1][-1]["box"][0]) <= 80:
+                    xcl[-1].append(l)
+                else:
+                    xcl.append([l])
+            left_nums = [(float(a["box"][1]), a["text"].strip()) for a in anchors
+                         if re.fullmatch(r"\d{1,3}", a["text"].strip())]
+            best_mid, best_agree = None, 0
+            for c in xcl:
+                if len(c) < 5:
+                    continue
+                agree = 0
+                for lt, txt in left_nums:
+                    if any(abs(float(l["box"][1]) - lt) <= 12 and l["text"].strip() == txt for l in c):
+                        agree += 1
+                if agree > best_agree:
+                    best_mid, best_agree = c, agree
+            if best_mid is not None and best_agree >= 3:
+                for m in best_mid:
+                    mt = float(m["box"][1])
+                    if re.fullmatch(r"\d{1,3}", m["text"].strip()) and min(abs(mt - t) for t in tops) > med * 0.6:
+                        anchors.append(m)
+                        anchor_is_mid[id(m)] = True
+                anchors.sort(key=lambda l: float(l["box"][1]))
+                tops = [float(a["box"][1]) for a in anchors]
         clusters: list[list[dict]] = []
+        mids: list[bool] = []
         for i, a in enumerate(tops):
             b = tops[i + 1] if i + 1 < len(tops) else a + 120
             clusters.append([l for l in lines if a - 6 <= float(l["box"][1]) < b - 6])
+            mids.append(anchor_is_mid.get(id(anchors[i]), False))
     else:
         clusters = []
         for l in lines:
@@ -1365,17 +1402,21 @@ def _indra_rows_from_page(
                 clusters[-1].append(l)
             else:
                 clusters.append([l])
+        mids = [False] * len(clusters)
     rows: list[tuple[int, list[dict]]] = []
     weak_ranges: list[tuple[int, int]] = []
     dtl_rows: list[dict] = []
     dtl_weak: list[tuple[int, int, str]] = []
     weak_rows: list[tuple[int, list[dict]]] = []
-    for items in clusters:
+    for i, (is_mid, items) in enumerate(zip(mids, clusters)):
         items.sort(key=lambda l: float(l["box"][0]))
         joined = " | ".join(l["text"].strip() for l in items)
         parsed = parse_glm_line(joined)
         if parsed is None or _is_noise_line(parsed):
             continue
+        # Orta sütun çapası: sol direk hücresi yok — pole'u çapa metninden al
+        if is_mid:
+            parsed["pole"] = anchors[i]["text"].strip()
         cells = cells_from_parsed(parsed)
         y0 = int(min(float(l["box"][1]) for l in items))
         y1 = int(max(float(l["box"][3]) for l in items))
