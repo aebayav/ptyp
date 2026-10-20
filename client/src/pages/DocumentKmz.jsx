@@ -102,19 +102,32 @@ export default function DocumentKmz() {
       setBatchProgress({ done: i + 1, total: files.length, log });
     }
     setBatchProgress(null);
-    // Birleştir: sayfa geçişlerinde tekrarlanan aynı direkleri (≈25m) veya birebir aynı koordinatı (≈2m) ele
-    const all = collected.flatMap((d) => d.poles || []);
+    // Birleştir: sayfa geçişlerinde tekrarlanan aynı direkleri (≈25m) veya birebir aynı koordinatı (≈2m) ele.
+    // Belirsiz satırlar da listeye girer (koordinatsız) — aynı adlı geçerli satır varsa tekrar sayılır.
+    const all = collected.flatMap((d) => [
+      ...(d.poles || []),
+      ...uncertainToRows(d.ocr?.uncertain).map((r) => ({
+        name: r.name,
+        lat: r.lat === '' ? NaN : Number(r.lat),
+        lon: r.lon === '' ? NaN : Number(r.lon),
+        alt: null,
+        meta: r.meta,
+      })),
+    ]);
     const merged = [];
     for (const p of all) {
       const pName = String(p.name || '').trim().toUpperCase();
       const dup = merged.some((q) => {
         const qName = String(q.name || '').trim().toUpperCase();
         const distM = Math.hypot((p.lat - q.lat) * 110900, (p.lon - q.lon) * 87300);
-        return pName && pName === qName ? distM < 25 : distM < 2;
+        if (pName && pName === qName) return Number.isFinite(distM) ? distM < 25 : true;
+        return distM < 2;
       });
       if (!dup) merged.push(p);
     }
-    if (merged.length < 2) {
+    // Koordinatsız satırları komşulardan enterpolasyonla doldur (direk kaybolmasın)
+    const mergedFilled = interpolateRows(merged);
+    if (mergedFilled.length < 2) {
       setMsg({ type: 'err', text: `Toplu işleme tamamlandı ama birleştirilebilir direk bulunamadı (${log.filter((l) => l.includes('HATA')).length} hata).` });
       setBusy(false);
       return;
@@ -128,7 +141,7 @@ export default function DocumentKmz() {
       const savedRes = await api.post('/api/kmz-generator/from-rows', {
         project_id: projectId,
         doc_name: docTitle,
-        poles: merged.map((p) => ({
+        poles: mergedFilled.map((p) => ({
           name: p.name,
           lat: Number(p.lat),
           lon: Number(p.lon),
@@ -141,8 +154,8 @@ export default function DocumentKmz() {
       /* kullanıcı aşağıdan tekrar kaydedebilir */
     }
     setResult({
-      count: merged.length,
-      poles: merged,
+      count: mergedFilled.length,
+      poles: mergedFilled,
       file_name: `${files.length} belge`,
       dtl: { header: batchHeader, rows: collected.flatMap((d) => d.dtl?.rows || []) },
       kmz: batchKmz,
@@ -188,15 +201,16 @@ export default function DocumentKmz() {
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || 'Okuma başarısız.');
       setResult(d);
-      setRows(
-        d.poles.map((p) => ({
+      setRows([
+        ...d.poles.map((p) => ({
           name: p.name,
           lat: String(p.lat),
           lon: String(p.lon),
           alt: p.alt ?? null,
           meta: p.meta || {},
-        }))
-      );
+        })),
+        ...uncertainToRows(d.ocr?.uncertain),
+      ]);
       if (d.ocr?.pages?.length) setPreview(d.ocr.pages[0].preview);
       const uncertainCount = d.ocr?.uncertain?.length || 0;
       setMsg({
@@ -204,7 +218,9 @@ export default function DocumentKmz() {
         text:
           `${d.count} direk bulundu` +
           (d.tm3_cm_used ? ` · DOM ${d.tm3_cm_used}°` : '') +
-          (uncertainCount > 0 ? ` · ${uncertainCount} satır düşük güvenle okundu — aşağıdan kontrol edin` : '') +
+          (uncertainCount > 0
+            ? ` · ${uncertainCount} satır düşük güvenle okundu — tabloya eklendi (boş koordinatları belgeden doldurun)`
+            : '') +
           (d.saved > 0 ? ` · projeye ön aktarım yapıldı (${d.saved})` : ''),
       });
       console.log('[Belge→KMZ]', okumaBilgisi(d));
@@ -228,6 +244,50 @@ export default function DocumentKmz() {
   }
   function addRow() {
     setRows((prev) => [...prev, { name: '', lat: '', lon: '', alt: null, meta: {} }]);
+  }
+
+  // Belirsiz (düşük güvenli) OCR satırlarını tablo satırına çevirir:
+  // koordinat boş gelir, ham metin açıklamada durur — satır ASLA yok olmaz
+  function uncertainToRows(uncertain) {
+    return (uncertain || []).map((u) => {
+      const tok = String(u.text || '').split(/\s+/)[0].replace(/[.:;|]+$/, '');
+      const name = /^\d{1,3}$/.test(tok) ? 'D-' + tok : tok;
+      return { name, lat: '', lon: '', alt: null, meta: { remarks: 'DÜŞÜK GÜVEN — ham okuma: ' + u.text } };
+    });
+  }
+
+  // Koordinatı boş satırları komşularından doğrusal enterpolasyonla doldurur
+  // (D-65 gibi kaybolan direkler için son çare — açıklamaya not düşülür)
+  function interpolateRows(rs) {
+    const out = rs.map((r) => ({ ...r, meta: { ...(r.meta || {}) } }));
+    for (let i = 0; i < out.length; i++) {
+      if (Number.isFinite(Number(out[i].lat)) && Number.isFinite(Number(out[i].lon))) continue;
+      let a = null,
+        b = null,
+        ia = -1,
+        ib = -1;
+      for (let j = i - 1; j >= 0; j--) {
+        if (Number.isFinite(Number(out[j].lat)) && Number.isFinite(Number(out[j].lon))) {
+          a = out[j];
+          ia = j;
+          break;
+        }
+      }
+      for (let j = i + 1; j < out.length; j++) {
+        if (Number.isFinite(Number(out[j].lat)) && Number.isFinite(Number(out[j].lon))) {
+          b = out[j];
+          ib = j;
+          break;
+        }
+      }
+      if (!a || !b) continue;
+      const f = (i - ia) / (ib - ia);
+      out[i].lat = Number(a.lat) + (Number(b.lat) - Number(a.lat)) * f;
+      out[i].lon = Number(a.lon) + (Number(b.lon) - Number(a.lon)) * f;
+      out[i].meta.remarks =
+        (out[i].meta.remarks ? out[i].meta.remarks + ' ' : '') + 'ENTERPOLASYONLA TAHMİN EDİLDİ (belgeden doğrulayın)';
+    }
+    return out;
   }
 
   function downloadCsv() {
@@ -270,7 +330,10 @@ export default function DocumentKmz() {
 
   async function submitRows() {
     if (projectId == null) return;
-    const valid = rows
+    // Koordinatsız satırları komşulardan enterpolasyonla doldur (direk kaybolmasın)
+    const filled = interpolateRows(rows);
+    setRows(filled);
+    const valid = filled
       .map((r) => ({
         name: r.name.trim(),
         lat: Number(r.lat),
@@ -278,7 +341,7 @@ export default function DocumentKmz() {
         alt: r.alt ?? null,
         meta: r.meta || null,
       }))
-      .filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lon));
+      .filter((r) => r.name && Number.isFinite(r.lat) && Number.isFinite(r.lon));
     if (valid.length < 2) {
       setMsg({ type: 'err', text: 'En az 2 geçerli satır (enlem + boylam) gerekli.' });
       return;
