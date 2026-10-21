@@ -179,6 +179,27 @@ export async function initSchema(): Promise<void> {
       notes           TEXT NOT NULL DEFAULT ''
     );
 
+    CREATE TABLE IF NOT EXISTS project_dtl (
+      project_id  INTEGER PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      header      JSONB NOT NULL DEFAULT '{}',
+      rows        JSONB NOT NULL DEFAULT '[]',
+      file_name   TEXT,
+      source      TEXT,
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS kesif_items (
+      id          SERIAL PRIMARY KEY,
+      project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      position    INTEGER NOT NULL,
+      item_name   TEXT NOT NULL,
+      unit        TEXT NOT NULL DEFAULT 'adet',
+      qty         NUMERIC(14,3) NOT NULL DEFAULT 0,
+      unit_price  NUMERIC(14,2) NOT NULL DEFAULT 0,
+      notes       TEXT NOT NULL DEFAULT '',
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
     CREATE INDEX IF NOT EXISTS idx_quotes_material ON quotes(material_id);
     CREATE INDEX IF NOT EXISTS idx_quotes_supplier ON quotes(supplier_id);
     CREATE INDEX IF NOT EXISTS idx_daily_reports_project ON daily_reports(project_id);
@@ -186,6 +207,7 @@ export async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_daily_report_equip_report ON daily_report_equipment(report_id);
     CREATE INDEX IF NOT EXISTS idx_progress_payments_project ON progress_payments(project_id);
     CREATE INDEX IF NOT EXISTS idx_progress_payment_items_payment ON progress_payment_items(payment_id);
+    CREATE INDEX IF NOT EXISTS idx_kesif_items_project ON kesif_items(project_id);
   `);
   await seedAdmin();
 

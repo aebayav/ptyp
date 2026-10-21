@@ -13,6 +13,7 @@ import QuoteUpload from './pages/QuoteUpload';
 import ProgressPayments from './pages/ProgressPayments';
 import DailyReports from './pages/DailyReports';
 import DocumentKmz from './pages/DocumentKmz';
+import Kesif from './pages/Kesif';
 
 function Sidebar() {
   const { user, logout } = useAuth();
@@ -52,6 +53,9 @@ function Sidebar() {
             </NavLink>
             <NavLink to="/hakedisler" className={({ isActive }) => (isActive ? 'active' : '')}>
               Hakediş Yönetimi
+            </NavLink>
+            <NavLink to="/kesif" className={({ isActive }) => (isActive ? 'active' : '')}>
+              Keşif
             </NavLink>
             <NavLink to="/gunluk-raporlar" className={({ isActive }) => (isActive ? 'active' : '')}>
               Günlük Raporlar
@@ -129,6 +133,7 @@ function Shell() {
               <Route path="/is-takibi" element={<WorkTracking />} />
               <Route path="/guzergah" element={<Navigate to="/is-takibi" replace />} />
               <Route path="/hakedisler" element={<ProgressPayments />} />
+              <Route path="/kesif" element={<Kesif />} />
               <Route path="/gunluk-raporlar" element={<DailyReports />} />
               <Route path="/belge-kmz" element={<DocumentKmz />} />
               <Route path="/kullanicilar" element={<Users />} />

@@ -19,6 +19,7 @@ import overviewRouter from './routes/overview';
 import progressPaymentsRouter from './routes/progress-payments';
 import dailyReportsRouter from './routes/daily-reports';
 import kmzGeneratorRouter from './routes/kmz-generator';
+import kesifRouter from './routes/kesif';
 
 const app = express();
 app.use(express.json());
@@ -40,6 +41,7 @@ app.use('/api/export', exportRouter);
 app.use('/api/progress-payments', progressPaymentsRouter);
 app.use('/api/daily-reports', dailyReportsRouter);
 app.use('/api/kmz-generator', kmzGeneratorRouter);
+app.use('/api/kesif', kesifRouter);
 app.use('/api', overviewRouter);
 
 // ---------- İstemci (build edilmiş SPA) ----------

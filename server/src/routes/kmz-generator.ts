@@ -414,6 +414,22 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
         (ocrResult ? `, belirsiz satır: ${ocrResult.uncertain.length}` : '')
     );
 
+    // Keşif modülü için DTL verisini kalıcı sakla (düzeltmeler /from-rows'ta geri eşitlenir)
+    if (projectId != null && dtlResult.rows.length > 0) {
+      try {
+        await pool.query(
+          `INSERT INTO project_dtl (project_id, header, rows, file_name, source, updated_at)
+           VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, now())
+           ON CONFLICT (project_id) DO UPDATE SET
+             header = EXCLUDED.header, rows = EXCLUDED.rows,
+             file_name = EXCLUDED.file_name, source = EXCLUDED.source, updated_at = now()`,
+          [projectId, JSON.stringify(dtlResult.header), JSON.stringify(dtlResult.rows), req.file.originalname, source]
+        );
+      } catch (e: any) {
+        console.log(`[KMZ-ÜRET] DTL saklama hatası (keşif etkilenir): ${e.message}`);
+      }
+    }
+
     // KMZ üret
     const baseDocName = path.basename(req.file.originalname, path.extname(req.file.originalname));
     const docTitle = dtlResult.header?.line_name || dtlResult.header?.title || baseDocName;
@@ -584,6 +600,55 @@ router.post('/from-rows', async (req: Request, res: Response, next: NextFunction
     try {
       fs.writeFileSync(path.join(UPLOADS_DIR, `latest-p${projectId}.kmz`), kmzBuf);
     } catch { /* kritik değil */ }
+
+    // Keşif: kullanıcının düzelttiği direk meta'sını saklı DTL satırlarına geri yansıt
+    try {
+      const dtlStored = await pool.query('SELECT rows FROM project_dtl WHERE project_id = $1', [projectId]);
+      if (
+        (dtlStored.rowCount ?? 0) > 0 &&
+        Array.isArray(dtlStored.rows[0].rows) &&
+        dtlStored.rows[0].rows.length > 0
+      ) {
+        const dtlRows: DtlRow[] = dtlStored.rows[0].rows;
+        let changed = false;
+        for (const p of poles) {
+          if (!p.meta) continue;
+          const key = cleanPoleKey(String(p.name || ''));
+          const row = dtlRows.find((r) => cleanPoleKey(String(r.pole || '')) === key);
+          if (!row) continue;
+          const m = p.meta as Record<string, unknown>;
+          if (m.tower_type && String(m.tower_type).trim()) {
+            row.tower_type = String(m.tower_type).trim().toUpperCase();
+            changed = true;
+          }
+          if (m.function && String(m.function).trim()) {
+            row.function = String(m.function).trim().toUpperCase();
+            changed = true;
+          }
+          if (m.station_text != null) {
+            row.station_text = String(m.station_text || '');
+            changed = true;
+          }
+          if (m.crossing != null) {
+            row.crossing = String(m.crossing || '');
+            changed = true;
+          }
+          if (m.remarks != null) {
+            row.remarks = String(m.remarks || '');
+            changed = true;
+          }
+        }
+        if (changed) {
+          await pool.query(
+            'UPDATE project_dtl SET rows = $2::jsonb, updated_at = now() WHERE project_id = $1',
+            [projectId, JSON.stringify(dtlRows)]
+          );
+          console.log(`[KMZ-ÜRET] keşif DTL'si düzeltilmiş direk bilgileriyle eşitlendi (proje ${projectId})`);
+        }
+      }
+    } catch (e: any) {
+      console.log(`[KMZ-ÜRET] keşif DTL eşitleme hatası: ${e.message}`);
+    }
 
     res.json({
       saved: result.saved,
