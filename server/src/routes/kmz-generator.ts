@@ -661,6 +661,68 @@ router.post('/from-rows', async (req: Request, res: Response, next: NextFunction
   }
 });
 
+// Toplu işlemede birleştirilmiş DTL'yi keşif için kalıcı sakla
+// (her dosya /parse'te project_dtl'i ÜZERİNE yazdığı için batch sonunda
+// frontend tüm dosyaların satırlarını buradan tek seferde kaydeder)
+router.post('/save-dtl', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const projectId = Number(req.body?.project_id);
+    if (!Number.isInteger(projectId) || projectId <= 0) {
+      return res.status(400).json({ error: 'Geçerli bir proje seçin.' });
+    }
+    const p = await pool.query('SELECT 1 FROM projects WHERE id = $1', [projectId]);
+    if (p.rowCount === 0) return res.status(404).json({ error: 'Proje bulunamadı.' });
+
+    const incoming: DtlRow[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    const header = req.body?.header && typeof req.body.header === 'object' ? req.body.header : {};
+
+    // Direk anahtarına göre birleştir: aynı direk iki dosyada tekrarlanmışsa bir kez sayılır;
+    // sunucuda zenginleştirilmiş satır korunur, eksik alanları gelenle tamamlanır.
+    const stored = await pool.query('SELECT rows FROM project_dtl WHERE project_id = $1', [projectId]);
+    const existing: DtlRow[] = Array.isArray(stored.rows[0]?.rows) ? stored.rows[0].rows : [];
+    const byKey = new Map<string, DtlRow>();
+    for (const r of existing) byKey.set(cleanPoleKey(String(r.pole || '')), r);
+    const seen = new Set<string>();
+    const merged: DtlRow[] = [];
+    for (const r of incoming) {
+      const key = cleanPoleKey(String((r as any).pole || ''));
+      if (!key) {
+        merged.push(r);
+        continue;
+      }
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const prev = byKey.get(key);
+      if (prev) {
+        if (!prev.tower_type && (r as any).tower_type) prev.tower_type = (r as any).tower_type;
+        if (!prev.function && (r as any).function) prev.function = (r as any).function;
+        if (!prev.station_text && (r as any).station_text) prev.station_text = (r as any).station_text;
+        if (prev.span_m == null && (r as any).span_m != null) prev.span_m = (r as any).span_m;
+        if (!prev.crossing && (r as any).crossing) prev.crossing = (r as any).crossing;
+        if (!prev.insulator_set && (r as any).insulator_set) prev.insulator_set = (r as any).insulator_set;
+        merged.push(prev);
+      } else {
+        merged.push(r);
+      }
+    }
+
+    await pool.query(
+      `INSERT INTO project_dtl (project_id, header, rows, file_name, source, updated_at)
+       VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, now())
+       ON CONFLICT (project_id) DO UPDATE SET
+         header = EXCLUDED.header, rows = EXCLUDED.rows,
+         file_name = EXCLUDED.file_name, source = EXCLUDED.source, updated_at = now()`,
+      [projectId, JSON.stringify(header), JSON.stringify(merged), 'toplu-belge', 'batch']
+    );
+    // Kalemler bayat kaldı — keşif sayfası açılınca yeni DTL'den otomatik üretilir
+    await pool.query('DELETE FROM kesif_items WHERE project_id = $1', [projectId]);
+    console.log(`[KMZ-ÜRET] toplu DTL kaydedildi: proje ${projectId}, ${merged.length} satır`);
+    res.json({ saved_rows: merged.length });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // Düzeltilmiş satırları Excel (.xlsx) olarak indir
 router.post('/export-rows', async (req: Request, res: Response) => {
   const raw = Array.isArray(req.body?.poles) ? req.body.poles : [];

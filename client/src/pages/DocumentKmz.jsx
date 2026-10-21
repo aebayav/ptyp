@@ -160,6 +160,17 @@ export default function DocumentKmz() {
       dtl: { header: batchHeader, rows: collected.flatMap((d) => d.dtl?.rows || []) },
       kmz: batchKmz,
     });
+    // Keşif: tüm dosyaların DTL satırlarını birleştirip kalıcı sakla
+    // (her /parse project_dtl'i üzerine yazdığı için son dosya kazanıyordu)
+    api
+      .post('/api/kmz-generator/save-dtl', {
+        project_id: projectId,
+        header: batchHeader,
+        rows: collected.flatMap((d) => d.dtl?.rows || []),
+      })
+      .catch(() => {
+        /* keşif kaydı başarısızsa kritik değil — kullanıcı elle yenileyebilir */
+      });
     setRows(
       merged.map((p) => ({
         name: p.name,

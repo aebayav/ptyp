@@ -9,6 +9,7 @@ const SOURCE_TR = {
   'pdf-text': 'PDF (metin katmanı)',
   'pdf-ocr': 'PDF (OCR)',
   'tiff-ocr': 'TIFF (OCR)',
+  batch: 'Toplu belge (birleştirilmiş)',
 };
 
 function fmtNum(v) {
