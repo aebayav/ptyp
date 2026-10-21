@@ -14,6 +14,7 @@ import { parseKmz, routeLengthKm, PolePoint, PoleMeta } from '../kmz-parser';
 import { callOcr, OcrCell } from '../ocr-client';
 import { buildKmz, formatPoleDisplayName, formatPoleDescription, isPortalPoint } from '../kmz-builder';
 import { importPolesForProject } from '../pole-importer';
+import { normalizeDtlRowTypes } from '../tower-types';
 
 function cleanPoleKey(name: string): string {
   const s = (name || '').trim().toUpperCase();
@@ -406,6 +407,12 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       return res.status(400).json({ error: 'En az 2 direk bulunmalı (güzergah çizgisi için).' });
     }
 
+    // Direk tipi eşleştirici: OCR bozulmalarını (PFT→PF1, PBI→PB1...) bilinen
+    // tip kümesine göre düzelt; belirsiz olanlar olduğu gibi kalır.
+    if (dtlResult.rows.length > 0) {
+      dtlResult.rows = normalizeDtlRowTypes(dtlResult.rows);
+    }
+
     // Direkleri DTL ve TM3 öznitelikleriyle zenginleştir (Direk Tipi, Fonksiyon, İstasyon, X/Y, Geçiş vb.)
     poles = enrichPolesWithMetadata(poles, tmRows, dtlResult.rows || []);
 
@@ -675,6 +682,8 @@ router.post('/save-dtl', async (req: Request, res: Response, next: NextFunction)
 
     const incoming: DtlRow[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
     const header = req.body?.header && typeof req.body.header === 'object' ? req.body.header : {};
+    // OCR bozulmalarını düzelt (PFT→PF1 gibi)
+    normalizeDtlRowTypes(incoming);
 
     // Direk anahtarına göre birleştir: aynı direk iki dosyada tekrarlanmışsa bir kez sayılır;
     // sunucuda zenginleştirilmiş satır korunur, eksik alanları gelenle tamamlanır.

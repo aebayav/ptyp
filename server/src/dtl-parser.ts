@@ -1,5 +1,6 @@
 // TEİAŞ / TEDAŞ Direk Tevzi Listesi (DTL) tam sütun ayrıştırıcı (Excel, Metin PDF ve OCR çıktısı)
 import * as XLSX from 'xlsx';
+import { normalizeTowerType } from './tower-types';
 
 export interface DtlHeader {
   title: string;
@@ -21,6 +22,7 @@ export interface DtlRow {
   crossing: string;
   function: string;
   tower_type: string;
+  tower_type_raw?: string;
   nominal_height_m: number | null;
   body_ext_m: number | null;
   hook_diff_m: number | null;
@@ -234,7 +236,7 @@ export function parseDtlLine(line: string): DtlRow | null {
 
   let func = (m.groups.func || '').toUpperCase();
   const pole2 = (m.groups.pole2 || '').trim();
-  const ttype = m.groups.ttype.toUpperCase().replace('2FN1', '2FS1');
+  const ttype = normalizeTowerType(m.groups.ttype.toUpperCase().replace('2FN1', '2FS1'));
   const height = parseFloat(m.groups.height);
   let body_ext = parseFloat(m.groups.body_ext);
 

@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
 import { DtlHeader, DtlRow } from '../dtl-parser';
+import { normalizeTowerType } from '../tower-types';
 
 const router = Router();
 
@@ -47,10 +48,10 @@ interface GenItem {
 export function generateKesifItems(header: DtlHeader, rows: DtlRow[]): GenItem[] {
   const items: GenItem[] = [];
 
-  // 1) Direk kalemleri — tip bazlı adetler
+  // 1) Direk kalemleri — tip bazlı adetler (OCR bozulmaları normalize edilir)
   const typeCount: Record<string, number> = {};
   for (const r of rows) {
-    const t = (r.tower_type || '').trim().toUpperCase();
+    const t = normalizeTowerType(r.tower_type || '');
     const key = t || 'TİPİ BİLİNMEYEN';
     typeCount[key] = (typeCount[key] || 0) + 1;
   }
@@ -147,7 +148,7 @@ function buildSummary(rows: DtlRow[]) {
   const typeCount: Record<string, number> = {};
   let portalCount = 0;
   for (const r of rows) {
-    const t = (r.tower_type || '').trim().toUpperCase();
+    const t = normalizeTowerType(r.tower_type || '');
     const key = t || 'TİPİ BİLİNMEYEN';
     typeCount[key] = (typeCount[key] || 0) + 1;
     if (t === 'PORTAL') portalCount++;
@@ -340,6 +341,7 @@ router.get('/:id/export', async (req: Request, res: Response) => {
       'Sıra',
       'Direk No',
       'Direk Tipi',
+      'Okunan (ham)',
       'Fonksiyon',
       'İstasyon',
       'Ara Mesafe (m)',
@@ -361,6 +363,7 @@ router.get('/:id/export', async (req: Request, res: Response) => {
       i + 1,
       r.pole,
       r.tower_type,
+      r.tower_type_raw || '',
       r.function,
       r.station_text,
       r.span_m,
@@ -379,7 +382,7 @@ router.get('/:id/export', async (req: Request, res: Response) => {
   });
   const dtlSheet = XLSX.utils.aoa_to_sheet(dtlRowsData);
   dtlSheet['!cols'] = [
-    { wch: 6 }, { wch: 9 }, { wch: 12 }, { wch: 10 }, { wch: 11 }, { wch: 13 }, { wch: 12 },
+    { wch: 6 }, { wch: 9 }, { wch: 12 }, { wch: 13 }, { wch: 10 }, { wch: 11 }, { wch: 13 }, { wch: 12 },
     { wch: 12 }, { wch: 11 }, { wch: 22 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 11 },
     { wch: 11 }, { wch: 10 }, { wch: 24 },
   ];
