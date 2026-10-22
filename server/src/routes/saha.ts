@@ -338,7 +338,7 @@ router.put('/requests/:id/status', async (req: Request, res: Response) => {
   }
   await pool.query(
     `UPDATE saha_requests SET status = $1,
-       fulfilled_by = CASE WHEN $1 = 'fulfilled' THEN $2 ELSE NULL END,
+       fulfilled_by = CASE WHEN $1 = 'fulfilled' THEN $2::int ELSE NULL END,
        fulfilled_at = CASE WHEN $1 = 'fulfilled' THEN now() ELSE NULL END
      WHERE id = $3`,
     [status, user.id, id]
