@@ -18,7 +18,24 @@ export default function Login() {
     try {
       const { token, user } = await api.post('/api/auth/login', { username, password });
       login(token, user);
-      navigate(user.role === 'owner' ? '/' : '/malzemeler', { replace: true });
+      // QR/baglanti ile gelindiyse giriş sonrası asıl hedefe dön
+      let after = null;
+      try {
+        after = sessionStorage.getItem('ptyp_after_login');
+        sessionStorage.removeItem('ptyp_after_login');
+      } catch {
+        /* yok say */
+      }
+      navigate(
+        after && after !== '/login'
+          ? after
+          : user.role === 'owner'
+            ? '/'
+            : user.role === 'field'
+              ? '/saha'
+              : '/malzemeler',
+        { replace: true }
+      );
     } catch (err) {
       setError(err.message);
     } finally {
