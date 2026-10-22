@@ -188,6 +188,27 @@ export async function initSchema(): Promise<void> {
       updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
+    CREATE TABLE IF NOT EXISTS pole_status (
+      id          SERIAL PRIMARY KEY,
+      project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      pole_idx    INTEGER NOT NULL,
+      status      TEXT NOT NULL DEFAULT 'none',
+      note        TEXT NOT NULL DEFAULT '',
+      updated_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE(project_id, pole_idx)
+    );
+
+    CREATE TABLE IF NOT EXISTS pole_photos (
+      id           SERIAL PRIMARY KEY,
+      project_id   INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      pole_idx     INTEGER NOT NULL,
+      filename     TEXT NOT NULL,
+      caption      TEXT NOT NULL DEFAULT '',
+      uploaded_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
     CREATE TABLE IF NOT EXISTS kesif_items (
       id          SERIAL PRIMARY KEY,
       project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -208,6 +229,7 @@ export async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_progress_payments_project ON progress_payments(project_id);
     CREATE INDEX IF NOT EXISTS idx_progress_payment_items_payment ON progress_payment_items(payment_id);
     CREATE INDEX IF NOT EXISTS idx_kesif_items_project ON kesif_items(project_id);
+    CREATE INDEX IF NOT EXISTS idx_pole_photos_pole ON pole_photos(project_id, pole_idx);
   `);
   await seedAdmin();
 

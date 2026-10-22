@@ -4,8 +4,8 @@ import { requireAuth, requireRole } from '../auth';
 
 const router = Router();
 
-// Proje yönetimi yalnızca iş sahibine açık
-router.use(requireAuth, requireRole('owner'));
+// Oturum her rol için; proje LİSTESİ saha ekibine de açık (saha sayfası proje seçer)
+router.use(requireAuth);
 
 // Proje listesi (direk ve iş grubu sayılarıyla)
 router.get('/', async (_req: Request, res: Response) => {
@@ -18,6 +18,9 @@ router.get('/', async (_req: Request, res: Response) => {
   `);
   res.json(rows);
 });
+
+// Proje yönetimi (oluşturma/düzenleme/silme) yalnızca iş sahibine açık
+router.use(requireRole('owner'));
 
 // Yeni proje (şantiye)
 router.post('/', async (req: Request, res: Response) => {

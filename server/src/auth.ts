@@ -6,7 +6,7 @@ import { pool } from './db';
 export interface AuthedUser {
   id: number;
   username: string;
-  role: 'owner' | 'supplier';
+  role: 'owner' | 'supplier' | 'field';
   supplier_id: number | null;
 }
 
@@ -39,9 +39,9 @@ export async function requireAuth(req: AuthedRequest, res: Response, next: NextF
   next();
 }
 
-export function requireRole(role: 'owner' | 'supplier') {
+export function requireRole(...roles: ('owner' | 'supplier' | 'field')[]) {
   return (req: AuthedRequest, res: Response, next: NextFunction) => {
-    if (!req.user || req.user.role !== role) {
+    if (!req.user || !roles.includes(req.user.role)) {
       res.status(403).json({ error: 'Bu işlem için yetkiniz yok.' });
       return;
     }

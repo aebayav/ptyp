@@ -144,6 +144,8 @@ export default function Users() {
                   <td>
                     {u.role === 'owner' ? (
                       <span className="badge badge-blue">İş Sahibi</span>
+                    ) : u.role === 'field' ? (
+                      <span className="badge badge-green">Saha Ekibi</span>
                     ) : (
                       <span className="badge badge-amber">Satıcı</span>
                     )}
@@ -194,6 +196,7 @@ export default function Users() {
                 <select value={form.role} onChange={set('role')}>
                   <option value="owner">İş Sahibi (tam yetki)</option>
                   <option value="supplier">Satıcı (sadece teklif)</option>
+                  <option value="field">Saha Ekibi (saha modülü)</option>
                 </select>
               </div>
               {form.role === 'supplier' && (

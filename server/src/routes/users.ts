@@ -32,7 +32,7 @@ function normalize(body: any) {
 
 async function validate(u: any, excludeId?: number): Promise<string | null> {
   if (!u.username) return 'Kullanıcı adı zorunludur.';
-  if (!['owner', 'supplier'].includes(u.role)) return 'Geçersiz rol.';
+  if (!['owner', 'supplier', 'field'].includes(u.role)) return 'Geçersiz rol.';
   const dup = await pool.query('SELECT 1 FROM users WHERE username = $1 AND id != $2', [u.username, excludeId || -1]);
   if (dup.rowCount) return `"${u.username}" kullanıcı adı zaten alınmış.`;
   if (u.role === 'supplier') {

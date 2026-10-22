@@ -15,6 +15,7 @@ import ProgressPayments from './pages/ProgressPayments';
 import DailyReports from './pages/DailyReports';
 import DocumentKmz from './pages/DocumentKmz';
 import Kesif from './pages/Kesif';
+import Saha from './pages/Saha';
 
 function useTheme() {
   const [theme, setTheme] = useState(() => {
@@ -39,6 +40,7 @@ function Sidebar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const isOwner = user.role === 'owner';
+  const isField = user.role === 'field';
   const [theme, toggleTheme] = useTheme();
 
   return (
@@ -78,6 +80,9 @@ function Sidebar() {
             <NavLink to="/kesif" className={({ isActive }) => (isActive ? 'active' : '')}>
               Keşif
             </NavLink>
+            <NavLink to="/saha" className={({ isActive }) => (isActive ? 'active' : '')}>
+              Saha
+            </NavLink>
             <NavLink to="/gunluk-raporlar" className={({ isActive }) => (isActive ? 'active' : '')}>
               Günlük Raporlar
             </NavLink>
@@ -92,6 +97,13 @@ function Sidebar() {
 
             <div className="nav-group">YAKINDA</div>
             <div className="nav-soon">Dokümanlar</div>
+          </>
+        ) : isField ? (
+          <>
+            <div className="nav-group">SAHA</div>
+            <NavLink to="/saha" className={({ isActive }) => (isActive ? 'active' : '')}>
+              Saha
+            </NavLink>
           </>
         ) : (
           <>
@@ -110,7 +122,7 @@ function Sidebar() {
           <span className="user-ico">{isOwner ? '' : ''}</span>
           <div>
             <div className="user-name">{user.display_name || user.username}</div>
-            <div className="user-role">{isOwner ? 'İş Sahibi' : 'Satıcı'}</div>
+            <div className="user-role">{isOwner ? 'İş Sahibi' : isField ? 'Saha Ekibi' : 'Satıcı'}</div>
           </div>
         </div>
         <button className="theme-toggle" onClick={toggleTheme}>
@@ -139,7 +151,7 @@ function Shell() {
   const isLogin = location.pathname === '/login';
   const isPublic = location.pathname === '/teklif-yukle';
   if (!user && !isLogin && !isPublic) return <Navigate to="/login" replace />;
-  if (user && (isLogin || isPublic)) return <Navigate to={user.role === 'owner' ? '/' : '/malzemeler'} replace />;
+  if (user && (isLogin || isPublic)) return <Navigate to={user.role === 'owner' ? '/' : user.role === 'field' ? '/saha' : '/malzemeler'} replace />;
 
   return (
     <div className={isLogin || isPublic ? 'layout-login' : 'layout'}>
@@ -158,10 +170,16 @@ function Shell() {
               <Route path="/guzergah" element={<Navigate to="/is-takibi" replace />} />
               <Route path="/hakedisler" element={<ProgressPayments />} />
               <Route path="/kesif" element={<Kesif />} />
+              <Route path="/saha" element={<Saha />} />
               <Route path="/gunluk-raporlar" element={<DailyReports />} />
               <Route path="/belge-kmz" element={<DocumentKmz />} />
               <Route path="/kullanicilar" element={<Users />} />
               <Route path="*" element={<Navigate to="/" replace />} />
+            </>
+          ) : user.role === 'field' ? (
+            <>
+              <Route path="/saha" element={<Saha />} />
+              <Route path="*" element={<Navigate to="/saha" replace />} />
             </>
           ) : (
             <>
