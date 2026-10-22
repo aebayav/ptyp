@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { api, getToken } from '../api';
 import { useAuth } from '../AuthContext';
 
@@ -64,8 +64,9 @@ export default function Saha() {
   const layerRef = useRef(null);
   const fileRef = useRef(null);
   const [params] = useSearchParams();
-  const qProje = params.get('proje');
-  const focusIdx = params.get('direk');
+  const pathParams = useParams(); // /saha/direk/:proje/:direk (QR akışı — proxy query soyduğu için)
+  const qProje = params.get('proje') ?? pathParams.proje;
+  const focusIdx = params.get('direk') ?? pathParams.direk;
 
   useEffect(() => {
     api

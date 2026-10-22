@@ -196,6 +196,7 @@ function Shell() {
               <Route path="/hakedisler" element={<ProgressPayments />} />
               <Route path="/kesif" element={<Kesif />} />
               <Route path="/saha" element={<Saha />} />
+              <Route path="/saha/direk/:proje/:direk" element={<Saha />} />
               <Route path="/gunluk-raporlar" element={<DailyReports />} />
               <Route path="/belge-kmz" element={<DocumentKmz />} />
               <Route path="/kullanicilar" element={<Users />} />
@@ -204,6 +205,7 @@ function Shell() {
           ) : user && user.role === 'field' ? (
             <>
               <Route path="/saha" element={<Saha />} />
+              <Route path="/saha/direk/:proje/:direk" element={<Saha />} />
               <Route path="*" element={<Navigate to="/saha" replace />} />
             </>
           ) : (

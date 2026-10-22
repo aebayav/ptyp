@@ -235,7 +235,9 @@ router.get('/:id/qr', async (req: Request, res: Response) => {
 
   const cards: string[] = [];
   for (const p of poles.rows) {
-    const url = `${base}/saha?proje=${projectId}&direk=${p.idx}`;
+    // DİKKAT: panel proxy ikinci query parametresini soyduğu için
+    // proje/direk BİLGİSİ path içinde taşınır (?proje=&direk= kullanılmaz).
+    const url = `${base}/saha/direk/${projectId}/${p.idx}`;
     let svg = '';
     try {
       svg = await QRCode.toString(url, { type: 'svg', margin: 0, width: 128 });
