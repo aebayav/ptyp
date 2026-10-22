@@ -437,11 +437,11 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       }
     }
 
-    // KMZ üret
+    // KMZ üret — dosya adı proje adından türetilir
     const baseDocName = path.basename(req.file.originalname, path.extname(req.file.originalname));
     const docTitle = dtlResult.header?.line_name || dtlResult.header?.title || baseDocName;
     const kmzBuf = buildKmz(poles, docTitle);
-    const kmzFile = `generated-${Date.now()}.kmz`;
+    const kmzFile = `${sanitizeFileName(projectName)}-${Date.now()}.kmz`;
     fs.writeFileSync(path.join(UPLOADS_DIR, kmzFile), kmzBuf);
 
     const poleCoords: [number, number][] = poles.map((p) => [p.lat, p.lon]);
@@ -569,7 +569,7 @@ router.post('/from-rows', async (req: Request, res: Response, next: NextFunction
     if (!Number.isInteger(projectId) || projectId <= 0) {
       return res.status(400).json({ error: 'Geçerli bir proje seçin.' });
     }
-    const p = await pool.query('SELECT 1 FROM projects WHERE id = $1', [projectId]);
+    const p = await pool.query('SELECT name FROM projects WHERE id = $1', [projectId]);
     if (p.rowCount === 0) return res.status(404).json({ error: 'Proje bulunamadı.' });
 
     const raw = Array.isArray(req.body?.poles) ? req.body.poles : [];
@@ -598,7 +598,7 @@ router.post('/from-rows', async (req: Request, res: Response, next: NextFunction
 
     const docName = String(req.body?.doc_name || 'belge');
     const kmzBuf = buildKmz(poles, docName);
-    const kmzFile = `generated-${Date.now()}.kmz`;
+    const kmzFile = `${sanitizeFileName(p.rows[0].name)}-${Date.now()}.kmz`;
     fs.writeFileSync(path.join(UPLOADS_DIR, kmzFile), kmzBuf);
 
     const coords: [number, number][] = poles.map((x) => [x.lat, x.lon]);
@@ -768,7 +768,8 @@ router.post('/export-rows', async (req: Request, res: Response) => {
 router.get('/download/:file', (req: Request, res: Response) => {
   const file = path.basename(String(req.params.file));
   const p = path.join(UPLOADS_DIR, file);
-  if (!file.startsWith('generated-') || !fs.existsSync(p)) {
+  // UPLOADS_DIR yalnız üretilen KMZ'leri barındırır; basename + .kmz kontrolü yeterli
+  if (!file.endsWith('.kmz') || file.startsWith('.') || !fs.existsSync(p)) {
     return res.status(404).json({ error: 'Dosya bulunamadı.' });
   }
   res.setHeader('Content-Type', 'application/vnd.google-earth.kmz');
@@ -808,5 +809,16 @@ router.get('/from-project', async (req: Request, res: Response) => {
   );
   res.send(kmzBuf);
 });
+
+// Dosya adı güvenleştirme: KMZ adı proje adından türetilir
+function sanitizeFileName(s: unknown): string {
+  const base = String(s || '')
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .slice(0, 60)
+    .trim();
+  return base || 'guzergah';
+}
 
 export default router;
