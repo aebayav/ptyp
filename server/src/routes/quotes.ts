@@ -18,7 +18,7 @@ const QUOTE_SELECT = `
 // Teklif listesi:
 //  - owner: tüm teklifler (karşılaştırma için)
 //  - supplier: yalnızca kendi teklifleri (diğer satıcıların fiyatları GİZLİ)
-router.get('/', requireAuth, async (req: AuthedRequest, res: Response) => {
+router.get('/', requireAuth, requireRole('owner', 'supplier'), async (req: AuthedRequest, res: Response) => {
   const materialId = req.query.material_id;
   const params: any[] = [];
   let where = '';

@@ -15,7 +15,8 @@ router.get('/categories', requireAuth, async (_req: Request, res: Response) => {
 // Malzeme listesi:
 //  - owner: hepsi (teklif sayısı + hedef fiyat dahil)
 //  - supplier: yalnızca "open" durumundakiler; hedef fiyat, not ve teklif sayısı GİZLİ
-router.get('/', requireAuth, async (req: AuthedRequest, res: Response) => {
+//  - field (saha ekibi): erişimi YOK
+router.get('/', requireAuth, requireRole('owner', 'supplier'), async (req: AuthedRequest, res: Response) => {
   if (req.user!.role === 'supplier') {
     const { rows } = await pool.query(
       `SELECT id, code, name, category, spec, unit, quantity, status
