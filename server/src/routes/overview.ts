@@ -8,7 +8,7 @@ const router = Router();
 router.use(requireAuth, requireRole('owner'));
 
 router.get('/overview', async (_req: Request, res: Response) => {
-  const [m, s, q, rq, wq, bt, prog, late, open] = await Promise.all([
+  const [m, s, q, rq, wq, bt, prog, late, open, sp] = await Promise.all([
     pool.query('SELECT COUNT(*)::int AS c FROM materials'),
     pool.query('SELECT COUNT(*)::int AS c FROM suppliers'),
     pool.query('SELECT COUNT(*)::int AS c FROM quotes'),
@@ -22,7 +22,18 @@ router.get('/overview', async (_req: Request, res: Response) => {
       `SELECT COUNT(*)::int AS c FROM tasks WHERE status != 'done' AND due_date != '' AND due_date < to_char(now(), 'YYYY-MM-DD')`
     ),
     pool.query(`SELECT COUNT(*)::int AS c FROM tasks WHERE status != 'done'`),
+    pool.query(
+      `SELECT COALESCE(SUM(CASE s.status
+              WHEN 'excavation' THEN 15 WHEN 'foundation' THEN 30
+              WHEN 'erection' THEN 50 WHEN 'fittings' THEN 70
+              WHEN 'stringing' THEN 85 WHEN 'completed' THEN 100
+              ELSE 0 END), 0) AS num,
+              COUNT(p.id)::int AS cnt
+       FROM poles p
+       LEFT JOIN pole_status s ON s.project_id = p.project_id AND s.pole_idx = p.idx`
+    ),
   ]);
+  const saha = sp.rows[0];
 
   const totalWeight = Number(prog.rows[0].den);
   let overallProgress: number;
@@ -43,6 +54,8 @@ router.get('/overview', async (_req: Request, res: Response) => {
     overallProgress,
     lateTasks: late.rows[0].c,
     openTasks: open.rows[0].c,
+    sahaProgress: saha.cnt > 0 ? Math.round((Number(saha.num) / saha.cnt) * 10) / 10 : 0,
+    sahaPoles: saha.cnt,
   });
 });
 

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
+import { poleNumberFromName, poleProgress } from '../pole-statuses';
 
 const router = Router();
 
@@ -29,6 +30,38 @@ router.get('/', async (req: Request, res: Response) => {
     GROUP BY w.id
     ORDER BY w.code
   `, params);
+
+  // Saha ilerlemesi: kesimi olan gruplar kendi direk aralığından,
+  // olmayanlar projelerinin tamamından hesaplanır
+  const polesQ = await pool.query(
+    `SELECT p.project_id, p.name, COALESCE(s.status, 'none') AS st
+     FROM poles p
+     LEFT JOIN pole_status s ON s.project_id = p.project_id AND s.pole_idx = p.idx`
+  );
+  const projAgg: Record<number, { sum: number; cnt: number }> = {};
+  const projPoles: Record<number, { num: number; prog: number }[]> = {};
+  for (const p of polesQ.rows) {
+    const prog = poleProgress(p.st);
+    const agg = projAgg[p.project_id] || (projAgg[p.project_id] = { sum: 0, cnt: 0 });
+    agg.sum += prog;
+    agg.cnt += 1;
+    const num = poleNumberFromName(p.name);
+    if (num != null) {
+      (projPoles[p.project_id] || (projPoles[p.project_id] = [])).push({ num, prog });
+    }
+  }
+  for (const g of rows) {
+    if (g.segment_from != null && g.segment_to != null) {
+      const list = projPoles[g.project_id] || [];
+      const inRange = list.filter((x) => x.num >= g.segment_from && x.num <= g.segment_to);
+      g.saha_progress = inRange.length
+        ? Math.round((inRange.reduce((s, x) => s + x.prog, 0) / inRange.length) * 10) / 10
+        : null;
+    } else {
+      const agg = projAgg[g.project_id];
+      g.saha_progress = agg && agg.cnt > 0 ? Math.round((agg.sum / agg.cnt) * 10) / 10 : null;
+    }
+  }
   res.json(rows);
 });
 

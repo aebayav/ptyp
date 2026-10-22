@@ -5,24 +5,15 @@ import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import QRCode from 'qrcode';
 import { pool } from '../db';
 import { requireAuth, requireRole, AuthedRequest } from '../auth';
+import { POLE_STATUSES, poleNumberFromName, poleProgress } from '../pole-statuses';
 
 const router = Router();
 
 // Saha sayfası iş sahibi + saha ekibi rollerine açık
 router.use(requireAuth, requireRole('owner', 'field'));
-
-export const POLE_STATUSES: Record<string, { label: string; color: string; progress: number }> = {
-  none: { label: 'Başlamadı', color: '#94a3b8', progress: 0 },
-  excavation: { label: 'Kazı', color: '#d97706', progress: 15 },
-  foundation: { label: 'Temel', color: '#b45309', progress: 30 },
-  erection: { label: 'Direk Montajı', color: '#2563eb', progress: 50 },
-  fittings: { label: 'Donanım (Askı/Gergi)', color: '#7c3aed', progress: 70 },
-  stringing: { label: 'İletken Çekimi', color: '#0891b2', progress: 85 },
-  completed: { label: 'Tamamlandı', color: '#16a34a', progress: 100 },
-  issue: { label: 'Sorun / Engel', color: '#dc2626', progress: 0 },
-};
 
 const PHOTOS_DIR = path.join(__dirname, '..', '..', 'uploads', 'pole-photos');
 
@@ -212,6 +203,147 @@ router.get('/photos/:id/file', async (req: Request, res: Response) => {
   const fpath = path.join(PHOTOS_DIR, String(r.rows[0].project_id), r.rows[0].filename);
   if (!fs.existsSync(fpath)) return res.status(404).json({ error: 'Dosya diskte bulunamadı.' });
   res.sendFile(fpath);
+});
+
+const esc = (s: unknown) =>
+  String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+// QR çıktısı: direk başına QR kartlı yazdırılabilir sayfa.
+// QR, /saha?proje=<id>&direk=<idx> adresini taşır — telefonla okutulunca
+// Saha sayfası ilgili direği açar/odaklar.
+router.get('/:id/qr', async (req: Request, res: Response) => {
+  const projectId = Number(req.params.id);
+  if (!Number.isInteger(projectId) || projectId <= 0) {
+    return res.status(400).json({ error: 'Geçerli bir proje seçin.' });
+  }
+  const proj = await pool.query('SELECT name FROM projects WHERE id = $1', [projectId]);
+  if (proj.rowCount === 0) return res.status(404).json({ error: 'Proje bulunamadı.' });
+  const poles = await pool.query(
+    `SELECT idx, name, meta->>'tower_type' AS tower_type, meta->>'station_text' AS station_text
+     FROM poles WHERE project_id = $1 ORDER BY idx`,
+    [projectId]
+  );
+  if (poles.rows.length === 0) return res.status(400).json({ error: 'Bu projede direk yok.' });
+
+  const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').trim();
+  const base = `${proto}://${host}`;
+
+  const cards: string[] = [];
+  for (const p of poles.rows) {
+    const url = `${base}/saha?proje=${projectId}&direk=${p.idx}`;
+    let svg = '';
+    try {
+      svg = await QRCode.toString(url, { type: 'svg', margin: 0, width: 128 });
+    } catch {
+      /* qr üretilemezse boş kalır */
+    }
+    cards.push(
+      `<div class="qrcard"><div class="qr">${svg}</div><div class="qrname">${esc(p.name)}</div>` +
+        `<div class="qrmeta">${esc(p.tower_type || '')}${p.station_text ? ' · ' + esc(p.station_text) : ''}</div></div>`
+    );
+  }
+
+  const html = `<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Direk QR — ${esc(proj.rows[0].name)}</title>
+<style>
+body{font-family:'Segoe UI',system-ui,sans-serif;margin:0;padding:24px;color:#1c2b3a}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:#6b7a8c;font-size:12px;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.qrcard{border:1px solid #dbe2ea;border-radius:10px;padding:10px;text-align:center;break-inside:avoid;background:#fff}
+.qr svg{width:110px;height:110px}
+.qrname{font-weight:700;font-size:13px;margin-top:6px}
+.qrmeta{font-size:10.5px;color:#6b7a8c;margin-top:2px}
+.print-btn{position:fixed;top:16px;right:16px;background:#0d1f3c;color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:13px;cursor:pointer}
+@media print{.print-btn{display:none}body{padding:6mm}}
+</style></head><body>
+<button class="print-btn" onclick="window.print()">Yazdır</button>
+<h1>Direk QR Kartları — ${esc(proj.rows[0].name)}</h1>
+<div class="sub">${poles.rows.length} direk · telefonla okutunca Saha sayfasında ilgili direk açılır</div>
+<div class="grid">${cards.join('')}</div>
+</body></html>`;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
+});
+
+// ---------- Saha malzeme talepleri ----------
+
+// Talepler: açık olanlar önce, yeniden eskiye
+router.get('/:id/requests', async (req: Request, res: Response) => {
+  const projectId = Number(req.params.id);
+  if (!Number.isInteger(projectId) || projectId <= 0) {
+    return res.status(400).json({ error: 'Geçerli bir proje seçin.' });
+  }
+  const proj = await pool.query('SELECT 1 FROM projects WHERE id = $1', [projectId]);
+  if (proj.rowCount === 0) return res.status(404).json({ error: 'Proje bulunamadı.' });
+  const { rows } = await pool.query(
+    `SELECT r.*, u.display_name AS requested_by_name, f.display_name AS fulfilled_by_name
+     FROM saha_requests r
+     LEFT JOIN users u ON u.id = r.requested_by
+     LEFT JOIN users f ON f.id = r.fulfilled_by
+     WHERE r.project_id = $1
+     ORDER BY (r.status = 'open') DESC, r.created_at DESC`,
+    [projectId]
+  );
+  res.json(rows);
+});
+
+// Yeni talep
+router.post('/:id/requests', async (req: Request, res: Response) => {
+  const projectId = Number(req.params.id);
+  if (!Number.isInteger(projectId) || projectId <= 0) {
+    return res.status(400).json({ error: 'Geçerli bir proje seçin.' });
+  }
+  const itemName = String(req.body?.item_name || '').trim();
+  if (!itemName) return res.status(400).json({ error: 'Malzeme adı zorunludur.' });
+  const qty = Number(req.body?.qty);
+  if (!(Number.isFinite(qty) && qty > 0)) return res.status(400).json({ error: 'Geçerli bir miktar girin.' });
+  const proj = await pool.query('SELECT 1 FROM projects WHERE id = $1', [projectId]);
+  if (proj.rowCount === 0) return res.status(404).json({ error: 'Proje bulunamadı.' });
+
+  const uid = (req as AuthedRequest).user?.id ?? null;
+  const { rows } = await pool.query(
+    `INSERT INTO saha_requests (project_id, item_name, qty, unit, pole_ref, needed_by, note, requested_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING id, created_at`,
+    [
+      projectId,
+      itemName.slice(0, 200),
+      qty,
+      String(req.body?.unit || 'adet').slice(0, 20),
+      String(req.body?.pole_ref || '').slice(0, 80),
+      String(req.body?.needed_by || '').slice(0, 20),
+      String(req.body?.note || '').slice(0, 300),
+      uid,
+    ]
+  );
+  res.status(201).json(rows[0]);
+});
+
+// Talep durumu: fulfilled/cancelled iş sahibi; saha ekibi yalnızca kendi talebini iptal edebilir
+router.put('/requests/:id/status', async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Geçersiz talep.' });
+  const status = String(req.body?.status || '');
+  if (!['open', 'fulfilled', 'cancelled'].includes(status)) return res.status(400).json({ error: 'Geçersiz durum.' });
+  const r = await pool.query('SELECT * FROM saha_requests WHERE id = $1', [id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'Talep bulunamadı.' });
+  const user = (req as AuthedRequest).user!;
+  if (user.role === 'field' && !(status === 'cancelled' && r.rows[0].requested_by === user.id)) {
+    return res.status(403).json({ error: 'Saha ekibi yalnızca kendi talebini iptal edebilir.' });
+  }
+  await pool.query(
+    `UPDATE saha_requests SET status = $1,
+       fulfilled_by = CASE WHEN $1 = 'fulfilled' THEN $2 ELSE NULL END,
+       fulfilled_at = CASE WHEN $1 = 'fulfilled' THEN now() ELSE NULL END
+     WHERE id = $3`,
+    [status, user.id, id]
+  );
+  res.json({ id, status });
 });
 
 export default router;

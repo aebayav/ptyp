@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, apiDownload } from '../api';
 import { fmtDate, StatusBadge } from '../utils';
 import Modal from '../components/Modal';
@@ -469,6 +470,7 @@ export default function WorkTracking() {
                 <th>Direk Kesimi</th>
                 <th className="num">Ağırlık</th>
                 <th>İlerleme</th>
+                <th className="num">Saha %</th>
                 <th className="num">Görev</th>
                 <th>Tarih Aralığı</th>
                 <th>Durum</th>
@@ -494,6 +496,19 @@ export default function WorkTracking() {
                   </td>
                   <td className="num">{g.weight}%</td>
                   <td style={{ minWidth: 130 }}><ProgressBar value={g.progress} mini /></td>
+                  <td className="num">
+                    {g.saha_progress != null ? (
+                      <Link
+                        to="/saha"
+                        title="Saha direk durumlarından hesaplanır"
+                        style={{ color: 'inherit', fontWeight: 600 }}
+                      >
+                        %{g.saha_progress}
+                      </Link>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
+                  </td>
                   <td className="num">
                     {g.done_count}/{g.task_count}
                     {g.late_count > 0 && <span className="diff-neg" title="Geciken görev"> {g.late_count}</span>}

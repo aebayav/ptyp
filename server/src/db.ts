@@ -209,6 +209,22 @@ export async function initSchema(): Promise<void> {
       created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
+    CREATE TABLE IF NOT EXISTS saha_requests (
+      id            SERIAL PRIMARY KEY,
+      project_id    INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      item_name     TEXT NOT NULL,
+      qty           NUMERIC(12,2) NOT NULL DEFAULT 1,
+      unit          TEXT NOT NULL DEFAULT 'adet',
+      pole_ref      TEXT NOT NULL DEFAULT '',
+      needed_by     TEXT NOT NULL DEFAULT '',
+      note          TEXT NOT NULL DEFAULT '',
+      status        TEXT NOT NULL DEFAULT 'open',
+      requested_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      fulfilled_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      fulfilled_at  TIMESTAMPTZ
+    );
+
     CREATE TABLE IF NOT EXISTS kesif_items (
       id          SERIAL PRIMARY KEY,
       project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

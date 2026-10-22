@@ -1211,6 +1211,16 @@ tr.late-row td {
   padding: 0;
 }
 
+.pole-row.flash {
+  animation: poleFlash 1.2s ease-in-out 2;
+  border-radius: 8px;
+}
+
+@keyframes poleFlash {
+  0%, 100% { background: transparent; }
+  50% { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+}
+
 @media (max-width: 900px) {
   .saha-map {
     height: 300px;

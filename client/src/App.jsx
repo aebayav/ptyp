@@ -150,8 +150,33 @@ function Shell() {
 
   const isLogin = location.pathname === '/login';
   const isPublic = location.pathname === '/teklif-yukle';
-  if (!user && !isLogin && !isPublic) return <Navigate to="/login" replace />;
-  if (user && (isLogin || isPublic)) return <Navigate to={user.role === 'owner' ? '/' : user.role === 'field' ? '/saha' : '/malzemeler'} replace />;
+  const loc = location.pathname + location.search;
+  if (!user && !isLogin && !isPublic) {
+    try {
+      if (loc !== '/login') sessionStorage.setItem('ptyp_after_login', loc);
+    } catch {
+      /* yok say */
+    }
+    return <Navigate to="/login" replace />;
+  }
+  if (user && (isLogin || isPublic)) {
+    let after = null;
+    try {
+      after = sessionStorage.getItem('ptyp_after_login');
+      sessionStorage.removeItem('ptyp_after_login');
+    } catch {
+      /* yok say */
+    }
+    const target =
+      after && after !== '/login'
+        ? after
+        : user.role === 'owner'
+          ? '/'
+          : user.role === 'field'
+            ? '/saha'
+            : '/malzemeler';
+    return <Navigate to={target} replace />;
+  }
 
   return (
     <div className={isLogin || isPublic ? 'layout-login' : 'layout'}>

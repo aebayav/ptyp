@@ -101,6 +101,16 @@ export default function Dashboard() {
           <div className="stat-value">{overview.withoutQuotes}</div>
           <div className="stat-label">Henüz Teklif Alınmamış Malzeme</div>
         </div>
+        <Link to="/saha" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <div className="stat-card accent" style={{ cursor: 'pointer' }}>
+            <div className="stat-ico"></div>
+            <div className="stat-value">%{overview.sahaProgress ?? 0}</div>
+            <div className="progress-track mini" style={{ marginTop: 8, marginBottom: 4 }}>
+              <div className="progress-fill" style={{ width: `${overview.sahaProgress ?? 0}%` }} />
+            </div>
+            <div className="stat-label">Saha İlerlemesi · {overview.sahaPoles ?? 0} direk</div>
+          </div>
+        </Link>
         <Link to="/is-takibi" style={{ textDecoration: 'none', color: 'inherit' }}>
           <div className="stat-card" style={{ cursor: 'pointer' }}>
             <div className="stat-ico"></div>
