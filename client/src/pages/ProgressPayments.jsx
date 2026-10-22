@@ -234,7 +234,7 @@ export default function ProgressPayments() {
       <div className="page-head">
         <div>
           <h1>Hakediş Yönetimi</h1>
-          <p className="sub">Proje bazlı aylık hakediş hesaplama ve takip</p>
+          <p className="sub">Aylık hakediş hesaplama ve takip</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           {projectId != null && (

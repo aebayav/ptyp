@@ -240,7 +240,7 @@ export default function Quotes() {
       <div className="page-head">
         <div>
           <h1>Teklif &amp; Karşılaştırma</h1>
-          <p className="sub">Satıcılardan fiyat toplayın, en uygun teklifi seçin</p>
+          <p className="sub">Teklif toplayın, en uygununu seçin</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button className="btn" onClick={() => apiDownload('/api/export/quotes', 'ptyp-teklifler.xlsx')}>Excel (Teklifler + Karşılaştırma)</button>

@@ -135,7 +135,7 @@ export default function Kesif() {
       <div className="page-head">
         <div>
           <h1>Keşif</h1>
-          <p className="sub">DTL belgesinden otomatik keşif özeti — kalemleri düzenleyin, Excel'e aktarın</p>
+          <p className="sub">DTL'den otomatik keşif özeti</p>
         </div>
       </div>
 
@@ -160,8 +160,7 @@ export default function Kesif() {
 
       {data && !hasDtl && (
         <div className="notice-banner" style={{ marginBottom: 12 }}>
-          Bu projede henüz DTL verisi yok. Önce <b>Belge → KMZ</b> sayfasından DTL belgesini (PDF/TIFF/Excel)
-          işleyin — keşif kalemleri otomatik üretilir.
+          DTL verisi yok. Önce <b>Belge → KMZ</b>'de belgeyi işleyin — keşif kalemleri otomatik üretilir.
         </div>
       )}
 
@@ -238,7 +237,7 @@ export default function Kesif() {
               <button className="btn btn-sm" onClick={addItem} disabled={busy}>
                 + Kalem Ekle
               </button>
-              <button className="btn btn-sm" onClick={regenerate} disabled={busy || !hasDtl} title="Mevcut düzenlemeleri silip DTL'den yeniden üretir">
+              <button className="btn btn-sm" onClick={regenerate} disabled={busy || !hasDtl} title="DTL'den yeniden üretir">
                 DTL'den Yenile
               </button>
               <button className="btn btn-sm" onClick={exportExcel} disabled={busy || items.length === 0}>
@@ -326,7 +325,7 @@ export default function Kesif() {
                 {items.length === 0 && (
                   <tr>
                     <td colSpan={8} className="muted" style={{ textAlign: 'center', padding: 18 }}>
-                      {busy ? 'Yükleniyor…' : 'Kalem yok — "DTL\'den Yenile" ile otomatik üretin veya elle ekleyin.'}
+                      {busy ? 'Yükleniyor…' : 'Kalem yok — "DTL\'den Yenile" ile üretin.'}
                     </td>
                   </tr>
                 )}

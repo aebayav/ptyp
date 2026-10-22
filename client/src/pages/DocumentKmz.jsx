@@ -385,7 +385,7 @@ export default function DocumentKmz() {
       <div className="page-head">
         <div>
           <h1>Belge → KMZ</h1>
-          <p className="sub">PDF (metin veya taranmış), TIFF ve Excel'den direk koordinatlarını okuyup KMZ üretin</p>
+          <p className="sub">Belgelerden direk koordinatlarını okuyup KMZ üretin</p>
         </div>
       </div>
 
@@ -439,7 +439,7 @@ export default function DocumentKmz() {
             <span className="file-drop-text" style={{ flex: 1, textAlign: 'left' }}>
               {files.length > 0
                 ? `Listeye ${files.length} belge eklendi — devam etmek için tekrar tıklayın`
-                : 'Belge ekle — Excel, PDF veya TIFF; birden çok seçilebilir, tek tek de eklenebilir…'}
+                : 'Belge ekle (Excel, PDF, TIFF)'}
             </span>
           </label>
           <button className="btn btn-accent" onClick={files.length > 1 ? parseBatch : parseFile} disabled={busy || files.length === 0 || projectId == null}>
@@ -455,7 +455,7 @@ export default function DocumentKmz() {
         {files.length > 0 && (
           <div className="card" style={{ marginTop: 10, marginBottom: 0, padding: 10 }}>
             <div className="muted" style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
-              İŞLEME SIRASI — oklarla değiştirin, sil ile çıkarın
+              İŞLEME SIRASI
             </div>
             {files.map((f, i) => (
               <div key={`${f.name}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: i === files.length - 1 ? 'none' : '1px solid var(--border)' }}>

@@ -3,7 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230d1f3c'/><text x='50' y='68' font-size='52' font-family='Arial' font-weight='bold' fill='%23f5a623' text-anchor='middle'>P</text></svg>" />
+    <script>
+      try {
+        document.documentElement.setAttribute('data-theme', localStorage.getItem('ptyp_theme') || 'light');
+      } catch (e) {}
+    </script>
     <title>PTYP — Proje Yönetim Sistemi</title>
   </head>
   <body>

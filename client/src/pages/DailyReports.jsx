@@ -199,7 +199,7 @@ export default function DailyReports() {
       <div className="page-head">
         <div>
           <h1>Saha Günlük Raporu</h1>
-          <p className="sub">Proje bazlı günlük personel, ekipman ve imalat kaydı</p>
+          <p className="sub">Günlük personel, ekipman ve imalat kaydı</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           {projectId != null && (

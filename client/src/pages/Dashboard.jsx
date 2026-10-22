@@ -62,7 +62,7 @@ export default function Dashboard() {
       <div className="page-head">
         <div>
           <h1>Genel Bakış</h1>
-          <p className="sub">Elektrik Nakil Hattı &amp; Trafo Merkezi Projesi — tedarik durumu</p>
+          <p className="sub">ENH &amp; Trafo projeleri — genel durum</p>
         </div>
         <Link to="/malzemeler" className="btn btn-primary">+ Yeni Malzeme</Link>
       </div>

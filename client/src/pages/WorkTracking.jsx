@@ -371,7 +371,7 @@ export default function WorkTracking() {
       <div className="page-head">
         <div>
           <h1>İş Takibi &amp; Güzergah</h1>
-          <p className="sub">Proje bazlı iş grupları, görevler, ağırlıklı ilerleme ve güzergah kesimleri</p>
+          <p className="sub">İş grupları, görevler ve ilerleme</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button className="btn" onClick={() => apiDownload('/api/export/worktracking', 'ptyp-is-takibi.xlsx')}>Excel</button>

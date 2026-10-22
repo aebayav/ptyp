@@ -50,7 +50,7 @@ export default function SupplierQuotes() {
       <div className="page-head">
         <div>
           <h1>Tekliflerim</h1>
-          <p className="sub">Gönderdiğiniz teklifler ve durumları</p>
+          <p className="sub">Teklifleriniz ve durumları</p>
         </div>
       </div>
 

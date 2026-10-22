@@ -109,7 +109,7 @@ export default function Suppliers() {
       <div className="page-head">
         <div>
           <h1>Satıcılar</h1>
-          <p className="sub">Fiyat teklifi alınan tedarikçi ve firmalar</p>
+          <p className="sub">Tedarikçi firmalar</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button className="btn" onClick={() => apiDownload('/api/export/suppliers', 'ptyp-saticilar.xlsx')}>Excel</button>

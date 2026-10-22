@@ -110,7 +110,7 @@ export default function Users() {
       <div className="page-head">
         <div>
           <h1>Kullanıcılar</h1>
-          <p className="sub">Portal erişim hesapları — iş sahibi ve satıcı rolleri</p>
+          <p className="sub">Kullanıcı hesapları ve roller</p>
         </div>
         <button className="btn btn-accent" onClick={openNew}>+ Yeni Kullanıcı</button>
       </div>

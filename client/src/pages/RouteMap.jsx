@@ -343,7 +343,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
         <div className="page-head">
           <div>
             <h1>Güzergah &amp; Direkler</h1>
-            <p className="sub">KMZ dosyasından direk koordinatlarını içe aktarın</p>
+            <p className="sub">KMZ'den direk koordinatlarını içe aktarın</p>
           </div>
           {poles.length > 0 && (
             <div style={{ display: 'flex', gap: 10 }}>

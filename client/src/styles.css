@@ -14,6 +14,79 @@
   --red: #c53030;
   --amber: #c07a10;
   --gray: #6b7a8c;
+  /* Yüzeyler */
+  --input-bg: #ffffff;
+  --soft-bg: #f8fafc;
+  --row-border: #eef2f7;
+  --hover-bg: #f7fafc;
+  --best-bg: #f2faf4;
+  --field-label: #33475c;
+  --border-strong: #b9c6d4;
+  --success-hover: #f0faf3;
+  --tab-bg: #e4e9f0;
+  --progress-track: #e8edf3;
+  --late-row: #fdf3f3;
+  /* Durum renkleri */
+  --error-bg: #fdf0f0;
+  --error-border: #f3c6c6;
+  --notice-bg: #e2f5ea;
+  --notice-border: #bfe6cd;
+  --notice-text: #1e6f45;
+  --unmatched-bg: #fdf6e3;
+  --unmatched-border: #f0e0b8;
+  --unmatched-title: #8a6a1f;
+  --unmatched-line: #6b5a2e;
+  /* Rozetler */
+  --badge-blue-bg: #e3effa;
+  --badge-blue-text: #1d5a96;
+  --badge-amber-bg: #fdf0d7;
+  --badge-amber-text: #96600c;
+  --badge-green-bg: #e2f5ea;
+  --badge-green-text: #1e6f45;
+  --badge-gray-bg: #edf1f5;
+  --badge-gray-text: #55636f;
+}
+
+[data-theme='dark'] {
+  --accent-soft: #2e2410;
+  --bg: #0f1724;
+  --card: #17233a;
+  --text: #e6ecf4;
+  --muted: #8fa3bd;
+  --border: #2a3a52;
+  --gray: #8fa3bd;
+  --blue: #5b9bd5;
+  --green: #4fae7c;
+  --red: #e06c6c;
+  --amber: #e0a63c;
+  --input-bg: #1e2b40;
+  --soft-bg: #1a2839;
+  --row-border: #23344c;
+  --hover-bg: #20304a;
+  --best-bg: #16302a;
+  --field-label: #c3d0de;
+  --border-strong: #3d5270;
+  --success-hover: #163128;
+  --tab-bg: #1a2839;
+  --progress-track: #22334c;
+  --late-row: #3a1f1f;
+  --error-bg: #3a1d1d;
+  --error-border: #6b3232;
+  --notice-bg: #163426;
+  --notice-border: #2c5a40;
+  --notice-text: #7fd8a8;
+  --unmatched-bg: #33290f;
+  --unmatched-border: #5c4a1c;
+  --unmatched-title: #d9b95c;
+  --unmatched-line: #b8a25e;
+  --badge-blue-bg: #1d3550;
+  --badge-blue-text: #8fc3ef;
+  --badge-amber-bg: #3a2e12;
+  --badge-amber-text: #e8c063;
+  --badge-green-bg: #16332a;
+  --badge-green-text: #7fd8a8;
+  --badge-gray-bg: #24344b;
+  --badge-gray-text: #a8b6c6;
 }
 
 * {
@@ -23,7 +96,7 @@
 }
 
 body {
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: 'Martel Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
   background: var(--bg);
   color: var(--text);
   font-size: 14px;
@@ -231,7 +304,7 @@ th {
   text-transform: uppercase;
   letter-spacing: 0.6px;
   color: var(--muted);
-  background: #f8fafc;
+  background: var(--soft-bg);
   padding: 12px 14px;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
@@ -239,12 +312,12 @@ th {
 
 td {
   padding: 11px 14px;
-  border-bottom: 1px solid #eef2f7;
+  border-bottom: 1px solid var(--row-border);
   vertical-align: middle;
 }
 
 tbody tr:hover {
-  background: #f7fafc;
+  background: var(--hover-bg);
 }
 
 tbody tr:last-child td {
@@ -252,7 +325,7 @@ tbody tr:last-child td {
 }
 
 tr.best td {
-  background: #f2faf4;
+  background: var(--best-bg);
 }
 
 .num {
@@ -275,10 +348,10 @@ tr.best td {
   white-space: nowrap;
 }
 
-.badge-blue { background: #e3effa; color: #1d5a96; }
-.badge-amber { background: #fdf0d7; color: #96600c; }
-.badge-green { background: #e2f5ea; color: #1e6f45; }
-.badge-gray { background: #edf1f5; color: #55636f; }
+.badge-blue { background: var(--badge-blue-bg); color: var(--badge-blue-text); }
+.badge-amber { background: var(--badge-amber-bg); color: var(--badge-amber-text); }
+.badge-green { background: var(--badge-green-bg); color: var(--badge-green-text); }
+.badge-gray { background: var(--badge-gray-bg); color: var(--badge-gray-text); }
 
 /* ---------- Butonlar ---------- */
 .btn {
@@ -288,7 +361,7 @@ tr.best td {
   padding: 9px 16px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--input-bg);
   color: var(--text);
   font-size: 13.5px;
   font-weight: 500;
@@ -296,8 +369,8 @@ tr.best td {
 }
 
 .btn:hover {
-  border-color: #b9c6d4;
-  background: #f7fafc;
+  border-color: var(--border-strong);
+  background: var(--hover-bg);
 }
 
 .btn-primary {
@@ -346,7 +419,7 @@ tr.best td {
 
 .btn-success:hover {
   border-color: var(--green);
-  background: #f0faf3;
+  background: var(--success-hover);
 }
 
 .icon-btn {
@@ -359,7 +432,7 @@ tr.best td {
 }
 
 .icon-btn:hover {
-  background: #eef1f6;
+  background: var(--hover-bg);
   color: var(--text);
 }
 
@@ -373,7 +446,7 @@ tr.best td {
   font-size: 12.5px;
   font-weight: 600;
   margin-bottom: 5px;
-  color: #33475c;
+  color: var(--field-label);
 }
 
 .field input,
@@ -385,7 +458,7 @@ tr.best td {
   border-radius: 8px;
   font-size: 13.5px;
   font-family: inherit;
-  background: #fff;
+  background: var(--input-bg);
   color: var(--text);
 }
 
@@ -427,7 +500,7 @@ tr.best td {
 }
 
 .modal {
-  background: #fff;
+  background: var(--input-bg);
   border-radius: 14px;
   width: 100%;
   max-width: 560px;
@@ -464,8 +537,8 @@ tr.best td {
 
 /* ---------- Hata / boş durum ---------- */
 .error-banner {
-  background: #fdf0f0;
-  border: 1px solid #f3c6c6;
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
   color: var(--red);
   padding: 12px 16px;
   border-radius: 10px;
@@ -477,8 +550,8 @@ tr.best td {
 }
 
 .form-error {
-  background: #fdf0f0;
-  border: 1px solid #f3c6c6;
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
   color: var(--red);
   padding: 9px 12px;
   border-radius: 8px;
@@ -512,7 +585,7 @@ tr.best td {
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 13.5px;
-  background: #fff;
+  background: var(--input-bg);
 }
 
 .toolbar input[type='search'] {
@@ -528,7 +601,7 @@ tr.best td {
 /* ---------- Teklif sayfası ---------- */
 .tabs {
   display: inline-flex;
-  background: #e4e9f0;
+  background: var(--tab-bg);
   border-radius: 10px;
   padding: 3px;
   margin-bottom: 16px;
@@ -545,7 +618,7 @@ tr.best td {
 }
 
 .tabs button.active {
-  background: #fff;
+  background: var(--input-bg);
   color: var(--text);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
 }
@@ -584,12 +657,12 @@ tr.best td {
   border: none;
   background: none;
   padding: 11px 16px;
-  border-bottom: 1px solid #eef2f7;
+  border-bottom: 1px solid var(--row-border);
   cursor: pointer;
 }
 
 .material-item:hover {
-  background: #f7fafc;
+  background: var(--hover-bg);
 }
 
 .material-item.active {
@@ -630,7 +703,7 @@ tr.best td {
   flex-wrap: wrap;
   margin-bottom: 16px;
   padding: 12px 16px;
-  background: #f8fafc;
+  background: var(--soft-bg);
   border-radius: 10px;
   font-size: 12.5px;
   color: var(--muted);
@@ -648,7 +721,7 @@ tr.best td {
 .diff-neg { color: var(--red); font-weight: 600; }
 
 .total-row td {
-  background: #f8fafc;
+  background: var(--soft-bg);
   font-weight: 700;
   border-top: 2px solid var(--border);
 }
@@ -689,7 +762,7 @@ tr.best td {
 }
 
 .auth-card {
-  background: #fff;
+  background: var(--input-bg);
   border-radius: 16px;
   padding: 36px 32px;
   width: 100%;
@@ -775,6 +848,22 @@ tr.best td {
   font-size: 12.5px;
 }
 
+.theme-toggle {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: none;
+  color: #c4d1e0;
+  border-radius: 8px;
+  font-size: 12.5px;
+  margin-bottom: 8px;
+}
+
+.theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
 .logout-btn:hover {
   background: rgba(255, 255, 255, 0.08);
   color: #fff;
@@ -782,9 +871,9 @@ tr.best td {
 
 /* ---------- Başarı bildirimi ---------- */
 .notice-banner {
-  background: #e2f5ea;
-  border: 1px solid #bfe6cd;
-  color: #1e6f45;
+  background: var(--notice-bg);
+  border: 1px solid var(--notice-border);
+  color: var(--notice-text);
   padding: 10px 14px;
   border-radius: 10px;
   margin-bottom: 14px;
@@ -821,7 +910,7 @@ tr.best td {
 }
 
 .upload-card {
-  background: #fff;
+  background: var(--input-bg);
   border-radius: 16px;
   padding: 30px;
   width: 100%;
@@ -890,20 +979,20 @@ tr.best td {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--muted);
-  background: #f8fafc;
+  background: var(--soft-bg);
   padding: 9px 12px;
   border-bottom: 1px solid var(--border);
 }
 
 .upload-table td {
   padding: 9px 12px;
-  border-bottom: 1px solid #eef2f7;
+  border-bottom: 1px solid var(--row-border);
   font-size: 13px;
 }
 
 .unmatched-box {
-  background: #fdf6e3;
-  border: 1px solid #f0e0b8;
+  background: var(--unmatched-bg);
+  border: 1px solid var(--unmatched-border);
   border-radius: 10px;
   padding: 12px 14px;
   margin-bottom: 16px;
@@ -912,13 +1001,13 @@ tr.best td {
 .unmatched-title {
   font-size: 12px;
   font-weight: 700;
-  color: #8a6a1f;
+  color: var(--unmatched-title);
   margin-bottom: 6px;
 }
 
 .unmatched-line {
   font-size: 12px;
-  color: #6b5a2e;
+  color: var(--unmatched-line);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -935,7 +1024,7 @@ tr.best td {
 .progress-track {
   position: relative;
   height: 22px;
-  background: #e8edf3;
+  background: var(--progress-track);
   border-radius: 999px;
   overflow: hidden;
   width: 100%;
@@ -960,17 +1049,17 @@ tr.best td {
   justify-content: center;
   font-size: 11px;
   font-weight: 700;
-  color: #1c2b3a;
+  color: var(--text);
 }
 
 tr.late-row td {
-  background: #fdf3f3;
+  background: var(--late-row);
 }
 
 /* ---------- Harita (Güzergah) ---------- */
 .tab-chip {
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--input-bg);
   color: var(--text);
   border-radius: 999px;
   padding: 6px 14px;
@@ -1012,6 +1101,6 @@ tr.late-row td {
 }
 
 .leaflet-popup-content {
-  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-family: 'Martel Sans', 'Segoe UI', system-ui, sans-serif;
   font-size: 12.5px;
 }

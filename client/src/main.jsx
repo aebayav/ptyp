@@ -2,6 +2,9 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
+import '@fontsource/martel-sans/400.css';
+import '@fontsource/martel-sans/600.css';
+import '@fontsource/martel-sans/700.css';
 import './styles.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(

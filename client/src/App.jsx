@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
 import Dashboard from './pages/Dashboard';
@@ -15,10 +16,30 @@ import DailyReports from './pages/DailyReports';
 import DocumentKmz from './pages/DocumentKmz';
 import Kesif from './pages/Kesif';
 
+function useTheme() {
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem('ptyp_theme') || 'light';
+    } catch {
+      return 'light';
+    }
+  });
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try {
+      localStorage.setItem('ptyp_theme', theme);
+    } catch {
+      /* yok say */
+    }
+  }, [theme]);
+  return [theme, () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))];
+}
+
 function Sidebar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const isOwner = user.role === 'owner';
+  const [theme, toggleTheme] = useTheme();
 
   return (
     <aside className="sidebar">
@@ -92,6 +113,9 @@ function Sidebar() {
             <div className="user-role">{isOwner ? 'İş Sahibi' : 'Satıcı'}</div>
           </div>
         </div>
+        <button className="theme-toggle" onClick={toggleTheme}>
+          {theme === 'dark' ? 'Aydınlık Tema' : 'Karanlık Tema'}
+        </button>
         <button
           className="logout-btn"
           onClick={() => {

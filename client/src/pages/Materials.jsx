@@ -137,7 +137,7 @@ export default function Materials() {
       <div className="page-head">
         <div>
           <h1>Malzeme Listesi</h1>
-          <p className="sub">Proje malzemeleri ve tedarik durumu</p>
+          <p className="sub">Malzeme listesi ve tedarik durumu</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button className="btn" onClick={() => apiDownload('/api/export/materials', 'ptyp-malzemeler.xlsx')}>Excel</button>

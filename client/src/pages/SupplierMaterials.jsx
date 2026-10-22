@@ -58,7 +58,7 @@ export default function SupplierMaterials() {
       <div className="page-head">
         <div>
           <h1>Açık Malzemeler</h1>
-          <p className="sub">Şu an teklif toplanan malzemeler — teklifinizi gönderin</p>
+          <p className="sub">Teklif bekleyen malzemeler</p>
         </div>
       </div>
 
