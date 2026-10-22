@@ -176,7 +176,7 @@ function Shell() {
               <Route path="/kullanicilar" element={<Users />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </>
-          ) : user.role === 'field' ? (
+          ) : user && user.role === 'field' ? (
             <>
               <Route path="/saha" element={<Saha />} />
               <Route path="*" element={<Navigate to="/saha" replace />} />
