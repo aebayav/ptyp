@@ -6,6 +6,7 @@ import fs from 'fs';
 import * as XLSX from 'xlsx';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
+import { runJob, getJob } from '../parse-jobs';
 import { parseExcelCoordinates, parsePdfText, parseTm3Lines, tm3ToWgs84, convertTm3List, wgs84ToTm3 } from '../coord-parser';
 import { parseExcelDtl, parsePdfTextDtl, DtlParseResult, DtlRow } from '../dtl-parser';
 import { detectRegion } from '../turkiye-regions';
@@ -181,8 +182,81 @@ function polesFromOcr(ocr: { pages: { rows: OcrCell[][] }[] }): {
   return { poles, uncertain, lines };
 }
 
-// Excel/PDF/TIFF → parse → KMZ üret → (isteğe bağlı) projeye aktar
-router.post('/parse', upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
+// Parse işleyicisi, sahte bir res üzerinden koşar: res.json / res.status().json
+// çağrıları ParseExit fırlatır, kuyruk bunu sonuç (200) veya hata olarak yakalar.
+class ParseExit extends Error {
+  constructor(
+    public status: number,
+    public payload: any
+  ) {
+    super(payload?.error || (status === 200 ? 'ok' : 'hata'));
+  }
+}
+
+let jobReport: ((p: string) => void) | null = null;
+
+function fakeJobRes(): Response {
+  return {
+    status(code: number) {
+      return {
+        json(payload: any) {
+          throw new ParseExit(code, payload);
+        },
+      } as any;
+    },
+    json(payload: any) {
+      throw new ParseExit(200, payload);
+    },
+  } as unknown as Response;
+}
+
+// Excel/PDF/TIFF → parse → KMZ üret → (isteğe bağlı) projeye aktar.
+// Uzun işler (taranmış belge OCR'ı 2-5 dk) panel proxy'sini aşamadığı için
+// istek ANINDA 202 + job_id döner; iş kuyrukta koşar, istemci /job/:id yoklar.
+router.post('/parse', upload.single('file'), (req: Request, res: Response, next: NextFunction) => {
+  if (!req.file) return res.status(400).json({ error: 'Dosya yüklenmedi.' });
+  const kind = detectDocumentKind(req.file.originalname);
+  if (kind === 'unknown') {
+    return res.status(400).json({ error: 'Desteklenen biçimler: Excel (.xlsx/.xls), PDF, TIFF (.tif/.tiff).' });
+  }
+  const job = runJob('Belge okunuyor…', async (report) => {
+    jobReport = report;
+    try {
+      const fakeNext = (e?: any) => {
+        if (e) throw e;
+      };
+      await parseHandler(req, fakeJobRes(), fakeNext as any);
+      throw new Error('Beklenmeyen durum: işleyici yanıt döndürmeden bitti.');
+    } catch (e: any) {
+      if (e instanceof ParseExit) {
+        if (e.status === 200) return e.payload;
+        throw new Error(e.payload?.error || 'İşlem başarısız.');
+      }
+      throw e;
+    } finally {
+      jobReport = null;
+    }
+  });
+  res.status(202).json({ job_id: job.id, status: job.status });
+});
+
+// Kuyruktaki işin durumu / sonucu
+router.get('/job/:id', (req: Request, res: Response) => {
+  const job = getJob(String(req.params.id));
+  if (!job) return res.status(404).json({ error: 'İş bulunamadı.' });
+  res.json({
+    id: job.id,
+    status: job.status,
+    progress: job.progress,
+    started_at: job.started_at,
+    finished_at: job.finished_at,
+    elapsed_s: Math.round(((job.finished_at ?? Date.now()) - job.started_at) / 1000),
+    ...(job.status === 'done' ? { result: job.result } : {}),
+    ...(job.status === 'error' ? { error: job.error } : {}),
+  });
+});
+
+async function parseHandler(req: Request, res: Response, next: NextFunction): Promise<any> {
   try {
     if (!req.file) return res.status(400).json({ error: 'Dosya yüklenmedi.' });
 
@@ -243,7 +317,9 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
       // Metin katmanı yoksa veya metin katmanından hiç koordinat (WGS84 / TM3) çıkmadıysa OCR'a düş
       if (!analysis.hasTextLayer || (poles.length === 0 && parseTm3Lines(analysis.text).length === 0)) {
         try {
+          if (jobReport) jobReport('OCR çalışıyor — taranmış belge okunuyor (birkaç dakika sürebilir)…');
           const ocr = await callOcr(req.file.buffer, req.file.originalname);
+          if (jobReport) jobReport('Direkler işleniyor ve kaydediliyor…');
           const { poles: p, uncertain, lines } = polesFromOcr(ocr);
           poles = p;
           if (ocr.dtl_header || (ocr.dtl_rows && ocr.dtl_rows.length > 0)) {
@@ -263,7 +339,9 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
     } else {
       // TIFF → OCR servisi
       try {
+        if (jobReport) jobReport('OCR çalışıyor — taranmış görüntü okunuyor (birkaç dakika sürebilir)…');
         const ocr = await callOcr(req.file.buffer, req.file.originalname);
+        if (jobReport) jobReport('Direkler işleniyor ve kaydediliyor…');
         const { poles: p, uncertain, lines } = polesFromOcr(ocr);
         poles = p;
         if (ocr.dtl_header || (ocr.dtl_rows && ocr.dtl_rows.length > 0)) {
@@ -479,7 +557,7 @@ router.post('/parse', upload.single('file'), async (req: Request, res: Response,
   } catch (e) {
     next(e);
   }
-});
+}
 
 // Referans KMZ ile proje güzergahını hizala (yerel şantiye gridi ofsetini öğren ve uygula)
 router.post('/calibrate', upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {

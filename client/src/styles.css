@@ -1211,6 +1211,17 @@ tr.late-row td {
   padding: 0;
 }
 
+/* Canlı işlem ilerlemesi (OCR yoklaması) */
+.progress-banner {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  color: var(--text);
+  padding: 9px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .pole-row.flash {
   animation: poleFlash 1.2s ease-in-out 2;
   border-radius: 8px;

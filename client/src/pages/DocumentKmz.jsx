@@ -21,6 +21,32 @@ async function postDownload(path, body, filename) {
   URL.revokeObjectURL(a.href);
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// /parse artık uzun işler (OCR) için 202 + job_id döner — panel proxy ~60-70 sn'den
+// uzun istekleri kestiği için iş arka planda koşar, bu yardımcı yoklayıp sonucu bekler.
+async function postParse(fd, onProgress) {
+  const res = await fetch('/api/kmz-generator/parse', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + getToken() },
+    body: fd,
+  });
+  const j = await res.json().catch(() => ({}));
+  if (res.ok && j.job_id) {
+    const t0 = Date.now();
+    for (;;) {
+      await sleep(2000);
+      const s = await api.get(`/api/kmz-generator/job/${j.job_id}`);
+      if (onProgress) onProgress(s);
+      if (s.status === 'done') return s.result;
+      if (s.status === 'error') throw new Error(s.error || 'İşlem başarısız.');
+      if (Date.now() - t0 > 25 * 60 * 1000) throw new Error('İşlem çok uzun sürdü; lütfen tekrar deneyin.');
+    }
+  }
+  if (!res.ok) throw new Error(j.error || 'Okuma başarısız.');
+  return j;
+}
+
 export default function DocumentKmz() {
   const [projects, setProjects] = useState([]);
   const [projectId, setProjectId] = useState(null);
@@ -32,7 +58,8 @@ export default function DocumentKmz() {
   const [rows, setRows] = useState([]);
   const [preview, setPreview] = useState(null);
   const [utmZone, setUtmZone] = useState('0'); // her zaman otomatik algıla (il tablosu + doğrulama)
-  const [batchProgress, setBatchProgress] = useState(null); // {done, total, log: []}
+  const [batchProgress, setBatchProgress] = useState(null); // {done, total, log: [], live}
+  const [live, setLive] = useState(null); // tek dosya için canlı OCR ilerlemesi
 
   useEffect(() => {
     api.get('/api/projects')
@@ -83,13 +110,9 @@ export default function DocumentKmz() {
       fd.append('file', f);
       fd.append('tm3_cm', batchCmUsed ?? (utmZone === '0' ? 0 : utmZone));
       try {
-        const res = await fetch('/api/kmz-generator/parse', {
-          method: 'POST',
-          headers: { Authorization: 'Bearer ' + getToken() },
-          body: fd,
-        });
-        const d = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(d.error || 'Okuma başarısız.');
+        const d = await postParse(fd, (s) =>
+          setBatchProgress((prev) => ({ ...prev, live: `${s.progress} · ${s.elapsed_s} sn` }))
+        );
         collected.push(d);
         if (!batchCmUsed && d.tm3_cm_used) batchCmUsed = d.tm3_cm_used;
         if (!firstPreview && d.ocr?.pages?.length) firstPreview = d.ocr.pages[0].preview;
@@ -204,13 +227,7 @@ export default function DocumentKmz() {
     fd.append('file', file);
     fd.append('tm3_cm', utmZone === '0' ? 0 : utmZone);
     try {
-      const res = await fetch('/api/kmz-generator/parse', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + getToken() },
-        body: fd,
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d.error || 'Okuma başarısız.');
+      const d = await postParse(fd, (s) => setLive(`${s.progress} · ${s.elapsed_s} sn`));
       setResult(d);
       setRows([
         ...d.poles.map((p) => ({
@@ -239,6 +256,7 @@ export default function DocumentKmz() {
       setMsg({ type: 'err', text: e.message });
     } finally {
       setBusy(false);
+      setLive(null);
     }
   }
 
@@ -470,7 +488,17 @@ export default function DocumentKmz() {
         )}
         {batchProgress && (
           <div className="notice-banner" style={{ marginTop: 10, marginBottom: 0, whiteSpace: 'pre-wrap', fontSize: 12.5 }}>
+            {batchProgress.live && (
+              <div className="progress-banner" style={{ marginBottom: 6 }}>
+                {batchProgress.live}
+              </div>
+            )}
             {batchProgress.log.join('\n')}
+          </div>
+        )}
+        {live && (
+          <div className="progress-banner" style={{ marginTop: 10, marginBottom: 0 }}>
+            {live}
           </div>
         )}
         {msg && (
