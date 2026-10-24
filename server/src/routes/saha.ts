@@ -9,6 +9,7 @@ import QRCode from 'qrcode';
 import { pool } from '../db';
 import { requireAuth, requireRole, AuthedRequest } from '../auth';
 import { POLE_STATUSES, poleNumberFromName, poleProgress } from '../pole-statuses';
+import { toDateOrNull } from '../dates';
 
 const router = Router();
 
@@ -318,7 +319,7 @@ router.post('/:id/requests', async (req: Request, res: Response) => {
       qty,
       String(req.body?.unit || 'adet').slice(0, 20),
       String(req.body?.pole_ref || '').slice(0, 80),
-      String(req.body?.needed_by || '').slice(0, 20),
+      toDateOrNull(req.body?.needed_by, 'gerekli tarih'),
       String(req.body?.note || '').slice(0, 300),
       uid,
     ]

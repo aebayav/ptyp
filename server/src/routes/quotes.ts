@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { AuthedRequest, requireAuth, requireRole } from '../auth';
+import { toDateOrNull } from '../dates';
 
 const router = Router();
 
@@ -45,7 +46,7 @@ function normalize(body: any) {
     currency: String(body.currency || 'TRY').toUpperCase(),
     delivery_days:
       body.delivery_days === '' || body.delivery_days == null ? null : Number(body.delivery_days),
-    validity_date: String(body.validity_date || '').trim(),
+    validity_date: toDateOrNull(body.validity_date, 'geçerlilik tarihi'),
     status: String(body.status || 'received'),
     notes: String(body.notes || '').trim(),
   };

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
 import { poleNumberFromName, poleProgress } from '../pole-statuses';
+import { toDateOrNull } from '../dates';
 
 const router = Router();
 
@@ -23,7 +24,7 @@ router.get('/', async (req: Request, res: Response) => {
     SELECT w.*,
            COUNT(t.id)::int AS task_count,
            COUNT(t.id) FILTER (WHERE t.status = 'done')::int AS done_count,
-           COUNT(t.id) FILTER (WHERE t.status != 'done' AND t.due_date != '' AND t.due_date < to_char(now(), 'YYYY-MM-DD'))::int AS late_count
+           COUNT(t.id) FILTER (WHERE t.status != 'done' AND t.due_date IS NOT NULL AND t.due_date < CURRENT_DATE)::int AS late_count
     FROM work_groups w
     LEFT JOIN tasks t ON t.work_group_id = w.id
     ${where}
@@ -80,8 +81,8 @@ function normalize(body: any) {
     name: String(body.name || '').trim(),
     weight: Number.isFinite(weight) ? Math.min(100, Math.max(0, weight)) : 0,
     progress: Number.isFinite(progress) ? Math.min(100, Math.max(0, progress)) : 0,
-    planned_start: String(body.planned_start || '').trim(),
-    planned_end: String(body.planned_end || '').trim(),
+    planned_start: toDateOrNull(body.planned_start, 'planlanan başlangıç'),
+    planned_end: toDateOrNull(body.planned_end, 'planlanan bitiş'),
     status: String(body.status || 'pending'),
     notes: String(body.notes || '').trim(),
     segment_from: sf,

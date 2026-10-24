@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import { config } from '../config';
 import { pool } from '../db';
 import { AuthedRequest, requireAuth } from '../auth';
+import { loginLimiter } from '../security';
 
 const router = Router();
 
@@ -18,14 +19,14 @@ function publicUser(u: any) {
 }
 
 // Giriş
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   const username = String(req.body?.username || '').trim();
   const password = String(req.body?.password || '');
   if (!username || !password) {
     return res.status(400).json({ error: 'Kullanıcı adı ve şifre zorunludur.' });
   }
   const r = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
-  if (r.rowCount === 0 || !bcrypt.compareSync(password, r.rows[0].password_hash)) {
+  if (r.rowCount === 0 || !(await bcrypt.compare(password, r.rows[0].password_hash))) {
     return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı.' });
   }
   const token = jwt.sign({ uid: r.rows[0].id }, config.jwtSecret, {

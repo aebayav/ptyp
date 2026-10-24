@@ -240,9 +240,9 @@ router.post('/parse', upload.single('file'), (req: Request, res: Response, next:
   res.status(202).json({ job_id: job.id, status: job.status });
 });
 
-// Kuyruktaki işin durumu / sonucu
-router.get('/job/:id', (req: Request, res: Response) => {
-  const job = getJob(String(req.params.id));
+// Kuyruktaki işin durumu / sonucu (bellekte yoksa parse_jobs tablosundan)
+router.get('/job/:id', async (req: Request, res: Response) => {
+  const job = await getJob(String(req.params.id));
   if (!job) return res.status(404).json({ error: 'İş bulunamadı.' });
   res.json({
     id: job.id,

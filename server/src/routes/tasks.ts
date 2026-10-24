@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db';
-import { requireAuth, requireRole } from '../auth';
+import { requireAuth, requireRole, AuthedRequest } from '../auth';
+import { toDateOrNull } from '../dates';
 
 const router = Router();
 
@@ -43,7 +44,7 @@ function normalize(body: any) {
     title: String(body.title || '').trim(),
     description: String(body.description || '').trim(),
     assignee_id: body.assignee_id === '' || body.assignee_id == null ? null : Number(body.assignee_id),
-    due_date: String(body.due_date || '').trim(),
+    due_date: toDateOrNull(body.due_date, 'teslim tarihi'),
     status: String(body.status || 'todo'),
     priority: String(body.priority || 'normal'),
   };

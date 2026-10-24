@@ -3,7 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { initSchema } from './db';
-import { config } from './config';
+import { config, validateConfig } from './config';
+import { applySecurity, publicLimiter } from './security';
 import authRouter from './routes/auth';
 import usersRouter from './routes/users';
 import quoteUploadRouter from './routes/quote-upload';
@@ -22,12 +23,14 @@ import kmzGeneratorRouter from './routes/kmz-generator';
 import kesifRouter from './routes/kesif';
 import sahaRouter from './routes/saha';
 
+validateConfig(); // üretimde güvensiz varsayılanlarla açılmayı reddeder
 const app = express();
+applySecurity(app);
 app.use(express.json());
 
 // ---------- Açık uç (giriş gerektirmez) ----------
 app.use('/api/auth', authRouter);
-app.use('/api/public', quoteUploadRouter); // satıcı teklif dosyası yükleme (herkese açık)
+app.use('/api/public', publicLimiter, quoteUploadRouter); // satıcı teklif dosyası yükleme (herkese açık, IP başına sınırlı)
 
 // ---------- Buradan sonrası kimlik doğrulama ister (route dosyalarında requireAuth) ----------
 app.use('/api/users', usersRouter);
@@ -74,16 +77,27 @@ app.use((_req, res) => {
 
 // ---------- Hata yakalama (Türkçe, açıklayıcı) ----------
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-app.use((err: Error & { code?: string; name?: string }, _req: Request, res: Response, _next: NextFunction) => {
-  if (err && err.name === 'MulterError') {
-    return res.status(400).json({ error: 'Dosya yükleme hatası: dosya çok büyük olabilir (en fazla 10 MB).' });
+app.use(
+  (
+    err: Error & { code?: string; name?: string; status?: number },
+    _req: Request,
+    res: Response,
+    _next: NextFunction
+  ) => {
+    if (err && err.name === 'MulterError') {
+      return res.status(400).json({ error: 'Dosya yükleme hatası: dosya çok büyük olabilir (en fazla 10 MB).' });
+    }
+    if (err && err.code === '23505') {
+      return res.status(400).json({ error: 'Bu kayıt zaten mevcut (benzersiz alan çakışması).' });
+    }
+    // 4xx hatalar (ör. InvalidDateError) kullanıcıya olduğu gibi iletilir
+    if (err && err.status && err.status >= 400 && err.status < 500) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    console.error('[PTYP hata]', err.message);
+    res.status(500).json({ error: 'Sunucuda beklenmeyen bir hata oluştu: ' + err.message });
   }
-  if (err && err.code === '23505') {
-    return res.status(400).json({ error: 'Bu kayıt zaten mevcut (benzersiz alan çakışması).' });
-  }
-  console.error('[PTYP hata]', err.message);
-  res.status(500).json({ error: 'Sunucuda beklenmeyen bir hata oluştu: ' + err.message });
-});
+);
 
 function lanIPs(): string[] {
   const ips: string[] = [];

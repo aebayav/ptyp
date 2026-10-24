@@ -1,0 +1,259 @@
+﻿=== DTL_01.tiff (1 sayfa) ===
+  s1 indra: 32 sat─▒r, 27 DTL sat─▒r─▒, 1029 ├ğizgiÔåÆ69 grup (33 sahipsiz), ocr 4611 ms
+  motor  sat─▒r  ge├ğerli_├ğift  d├╝┼ş├╝k_g├╝ven  s├╝re_sn
+  indra  32     32            4            6.8    
+
+  -- Direk bilgisi b├╝t├╝nl├╝─ş├╝ (alan ba┼ş─▒na dolu direk say─▒s─▒) --
+  alan              indra
+  pole              27/27
+  span_m            27/27
+  wind_span_m       26/27
+  weight_span_m     26/27
+  station_text      25/27
+  some_no           6/27 
+  line_angle_grad   6/27 
+  crossing          15/27
+  function          27/27
+  tower_type        27/27
+  nominal_height_m  26/27
+  body_ext_m        26/27
+  hook_diff_m       26/27
+  center_ext_m      26/27
+  leg_a_m           26/27
+  leg_b_m           26/27
+  leg_c_m           26/27
+  leg_d_m           26/27
+  ground_elev_m     24/27
+  insulator_set     26/27
+  insulator_count   25/27
+  insulator_ref     26/27
+  easting           27/27
+  northing          27/27
+  remarks           3/27 
+  profile_no        12/27
+  ice_zone          12/27
+  indra: DTL'de eksik direk no: yok
+  indra: hi├ğbir dire─şe ba─şlanamayan 33 metin grubu (olas─▒ kay─▒p bilgi):
+    s1 y=410: TOWER | (m) | (m) | A(m) | 8 (m) | C (m) | D(m) | DETECTION | UNT | (Y) | (X)
+    s1 y=493: 50 grad a├ğ─▒ ile
+    s1 y=502: 1 | 214.00 | 135 | 383 | 0+000.00 | ND.1 | 253,9897 | TOPRAK YOL | N | 1 | PF] | 20 | 6 | 0.00 | 11.50 | 2 | 6 | 4 | 3 | 1084.50 | G/CG | 13
+    s1 y=514: tesis edilecektir.
+    s1 y=654: -
+    s1 y=744: - | -
+    s1 y=1023: -
+    s1 y=1050: 13 | 322,19 | 350 | 275 | 3+622 00 | T | 13 | PB] | 28 | 12 | 0.00 | 10.50 | 2 | 2 | 2 | 2 | 853 47 | A | 13 | U120BL | 592182.73 | 4245808 
+    s1 y=1140: -
+    s1 y=1185: -
+    s1 y=1304: 18 | 330.01 | 283 | 20) | 5+257.99 | S.4 | 234.4530 | KD | 18 | PF) | 14 | 0 | 0.00 | 10.50 | 3 | 2 | 3 | 3 | 860.91 | CG/CG | 26/26 | U160B
+    s1 y=1340: PTT HATTI
+    s1 y=1403: 154 kV E.I.H
+    s1 y=1433: 20 | 340.00 | 223 | 405 | 5-894 00 | T | 20 | PB) | 37 | 21 | 0.00 | 10 50 | 2 | 2 | 2 | 2 | 905.02 | CA | 26 | U120BL | 592193.48 | 4243608
+    s1 y=1479: 21 | 410 00 | 375 | 373 | 6+234 00 | T | 21 | PB) | 25 | 9 | 0.00 | 10.50 | 2 | 2 | 2 | 2 | 896 71 | A | 13 | U120BL | 592060.63 | 4243295,5
+    s1 y=1501: -
+    s1 y=1733: -
+    s1 y=1823: -
+    s1 y=1916: -
+    s1 y=1975: ─░NOTLAR:
+    s1 y=1983: HAZIRLAYAN | KONTROL EDEN | ONAY
+    s1 y=2005: AD SOYAD IMZA | AD SOYAD IMZA | AD SOYAD IMZA
+    s1 y=2028: T├╝rkiye Elektrik ─░letim A.┼Ş.
+    s1 y=2041: 22 0 2024 | 23/07/2024 | 024
+    s1 y=2056: Iletim Hatlar─▒ Tesis Dairesi Ba┼şkanl─▒─ş─▒
+    s1 y=2083: Et├╝t M├╝d├╝rl├╝─ş┼½
+    s1 y=2110: Head Office Of Turkish Electricity Transmission
+    s1 y=2137: Corporation
+    s1 y=2167: Mendet Siman OZERDEM | Transmission Lines Construction Department
+    s1 y=2190: Mehmet ├û┼¥en | Survey Office
+    s1 y=2206: -Basm├╝hendis.
+    s1 y=2214: Elektrik M├╝hendisi | H├╝seyin SA─ŞLAM
+    s1 y=2243: Diploma No : 20280 | M├╝d├╝r
+
+=== DTL_02.tiff (1 sayfa) ===
+  s1 indra: 31 sat─▒r, 31 DTL sat─▒r─▒, 1006 ├ğizgiÔåÆ57 grup (22 sahipsiz), ocr 4413 ms
+  motor  sat─▒r  ge├ğerli_├ğift  d├╝┼ş├╝k_g├╝ven  s├╝re_sn
+  indra  31     30            5            6.61   
+
+  -- Direk bilgisi b├╝t├╝nl├╝─ş├╝ (alan ba┼ş─▒na dolu direk say─▒s─▒) --
+  alan              indra
+  pole              31/31
+  span_m            31/31
+  wind_span_m       31/31
+  weight_span_m     31/31
+  station_text      29/31
+  some_no           8/31 
+  line_angle_grad   8/31 
+  crossing          13/31
+  function          31/31
+  tower_type        31/31
+  nominal_height_m  31/31
+  body_ext_m        31/31
+  hook_diff_m       31/31
+  center_ext_m      31/31
+  leg_a_m           31/31
+  leg_b_m           31/31
+  leg_c_m           31/31
+  leg_d_m           31/31
+  ground_elev_m     24/31
+  insulator_set     31/31
+  insulator_count   29/31
+  insulator_ref     30/31
+  easting           30/31
+  northing          30/31
+  remarks           3/31 
+  profile_no        25/31
+  ice_zone          25/31
+  indra: DTL'de eksik direk no: yok
+  indra: hi├ğbir dire─şe ba─şlanamayan 22 metin grubu (olas─▒ kay─▒p bilgi):
+    s1 y=413: TOWER NO | SPAN (m) | STATION (m) | LINE ANGLE I gradi | CROSSING | OF THE | TOWER NO | TOWER TYPE | X-ARM | EL EV.DIF AH | EXTENSION | EXTE
+    s1 y=421: (n) | (mi | EXTENSION | EXTENSION | TENSION ELEV | CONDUCTOR | NUMBER OF | ITRF96 -3 | ITRF 3 | No | REGION
+    s1 y=429: TOWER | 1) | (a) | A (m) | B Im | Cimi | D(m) | RESISTANCE
+    s1 y=436: DETECTION | UNIT | (Y) | (X)
+    s1 y=497: -
+    s1 y=590: -
+    s1 y=697: 0.0 HATI
+    s1 y=762: 0.6 HATTI | -
+    s1 y=904: -
+    s1 y=1363: 49 | 365 27 | 328 | 301 | 16+392 00 | T | 49 | PB) | 22 | 6 | 0 00 | 10 50 | 2 | 2 | 2 | 2 | 970 47 | A | 13 | U120BL | 593328 13 | 4233786 
+    s1 y=1709: -
+    s1 y=2001: NOTLAR:
+    s1 y=2010: HAZIRLAYAN | KONTROL EDEN | ONAY
+    s1 y=2033: AD SOYAD IMZA | AD SOYAD IMZA | AD SOYAD IMZA | T├╝rkiye Elektrik ─░letim A.┼Ş.
+    s1 y=2062: Iletim Hatlar─▒ Tesis Dairesi Ba┼şkanl─▒─ş─▒
+    s1 y=2072: 22.0 2024 | 23/07/ 2024 | 23/04/2024
+    s1 y=2089: Et├╝t M├╝d├╝rl├╝─ş┼½
+    s1 y=2116: Head Office Of Turkish Electricity Transmission
+    s1 y=2143: Corporation
+    s1 y=2174: Mehitet Oxen | V. T | 0 | Transmission Lines Construction Department
+    s1 y=2200: Elektrik M├╝hendisi | Huseit SA GLAS | Survey Office
+    s1 y=2230: Diploma No : 20280 | M├╝d├╝r
+
+=== DTL_04.tiff (1 sayfa) ===
+  s1 indra: 29 sat─▒r, 25 DTL sat─▒r─▒, 983 ├ğizgiÔåÆ87 grup (39 sahipsiz), ocr 4031 ms
+  motor  sat─▒r  ge├ğerli_├ğift  d├╝┼ş├╝k_g├╝ven  s├╝re_sn
+  indra  29     29            3            6.0    
+
+  -- Direk bilgisi b├╝t├╝nl├╝─ş├╝ (alan ba┼ş─▒na dolu direk say─▒s─▒) --
+  alan              indra
+  pole              25/25
+  span_m            25/25
+  wind_span_m       24/25
+  weight_span_m     24/25
+  station_text      24/25
+  some_no           9/25 
+  line_angle_grad   9/25 
+  crossing          14/25
+  function          25/25
+  tower_type        25/25
+  nominal_height_m  24/25
+  body_ext_m        24/25
+  hook_diff_m       24/25
+  center_ext_m      24/25
+  leg_a_m           24/25
+  leg_b_m           24/25
+  leg_c_m           24/25
+  leg_d_m           24/25
+  ground_elev_m     23/25
+  insulator_set     24/25
+  insulator_count   23/25
+  insulator_ref     24/25
+  easting           25/25
+  northing          25/25
+  remarks           1/25 
+  profile_no        24/25
+  ice_zone          24/25
+  indra: DTL'de eksik direk no: yok
+  indra: hi├ğbir dire─şe ba─şlanamayan 39 metin grubu (olas─▒ kay─▒p bilgi):
+    s1 y=417: 154KV | 14 KV | TOWER | TOWER
+    s1 y=424: FUNCTION | 3 TOWER HEIIT | CENTER | LEG | LEG | LEG | LEG | ISARV
+    s1 y=436: TOWER NO | SPAN (m) | WIND SPAN | WEIGHT SPANI | STATION (m) | ÔÇó SOME | LINE ANGLE (grade | CROSSING | OF THE | TOWER NO | TOWER TYPE | X. A
+    s1 y=446: 191 | (a) | No | EXTENSKON | EXTENSION | TENSION ELEV; COND | CTOR 3 | NUMBER OF | ITRF 96 - 3┬░ | ITRG - 3┬░ | REGION
+    s1 y=456: TOWER | (x)) | A(m) | Cim | D(m) | DETECTION | UNIT | RESISTANCE | (Y) | (X)
+    s1 y=522: -
+    s1 y=674: -
+    s1 y=701: 97 | 605.17 | 501 | 522 | 34+028.00 | D | 97 | PD) | 26 | 12 | 0.00 | 10.50 | 3 | 3 | 3 | 3 | 795.72 | CG/ | G | 26/26 | U160BL | 597690,99 
+    s1 y=814: - | -
+    s1 y=907: -
+    s1 y=1047: -
+    s1 y=1294: DERE
+    s1 y=1381: 380 kV ge├ği┼şi
+    s1 y=1398: -
+    s1 y=1442: -
+    s1 y=1503: O. G. HATTI
+    s1 y=1525: DOGALGAZ
+    s1 y=1535: 113 | 324.57 | 409 | 419 | 40+839.43 | S.27 | 248.9279 | KD | 113 | PF: | 28 | 12 | 0.00 | 10.50 | 5 | 5 | 5 | 5 | 786.72 | CG-G | 26/26 | U
+    s1 y=1546: BORU
+    s1 y=1575: - | HATTI | -
+    s1 y=1687: 380 kV DIYARBAKIR I] -
+    s1 y=1745: 380 kV ge├ğisi | SPBI 50 OLARAK
+    s1 y=1779: YUKSELTILECEKTIR
+    s1 y=1807: ASFALT YOL
+    s1 y=1823: 117 | 250.46 | 225 | 424 | 41+820.65 | S.30 | 252.7377 | 154 kV E.L.H | KD | 117 | PF) | 40 | 27 | 0.00 | 10 50 | 2 | 2 | 2 | 2 | 802.94 | C
+    s1 y=1962: 120 | 43.66 | 82 | 14 | 42+435.93 | ND.2 | 187.1042 | N | 120 | PF) | 16 | 3 | 0 00 | 10.50 | 2 | 2 | 2 | 2 | 783.09 | CG/G | 26/13 | U160BL
+    s1 y=2044: NOTLAR:
+    s1 y=2058: HAZIRLAYAN | KONTROL EDEN | ONAY
+    s1 y=2079: AD SOYAD IMZA | AD SOYAD IMZA | AD SOYAD IMZA
+    s1 y=2091: T├╝rkiye Elektrik lletim A.┼Ş.
+    s1 y=2121: 22.6 F. 2024 | 23/02/2024 | 23/08/2024 | Iletim Hatlar─▒ Tesis Dairesi Ba┼şkanl─▒─ş─▒
+    s1 y=2145: Et├╝t M├╝d├╝rl├╝─ş├╝
+    s1 y=2173: Head Office Of Turkish Electricity Transmission
+    s1 y=2199: Corporation
+    s1 y=2226: Transmission Lines Construction Department
+    s1 y=2242: Mehmet ├ûzen
+    s1 y=2255: Seminentit | Survey Office
+    s1 y=2271: Elektrik M├╝hendisi | H├╝seyin SA─ŞLAM
+    s1 y=2299: Diploma No : 20280 | M├╝d├╝r
+
+=== DIYARBAKIR2_DTL1-1.pdf (1 sayfa) ===
+  s1 indra: 32 sat─▒r, 32 DTL sat─▒r─▒, 964 ├ğizgiÔåÆ60 grup (14 sahipsiz), ocr 4668 ms
+  motor  sat─▒r  ge├ğerli_├ğift  d├╝┼ş├╝k_g├╝ven  s├╝re_sn
+  indra  32     32            6            6.02   
+
+  -- Direk bilgisi b├╝t├╝nl├╝─ş├╝ (alan ba┼ş─▒na dolu direk say─▒s─▒) --
+  alan              indra
+  pole              32/32
+  span_m            31/32
+  wind_span_m       31/32
+  weight_span_m     31/32
+  station_text      31/32
+  some_no           6/32 
+  line_angle_grad   6/32 
+  crossing          17/32
+  function          32/32
+  tower_type        32/32
+  nominal_height_m  31/32
+  body_ext_m        31/32
+  hook_diff_m       31/32
+  center_ext_m      31/32
+  leg_a_m           31/32
+  leg_b_m           31/32
+  leg_c_m           31/32
+  leg_d_m           31/32
+  ground_elev_m     27/32
+  insulator_set     31/32
+  insulator_count   30/32
+  insulator_ref     30/32
+  easting           32/32
+  northing          32/32
+  remarks           1/32 
+  profile_no        28/32
+  ice_zone          28/32
+  indra: DTL'de eksik direk no: yok
+  indra: hi├ğbir dire─şe ba─şlanamayan 14 metin grubu (olas─▒ kay─▒p bilgi):
+    s1 y=1439: NOTLAR | HAZIRLAYAN | KONTORL EDEN | KONTROL EDEN | ONAY
+    s1 y=1454: AD SOYAD IMZA | AD SOYAD IMZA | AI SOYAD IMZA | AD SOYAD IMZA
+    s1 y=1467: 21/04/2025 | 1 04 2025 | 21 | 106 12025
+    s1 y=1475: T├╝rkiye Elektr─▒k Ilet─▒m A ┼Ş
+    s1 y=1493: Ilet─▒m Hatlar─▒ Tesis Daires─▒ Baskanl─▒─şi
+    s1 y=1510: Et├╝t M├╝d├╝rl├╝─ş├╝
+    s1 y=1528: Head Office Of Turkish Electricity Transmission Corporation
+    s1 y=1544: Bah├╝hendis (G. | Transmission Lines Construction Department
+    s1 y=1550: M├╝d├╝r Ved. (C
+    s1 y=1563: Survey Office
+    s1 y=1573: Mehmet Oxen | Mader M.
+    s1 y=1589: Elektrik M├╝hendis.
+    s1 y=1597: H├╝seyin SA─ŞLAM
+    s1 y=1603: Oda Sicil No.20280
+
+=== TOPLAM ===
+  motor  sat─▒r  ge├ğerli_├ğift  d├╝┼ş├╝k_g├╝ven  s├╝re_sn
+  indra  124    123           18           25.43  

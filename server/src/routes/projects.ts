@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
+import { toDateOrNull } from '../dates';
 
 const router = Router();
 
@@ -29,8 +30,8 @@ router.post('/', async (req: Request, res: Response) => {
   const capacity = String(req.body?.capacity || '').trim();
   const employer = String(req.body?.employer || '').trim();
   const contract_no = String(req.body?.contract_no || '').trim();
-  const start_date = String(req.body?.start_date || '').trim();
-  const end_date = String(req.body?.end_date || '').trim();
+  const start_date = toDateOrNull(req.body?.start_date, 'başlangıç tarihi');
+  const end_date = toDateOrNull(req.body?.end_date, 'bitiş tarihi');
 
   if (!name) return res.status(400).json({ error: 'Proje adı zorunludur.' });
   
@@ -55,8 +56,8 @@ router.put('/:id', async (req: Request, res: Response) => {
   const capacity = String(req.body?.capacity || '').trim();
   const employer = String(req.body?.employer || '').trim();
   const contract_no = String(req.body?.contract_no || '').trim();
-  const start_date = String(req.body?.start_date || '').trim();
-  const end_date = String(req.body?.end_date || '').trim();
+  const start_date = toDateOrNull(req.body?.start_date, 'başlangıç tarihi');
+  const end_date = toDateOrNull(req.body?.end_date, 'bitiş tarihi');
 
   if (!name) return res.status(400).json({ error: 'Proje adı zorunludur.' });
   

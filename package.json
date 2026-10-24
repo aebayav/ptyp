@@ -7,6 +7,7 @@
     "setup": "npm --prefix server install --no-audit --no-fund && npm --prefix client install --no-audit --no-fund",
     "build": "npm --prefix server run build && npm --prefix client run build",
     "start": "node server/dist/index.js",
+    "test": "npm --prefix server run test",
     "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\""
   },
   "devDependencies": {

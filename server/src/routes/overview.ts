@@ -19,7 +19,7 @@ router.get('/overview', async (_req: Request, res: Response) => {
     pool.query('SELECT COALESCE(SUM(x.p), 0) AS t FROM (SELECT MIN(price) AS p FROM quotes GROUP BY material_id) x'),
     pool.query('SELECT COALESCE(SUM(progress * weight), 0) AS num, COALESCE(SUM(weight), 0) AS den FROM work_groups'),
     pool.query(
-      `SELECT COUNT(*)::int AS c FROM tasks WHERE status != 'done' AND due_date != '' AND due_date < to_char(now(), 'YYYY-MM-DD')`
+      `SELECT COUNT(*)::int AS c FROM tasks WHERE status != 'done' AND due_date IS NOT NULL AND due_date < CURRENT_DATE`
     ),
     pool.query(`SELECT COUNT(*)::int AS c FROM tasks WHERE status != 'done'`),
     pool.query(
