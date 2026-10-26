@@ -13,12 +13,19 @@ tedarik, iş takibi, hakediş, keşif (BOQ), saha günlük raporları ve belgede
 | Tedarik — Malzeme Listesi | ENH/trafo malzemeleri, tedarik durumu, hedef fiyatlar |
 | Tedarik — Satıcılar | Tedarikçi firmalar ve teklif geçmişi |
 | Tedarik — Teklif & Karşılaştırma | Teklif toplama, en uygun teklifi seçme |
+| Depo & Stok | İrsaliye girişi, sahaya sevk, sarfiyat; kalan stok + keşif karşılaştırması (saha talepleri bağlanabilir) |
 | İş Takibi & Güzergah | İş grupları, görevler, ağırlıklı ilerleme, harita |
+| Kamulaştırma | Açıklık bazında parsel/malik/irtifak/bedel takibi; izinsiz parseller haritada kırmızı |
+| Plan & Gerçekleşme | Ağırlıklı ilerlemeden otomatik S-eğrisi + Gantt + gecikme uyarısı |
 | Hakediş Yönetimi | Aylık hakediş hesaplama (sözleşme miktarları, birim fiyatlar) |
+| Fiyat Farkı | TÜİK endeks kayıtları + Pn formülü (Pn = İn/İo, Fark = Tutar × (Pn − 1)) |
 | Keşif (BOQ) | DTL belgesinden otomatik keşif özeti — düzenlenebilir kalemler, Excel çıktısı |
+| Saha | Direk bazlı ilerleme + fotoğraf + QR kartları + malzeme talebi (field rolü) |
 | Saha Günlük Raporu | Günlük personel, ekipman ve imalat kaydı |
+| İSG | Toolbox eğitimleri, ramak kala / kaza kayıtları, personel sertifikaları + bitiş uyarıları |
 | Belge → KMZ | PDF/TIFF/Excel'den direk koordinatları + DTL tablosunu okuyup KMZ üretme |
-| Kullanıcılar | İş sahibi ve satıcı (tedarikçi portalı) hesapları |
+| Dokümanlar | Pafta, DTL revizyonları ve onay yazıları — projeye bağlı, revizyonlu, dosyalı |
+| Kullanıcılar | İş sahibi, saha ve satıcı (tedarikçi portalı) hesapları |
 
 Tedarikçiler kendi portalında yalnızca açık malzemeleri ve kendi tekliflerini görür.
 
