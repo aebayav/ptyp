@@ -27,6 +27,7 @@ import stockRouter from './routes/stock';
 import planningRouter from './routes/planning';
 import fiyatFarkiRouter from './routes/fiyat-farki';
 import isgRouter from './routes/isg';
+import documentsRouter from './routes/documents';
 
 validateConfig(); // üretimde güvensiz varsayılanlarla açılmayı reddeder
 const app = express();
@@ -57,6 +58,7 @@ app.use('/api/stock', stockRouter);
 app.use('/api/planning', planningRouter);
 app.use('/api/fiyat-farki', fiyatFarkiRouter);
 app.use('/api/isg', isgRouter);
+app.use('/api/documents', documentsRouter);
 app.use('/api', overviewRouter);
 
 // ---------- İstemci (build edilmiş SPA) ----------

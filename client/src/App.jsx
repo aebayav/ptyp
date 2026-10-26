@@ -21,6 +21,7 @@ import Depo from './pages/Depo';
 import Planlama from './pages/Planlama';
 import FiyatFarki from './pages/FiyatFarki';
 import Isg from './pages/Isg';
+import Dokumanlar from './pages/Dokumanlar';
 
 function useTheme() {
   const [theme, setTheme] = useState(() => {
@@ -115,8 +116,9 @@ function Sidebar() {
               Kullanıcılar
             </NavLink>
 
-            <div className="nav-group">YAKINDA</div>
-            <div className="nav-soon">Dokümanlar</div>
+            <NavLink to="/dokumanlar" className={({ isActive }) => (isActive ? 'active' : '')}>
+              Dokümanlar
+            </NavLink>
           </>
         ) : isField ? (
           <>
@@ -223,6 +225,7 @@ function Shell() {
               <Route path="/saha/direk/:proje/:direk" element={<Saha />} />
               <Route path="/gunluk-raporlar" element={<DailyReports />} />
               <Route path="/isg" element={<Isg />} />
+              <Route path="/dokumanlar" element={<Dokumanlar />} />
               <Route path="/belge-kmz" element={<DocumentKmz />} />
               <Route path="/kullanicilar" element={<Users />} />
               <Route path="*" element={<Navigate to="/" replace />} />
