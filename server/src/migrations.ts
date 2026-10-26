@@ -475,6 +475,27 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+
+  {
+    // Hakediş fiyat farkı: TÜİK endeks değerleri (aylık) + Pn hesabı.
+    id: 6,
+    name: 'price-indices',
+    up: async (c) => {
+      await c.query(`
+        CREATE TABLE IF NOT EXISTS price_indices (
+          id          SERIAL PRIMARY KEY,
+          project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          period      TEXT NOT NULL,
+          index_name  TEXT NOT NULL DEFAULT 'TUFE',
+          value       NUMERIC(14,4) NOT NULL,
+          notes       TEXT NOT NULL DEFAULT '',
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE(project_id, period, index_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_price_indices_project ON price_indices(project_id);
+      `);
+    },
+  },
 ];
 
 /** Bekleyen migrasyonları sırayla uygular. */

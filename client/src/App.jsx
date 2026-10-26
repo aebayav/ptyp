@@ -19,6 +19,7 @@ import Saha from './pages/Saha';
 import Kamulastirma from './pages/Kamulastirma';
 import Depo from './pages/Depo';
 import Planlama from './pages/Planlama';
+import FiyatFarki from './pages/FiyatFarki';
 
 function useTheme() {
   const [theme, setTheme] = useState(() => {
@@ -88,6 +89,9 @@ function Sidebar() {
             </NavLink>
             <NavLink to="/hakedisler" className={({ isActive }) => (isActive ? 'active' : '')}>
               Hakediş Yönetimi
+            </NavLink>
+            <NavLink to="/fiyat-farki" className={({ isActive }) => (isActive ? 'active' : '')}>
+              Fiyat Farkı
             </NavLink>
             <NavLink to="/kesif" className={({ isActive }) => (isActive ? 'active' : '')}>
               Keşif
@@ -209,6 +213,7 @@ function Shell() {
               <Route path="/planlama" element={<Planlama />} />
               <Route path="/depo" element={<Depo />} />
               <Route path="/hakedisler" element={<ProgressPayments />} />
+              <Route path="/fiyat-farki" element={<FiyatFarki />} />
               <Route path="/kesif" element={<Kesif />} />
               <Route path="/saha" element={<Saha />} />
               <Route path="/saha/direk/:proje/:direk" element={<Saha />} />
