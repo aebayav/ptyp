@@ -16,6 +16,7 @@ import DailyReports from './pages/DailyReports';
 import DocumentKmz from './pages/DocumentKmz';
 import Kesif from './pages/Kesif';
 import Saha from './pages/Saha';
+import Kamulastirma from './pages/Kamulastirma';
 
 function useTheme() {
   const [theme, setTheme] = useState(() => {
@@ -73,6 +74,9 @@ function Sidebar() {
             <div className="nav-group">PROJE</div>
             <NavLink to="/is-takibi" className={({ isActive }) => (isActive ? 'active' : '')}>
               İş Takibi &amp; Güzergah
+            </NavLink>
+            <NavLink to="/kamulastirma" className={({ isActive }) => (isActive ? 'active' : '')}>
+              Kamulaştırma
             </NavLink>
             <NavLink to="/hakedisler" className={({ isActive }) => (isActive ? 'active' : '')}>
               Hakediş Yönetimi
@@ -193,6 +197,7 @@ function Shell() {
               <Route path="/teklifler" element={<Quotes />} />
               <Route path="/is-takibi" element={<WorkTracking />} />
               <Route path="/guzergah" element={<Navigate to="/is-takibi" replace />} />
+              <Route path="/kamulastirma" element={<Kamulastirma />} />
               <Route path="/hakedisler" element={<ProgressPayments />} />
               <Route path="/kesif" element={<Kesif />} />
               <Route path="/saha" element={<Saha />} />

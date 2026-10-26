@@ -422,6 +422,32 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+
+  {
+    // Kamulaştırma / arazi takibi: açıklık (direk arası) bazında parsel kayıtları.
+    // pole_from/pole_to, poles tablosunun idx alanına bakar (yeniden işlemede değişmez).
+    id: 4,
+    name: 'parcels',
+    up: async (c) => {
+      await c.query(`
+        CREATE TABLE IF NOT EXISTS parcels (
+          id              SERIAL PRIMARY KEY,
+          project_id      INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          pole_from_idx   INTEGER NOT NULL,
+          pole_to_idx     INTEGER NOT NULL,
+          parcel_no       TEXT NOT NULL DEFAULT '',
+          owner_name      TEXT NOT NULL DEFAULT '',
+          easement_status TEXT NOT NULL DEFAULT 'belirsiz',
+          legal_status    TEXT NOT NULL DEFAULT 'yok',
+          price           NUMERIC(14,2),
+          notes           TEXT NOT NULL DEFAULT '',
+          created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_parcels_project ON parcels(project_id);
+      `);
+    },
+  },
 ];
 
 /** Bekleyen migrasyonları sırayla uygular. */

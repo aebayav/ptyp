@@ -22,6 +22,7 @@ import dailyReportsRouter from './routes/daily-reports';
 import kmzGeneratorRouter from './routes/kmz-generator';
 import kesifRouter from './routes/kesif';
 import sahaRouter from './routes/saha';
+import parcelsRouter from './routes/parcels';
 
 validateConfig(); // üretimde güvensiz varsayılanlarla açılmayı reddeder
 const app = express();
@@ -47,6 +48,7 @@ app.use('/api/daily-reports', dailyReportsRouter);
 app.use('/api/kmz-generator', kmzGeneratorRouter);
 app.use('/api/kesif', kesifRouter);
 app.use('/api/saha', sahaRouter);
+app.use('/api/parcels', parcelsRouter);
 app.use('/api', overviewRouter);
 
 // ---------- İstemci (build edilmiş SPA) ----------
