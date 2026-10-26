@@ -11,6 +11,12 @@ router.use(requireAuth, requireRole('owner'));
 
 const PERIOD_RE = /^\d{4}-\d{2}$/;
 
+function validPeriod(p: string): boolean {
+  if (!PERIOD_RE.test(p)) return false;
+  const m = Number(p.slice(5));
+  return m >= 1 && m <= 12;
+}
+
 // Kayıtlı endeksler
 router.get('/', async (req: Request, res: Response) => {
   const pid = Number(req.query.project_id);
@@ -30,7 +36,7 @@ router.post('/', async (req: Request, res: Response) => {
   const value = Number(req.body?.value);
   const notes = String(req.body?.notes || '').trim().slice(0, 200);
   if (!Number.isInteger(pid) || pid <= 0) return res.status(400).json({ error: 'Geçerli bir proje seçin.' });
-  if (!PERIOD_RE.test(period)) return res.status(400).json({ error: 'Periyot YYYY-AA biçiminde olmalı (ör. 2026-03).' });
+  if (!validPeriod(period)) return res.status(400).json({ error: 'Periyot YYYY-AA biçiminde olmalı (ör. 2026-03).' });
   if (!Number.isFinite(value) || value <= 0) return res.status(400).json({ error: 'Endeks değeri pozitif bir sayı olmalı.' });
   try {
     const { rows } = await pool.query(
@@ -63,7 +69,7 @@ router.get('/compute', async (req: Request, res: Response) => {
   const current = String(req.query.current || '');
   const amount = Number(req.query.amount);
   if (!Number.isInteger(pid) || pid <= 0) return res.status(400).json({ error: 'Geçerli bir proje seçin.' });
-  if (!PERIOD_RE.test(base) || !PERIOD_RE.test(current)) {
+  if (!validPeriod(base) || !validPeriod(current)) {
     return res.status(400).json({ error: 'Baz ve cari periyot YYYY-AA biçiminde olmalı.' });
   }
   if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'Tutar pozitif bir sayı olmalı.' });
