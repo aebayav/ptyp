@@ -24,6 +24,7 @@ import kesifRouter from './routes/kesif';
 import sahaRouter from './routes/saha';
 import parcelsRouter from './routes/parcels';
 import stockRouter from './routes/stock';
+import planningRouter from './routes/planning';
 
 validateConfig(); // üretimde güvensiz varsayılanlarla açılmayı reddeder
 const app = express();
@@ -51,6 +52,7 @@ app.use('/api/kesif', kesifRouter);
 app.use('/api/saha', sahaRouter);
 app.use('/api/parcels', parcelsRouter);
 app.use('/api/stock', stockRouter);
+app.use('/api/planning', planningRouter);
 app.use('/api', overviewRouter);
 
 // ---------- İstemci (build edilmiş SPA) ----------

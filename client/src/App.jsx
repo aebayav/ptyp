@@ -18,6 +18,7 @@ import Kesif from './pages/Kesif';
 import Saha from './pages/Saha';
 import Kamulastirma from './pages/Kamulastirma';
 import Depo from './pages/Depo';
+import Planlama from './pages/Planlama';
 
 function useTheme() {
   const [theme, setTheme] = useState(() => {
@@ -81,6 +82,9 @@ function Sidebar() {
             </NavLink>
             <NavLink to="/kamulastirma" className={({ isActive }) => (isActive ? 'active' : '')}>
               Kamulaştırma
+            </NavLink>
+            <NavLink to="/planlama" className={({ isActive }) => (isActive ? 'active' : '')}>
+              Plan &amp; Gerçekleşme
             </NavLink>
             <NavLink to="/hakedisler" className={({ isActive }) => (isActive ? 'active' : '')}>
               Hakediş Yönetimi
@@ -202,6 +206,7 @@ function Shell() {
               <Route path="/is-takibi" element={<WorkTracking />} />
               <Route path="/guzergah" element={<Navigate to="/is-takibi" replace />} />
               <Route path="/kamulastirma" element={<Kamulastirma />} />
+              <Route path="/planlama" element={<Planlama />} />
               <Route path="/depo" element={<Depo />} />
               <Route path="/hakedisler" element={<ProgressPayments />} />
               <Route path="/kesif" element={<Kesif />} />
