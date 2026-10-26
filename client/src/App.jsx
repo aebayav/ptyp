@@ -17,6 +17,7 @@ import DocumentKmz from './pages/DocumentKmz';
 import Kesif from './pages/Kesif';
 import Saha from './pages/Saha';
 import Kamulastirma from './pages/Kamulastirma';
+import Depo from './pages/Depo';
 
 function useTheme() {
   const [theme, setTheme] = useState(() => {
@@ -63,6 +64,9 @@ function Sidebar() {
             <div className="nav-group">TEDARİK</div>
             <NavLink to="/malzemeler" className={({ isActive }) => (isActive ? 'active' : '')}>
               Malzeme Listesi
+            </NavLink>
+            <NavLink to="/depo" className={({ isActive }) => (isActive ? 'active' : '')}>
+              Depo &amp; Stok
             </NavLink>
             <NavLink to="/saticilar" className={({ isActive }) => (isActive ? 'active' : '')}>
               Satıcılar
@@ -198,6 +202,7 @@ function Shell() {
               <Route path="/is-takibi" element={<WorkTracking />} />
               <Route path="/guzergah" element={<Navigate to="/is-takibi" replace />} />
               <Route path="/kamulastirma" element={<Kamulastirma />} />
+              <Route path="/depo" element={<Depo />} />
               <Route path="/hakedisler" element={<ProgressPayments />} />
               <Route path="/kesif" element={<Kesif />} />
               <Route path="/saha" element={<Saha />} />

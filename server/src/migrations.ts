@@ -448,6 +448,33 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+
+  {
+    // Depo & stok: irsaliye ile giriş, şantiyeye sevk, sarfiyat; kalan stok =
+    // giriş − (sevk + sarfiyat). Saha talepleri sevk kaydına bağlanabilir.
+    id: 5,
+    name: 'stock-movements',
+    up: async (c) => {
+      await c.query(`
+        CREATE TABLE IF NOT EXISTS stock_movements (
+          id              SERIAL PRIMARY KEY,
+          project_id      INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+          material_id     INTEGER NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+          movement_type   TEXT NOT NULL DEFAULT 'giris',
+          qty             NUMERIC(14,3) NOT NULL DEFAULT 0,
+          unit            TEXT NOT NULL DEFAULT 'adet',
+          irsaliye_no     TEXT NOT NULL DEFAULT '',
+          supplier_id     INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
+          saha_request_id INTEGER REFERENCES saha_requests(id) ON DELETE SET NULL,
+          note            TEXT NOT NULL DEFAULT '',
+          created_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_stock_movements_material ON stock_movements(material_id);
+        CREATE INDEX IF NOT EXISTS idx_stock_movements_project ON stock_movements(project_id);
+      `);
+    },
+  },
 ];
 
 /** Bekleyen migrasyonları sırayla uygular. */
