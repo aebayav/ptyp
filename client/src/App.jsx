@@ -20,6 +20,7 @@ import Kamulastirma from './pages/Kamulastirma';
 import Depo from './pages/Depo';
 import Planlama from './pages/Planlama';
 import FiyatFarki from './pages/FiyatFarki';
+import Isg from './pages/Isg';
 
 function useTheme() {
   const [theme, setTheme] = useState(() => {
@@ -101,6 +102,9 @@ function Sidebar() {
             </NavLink>
             <NavLink to="/gunluk-raporlar" className={({ isActive }) => (isActive ? 'active' : '')}>
               Günlük Raporlar
+            </NavLink>
+            <NavLink to="/isg" className={({ isActive }) => (isActive ? 'active' : '')}>
+              İSG
             </NavLink>
             <NavLink to="/belge-kmz" className={({ isActive }) => (isActive ? 'active' : '')}>
               Belge → KMZ
@@ -218,6 +222,7 @@ function Shell() {
               <Route path="/saha" element={<Saha />} />
               <Route path="/saha/direk/:proje/:direk" element={<Saha />} />
               <Route path="/gunluk-raporlar" element={<DailyReports />} />
+              <Route path="/isg" element={<Isg />} />
               <Route path="/belge-kmz" element={<DocumentKmz />} />
               <Route path="/kullanicilar" element={<Users />} />
               <Route path="*" element={<Navigate to="/" replace />} />

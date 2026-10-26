@@ -496,6 +496,53 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+
+  {
+    // İSG: toolbox eğitimleri, ramak kala / kaza kayıtları, personel sertifikaları.
+    id: 7,
+    name: 'safety',
+    up: async (c) => {
+      await c.query(`
+        CREATE TABLE IF NOT EXISTS safety_trainings (
+          id              SERIAL PRIMARY KEY,
+          project_id      INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          training_date   DATE NOT NULL DEFAULT CURRENT_DATE,
+          topic           TEXT NOT NULL,
+          attendees       INTEGER NOT NULL DEFAULT 0,
+          notes           TEXT NOT NULL DEFAULT '',
+          created_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_safety_trainings_project ON safety_trainings(project_id);
+
+        CREATE TABLE IF NOT EXISTS safety_incidents (
+          id            SERIAL PRIMARY KEY,
+          project_id    INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          incident_date DATE NOT NULL DEFAULT CURRENT_DATE,
+          incident_type TEXT NOT NULL DEFAULT 'ramak_kala',
+          severity      TEXT NOT NULL DEFAULT 'hafif',
+          description   TEXT NOT NULL,
+          root_cause    TEXT NOT NULL DEFAULT '',
+          actions       TEXT NOT NULL DEFAULT '',
+          reported_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_safety_incidents_project ON safety_incidents(project_id);
+
+        CREATE TABLE IF NOT EXISTS certifications (
+          id          SERIAL PRIMARY KEY,
+          project_id  INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+          person_name TEXT NOT NULL,
+          cert_type   TEXT NOT NULL,
+          issue_date  DATE,
+          expiry_date DATE,
+          notes       TEXT NOT NULL DEFAULT '',
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_certifications_project ON certifications(project_id);
+      `);
+    },
+  },
 ];
 
 /** Bekleyen migrasyonları sırayla uygular. */
