@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, apiDownload } from '../api';
-import { fmtDate, fmtMoney } from '../utils';
-
-const UNITS = ['adet', 'm', 'km', 'kg', 'ton', 'takım', 'set', 'varil'];
+import { UNITS, fmtDate, fmtMoney, fmtNum, useProjects, ProjectBar } from '../utils';
 
 const SOURCE_TR = {
   excel: 'Excel dosyası',
@@ -12,27 +10,11 @@ const SOURCE_TR = {
   batch: 'Toplu belge (birleştirilmiş)',
 };
 
-function fmtNum(v) {
-  if (v === null || v === undefined || v === '' || Number.isNaN(Number(v))) return '—';
-  return Number(v).toLocaleString('tr-TR', { maximumFractionDigits: 3 });
-}
-
 export default function Kesif() {
-  const [projects, setProjects] = useState([]);
-  const [projectId, setProjectId] = useState(null);
+  const { projects, projectId, setProjectId } = useProjects();
   const [data, setData] = useState(null); // { project_name, dtl, summary, items }
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
-
-  useEffect(() => {
-    api
-      .get('/api/projects')
-      .then((p) => {
-        setProjects(p);
-        setProjectId(p[0]?.id ?? null);
-      })
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     if (projectId == null) return;
@@ -139,18 +121,7 @@ export default function Kesif() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
-        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>
-          PROJE:
-        </span>
-        <select value={projectId ?? ''} onChange={(e) => setProjectId(Number(e.target.value))}>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <ProjectBar projects={projects} projectId={projectId} onChange={setProjectId} />
 
       {msg && (
         <div className={msg.type === 'ok' ? 'notice-banner' : 'form-error'} style={{ marginBottom: 12 }}>

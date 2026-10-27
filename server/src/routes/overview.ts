@@ -9,7 +9,7 @@ const router = Router();
 router.use(requireAuth, requireRole('owner'));
 
 router.get('/overview', async (_req: Request, res: Response) => {
-  const [m, s, q, rq, wq, bt, prog, late, open, sp] = await Promise.all([
+  const [m, s, q, rq, wq, bt, prog, late, open, sp, sr, par, cert] = await Promise.all([
     pool.query('SELECT COUNT(*)::int AS c FROM materials'),
     pool.query('SELECT COUNT(*)::int AS c FROM suppliers'),
     pool.query('SELECT COUNT(*)::int AS c FROM quotes'),
@@ -19,9 +19,7 @@ router.get('/overview', async (_req: Request, res: Response) => {
     ),
     pool.query('SELECT COALESCE(SUM(x.p), 0) AS t FROM (SELECT MIN(price) AS p FROM quotes GROUP BY material_id) x'),
     pool.query('SELECT COALESCE(SUM(progress * weight), 0) AS num, COALESCE(SUM(weight), 0) AS den FROM work_groups'),
-    pool.query(
-      `SELECT COUNT(*)::int AS c FROM tasks WHERE ${LATE_TASK_SQL}`
-    ),
+    pool.query(`SELECT COUNT(*)::int AS c FROM tasks t WHERE ${LATE_TASK_SQL}`),
     pool.query(`SELECT COUNT(*)::int AS c FROM tasks WHERE status != 'done'`),
     pool.query(
       `SELECT COALESCE(SUM(CASE s.status
@@ -33,6 +31,9 @@ router.get('/overview', async (_req: Request, res: Response) => {
        FROM poles p
        LEFT JOIN pole_status s ON s.project_id = p.project_id AND s.pole_idx = p.idx`
     ),
+    pool.query(`SELECT COUNT(*)::int AS c FROM saha_requests WHERE status = 'open'`),
+    pool.query(`SELECT COUNT(*)::int AS c FROM parcels WHERE easement_status = 'izinsiz'`),
+    pool.query(`SELECT COUNT(*)::int AS c FROM certifications WHERE expiry_date IS NOT NULL AND expiry_date <= CURRENT_DATE + 30`),
   ]);
   const saha = sp.rows[0];
 
@@ -57,6 +58,9 @@ router.get('/overview', async (_req: Request, res: Response) => {
     openTasks: open.rows[0].c,
     sahaProgress: saha.cnt > 0 ? Math.round((Number(saha.num) / saha.cnt) * 10) / 10 : 0,
     sahaPoles: saha.cnt,
+    openSahaRequests: sr.rows[0].c,
+    unpermittedParcels: par.rows[0].c,
+    expiringCerts: cert.rows[0].c,
   });
 });
 

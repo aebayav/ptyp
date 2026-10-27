@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
-import { fmtDate, fmtMoney } from '../utils';
+import { fmtDate, fmtMoney, useProjects } from '../utils';
 import Modal from '../components/Modal';
 
 const STATUS_META = {
@@ -11,8 +11,7 @@ const STATUS_META = {
 };
 
 export default function ProgressPayments() {
-  const [projects, setProjects] = useState([]);
-  const [projectId, setProjectId] = useState(null);
+  const { projects, projectId, setProjectId } = useProjects();
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -25,17 +24,6 @@ export default function ProgressPayments() {
   const [form, setForm] = useState({ period_label: '', notes: '', items: [] });
   const [formError, setFormError] = useState(null);
   const [saving, setSaving] = useState(false);
-
-  async function loadProjects() {
-    try {
-      const p = await api.get('/api/projects');
-      setProjects(p);
-      setProjectId((prev) => (p.some((x) => x.id === prev) ? prev : (p[0]?.id ?? null)));
-    } catch (e) {
-      setError(e.message);
-      setLoading(false);
-    }
-  }
 
   async function loadPayments() {
     if (projectId == null) {
@@ -53,10 +41,6 @@ export default function ProgressPayments() {
       setLoading(false);
     }
   }
-
-  useEffect(() => {
-    loadProjects();
-  }, []);
 
   useEffect(() => {
     loadPayments();

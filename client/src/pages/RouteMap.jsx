@@ -1,35 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, apiDownload, getToken } from '../api';
-import { fmtDate, okumaBilgisi } from '../utils';
-
-let leafletLoaded = false;
-
-function loadLeaflet() {
-  return new Promise((resolve, reject) => {
-    if (window.L) return resolve(window.L);
-    if (leafletLoaded) {
-      // yükleniyor — kısa bekle
-      setTimeout(() => {
-        if (window.L) resolve(window.L);
-        else reject(new Error('Harita kütüphanesi yüklenemedi.'));
-      }, 2000);
-      return;
-    }
-    leafletLoaded = true;
-    const css = document.createElement('link');
-    css.rel = 'stylesheet';
-    css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    document.head.appendChild(css);
-    const js = document.createElement('script');
-    js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    js.onload = () => resolve(window.L);
-    js.onerror = () => {
-      leafletLoaded = false;
-      reject(new Error('Harita kütüphanesi yüklenemedi (internet gerekli).'));
-    };
-    document.head.appendChild(js);
-  });
-}
+import { api, apiDownload, postParse } from '../api';
+import { fmtDate, loadLeaflet, okumaBilgisi } from '../utils';
 
 const SEGMENT_COLORS = { pending: '#8a97a5', active: '#2b6cb0', completed: '#2f855a' };
 
@@ -168,13 +139,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
     fd.append('project_id', projectId);
     fd.append('file', refFile);
     try {
-      const res = await fetch('/api/kmz-generator/calibrate', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + getToken() },
-        body: fd,
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d.error || 'Kalibrasyon başarısız.');
+      const d = await api.upload('/api/kmz-generator/calibrate', fd);
       setUploadMsg({
         type: 'ok',
         text: `Hizalama tamam: +${d.northM} m kuzey, +${d.eastM} m doğu — ${d.matched} eşleşme, ${d.applied} direk kaydırıldı. Yeni belge dönüşümlerinde bu ofset otomatik uygulanır.`,
@@ -220,13 +185,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
     fd.append('project_id', projectId);
     fd.append('file', file);
     try {
-      const res = await fetch('/api/poles/upload', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + getToken() },
-        body: fd,
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d.error || 'Yükleme başarısız.');
+      const d = await api.upload('/api/poles/upload', fd);
       setUploadMsg({
         type: 'ok',
         text:
@@ -254,13 +213,7 @@ export default function RouteMap({ embedded = false, projectId = null }) {
     fd.append('file', genFile);
     fd.append('tm3_cm', utmZone === '0' ? 0 : utmZone);
     try {
-      const res = await fetch('/api/kmz-generator/parse', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + getToken() },
-        body: fd,
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d.error || 'Dönüştürme başarısız.');
+      const d = await postParse(fd);
       setGenResult(d);
       setUploadMsg({
         type: 'ok',

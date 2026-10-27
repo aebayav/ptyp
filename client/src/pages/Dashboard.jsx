@@ -47,7 +47,7 @@ export default function Dashboard() {
     return (
       <div>
         <div className="page-head"><h1>Genel Bakış</h1></div>
-        <div className="empty"><span className="empty-ico"></span>Yükleniyor…</div>
+        <div className="empty">Yükleniyor…</div>
       </div>
     );
   }
@@ -69,22 +69,18 @@ export default function Dashboard() {
 
       <div className="grid-cards">
         <div className="stat-card">
-          <div className="stat-ico"></div>
           <div className="stat-value">{overview.materials}</div>
           <div className="stat-label">Toplam Malzeme</div>
         </div>
         <div className="stat-card">
-          <div className="stat-ico"></div>
           <div className="stat-value">{overview.suppliers}</div>
           <div className="stat-label">Kayıtlı Satıcı</div>
         </div>
         <div className="stat-card">
-          <div className="stat-ico"></div>
           <div className="stat-value">{overview.quotes}</div>
           <div className="stat-label">Alınan Teklif</div>
         </div>
         <div className="stat-card warn">
-          <div className="stat-ico"></div>
           <div className="stat-value">{overview.requested}</div>
           <div className="stat-label">Bekleyen Teklif</div>
         </div>
@@ -92,18 +88,15 @@ export default function Dashboard() {
 
       <div className="grid-cards">
         <div className="stat-card accent">
-          <div className="stat-ico"></div>
           <div className="stat-value">{fmtMoney(overview.bestTotal)}</div>
           <div className="stat-label">En İyi Teklifler Toplamı (her malzemenin en düşük fiyatı)</div>
         </div>
         <div className="stat-card">
-          <div className="stat-ico"></div>
           <div className="stat-value">{overview.withoutQuotes}</div>
           <div className="stat-label">Henüz Teklif Alınmamış Malzeme</div>
         </div>
         <Link to="/saha" style={{ textDecoration: 'none', color: 'inherit' }}>
           <div className="stat-card accent" style={{ cursor: 'pointer' }}>
-            <div className="stat-ico"></div>
             <div className="stat-value">%{overview.sahaProgress ?? 0}</div>
             <div className="progress-track mini" style={{ marginTop: 8, marginBottom: 4 }}>
               <div className="progress-fill" style={{ width: `${overview.sahaProgress ?? 0}%` }} />
@@ -113,7 +106,6 @@ export default function Dashboard() {
         </Link>
         <Link to="/is-takibi" style={{ textDecoration: 'none', color: 'inherit' }}>
           <div className="stat-card" style={{ cursor: 'pointer' }}>
-            <div className="stat-ico"></div>
             <div className="stat-value">%{overview.overallProgress ?? 0}</div>
             <div className="progress-track mini" style={{ marginTop: 8, marginBottom: 4 }}>
               <div className="progress-fill" style={{ width: `${overview.overallProgress ?? 0}%` }} />
@@ -123,9 +115,29 @@ export default function Dashboard() {
         </Link>
         <Link to="/is-takibi" style={{ textDecoration: 'none', color: 'inherit' }}>
           <div className="stat-card warn" style={{ cursor: 'pointer' }}>
-            <div className="stat-ico"></div>
             <div className="stat-value">{overview.lateTasks ?? 0}</div>
             <div className="stat-label">Geciken Görev · {overview.openTasks ?? 0} açık</div>
+          </div>
+        </Link>
+      </div>
+
+      <div className="grid-cards">
+        <Link to="/saha" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <div className={`stat-card ${overview.openSahaRequests > 0 ? 'warn' : ''}`} style={{ cursor: 'pointer' }}>
+            <div className="stat-value">{overview.openSahaRequests ?? 0}</div>
+            <div className="stat-label">Açık Saha Malzeme Talebi</div>
+          </div>
+        </Link>
+        <Link to="/kamulastirma" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <div className={`stat-card ${overview.unpermittedParcels > 0 ? 'warn' : ''}`} style={{ cursor: 'pointer' }}>
+            <div className="stat-value">{overview.unpermittedParcels ?? 0}</div>
+            <div className="stat-label">İzinsiz Kamulaştırma Parseli</div>
+          </div>
+        </Link>
+        <Link to="/isg" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <div className={`stat-card ${overview.expiringCerts > 0 ? 'warn' : ''}`} style={{ cursor: 'pointer' }}>
+            <div className="stat-value">{overview.expiringCerts ?? 0}</div>
+            <div className="stat-label">Süresi Yaklaşan / Biten Sertifika (≤30 gün)</div>
           </div>
         </Link>
       </div>
@@ -135,9 +147,7 @@ export default function Dashboard() {
           <h3>Son Eklenen Malzemeler</h3>
           {recentMaterials.length === 0 ? (
             <div className="empty">
-              <span className="empty-ico"></span>
-              Henüz malzeme yok.{' '}
-              <Link to="/malzemeler">Malzeme Listesi'nden başlayın </Link>
+              Henüz malzeme yok. <Link to="/malzemeler">Malzeme Listesi'nden başlayın</Link>
             </div>
           ) : (
             <div className="table-wrap" style={{ border: 'none' }}>
@@ -165,10 +175,7 @@ export default function Dashboard() {
         <div className="card">
           <h3>Bekleyen Teklif Talepleri</h3>
           {pendingQuotes.length === 0 ? (
-            <div className="empty">
-              <span className="empty-ico"></span>
-              Bekleyen teklif talebi yok.
-            </div>
+            <div className="empty">Bekleyen teklif talebi yok.</div>
           ) : (
             <div className="table-wrap" style={{ border: 'none' }}>
               <table>

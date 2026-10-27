@@ -2,24 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { api, getToken } from '../api';
 import { useAuth } from '../AuthContext';
-
-// Leaflet'i RouteMap'teki gibi dinamik yükle (yalnız bir kez)
-let leafletReady = null;
-function loadLeaflet() {
-  if (leafletReady) return leafletReady;
-  leafletReady = new Promise((resolve) => {
-    if (window.L) return resolve(window.L);
-    const css = document.createElement('link');
-    css.rel = 'stylesheet';
-    css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    document.head.appendChild(css);
-    const js = document.createElement('script');
-    js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    js.onload = () => resolve(window.L);
-    document.head.appendChild(js);
-  });
-  return leafletReady;
-}
+import { loadLeaflet, useProjects } from '../utils';
 
 // Oturumlu fotoğraf: token ile fetch → blob URL (img etiketi Authorization gönderemez)
 function PhotoImg({ url }) {
@@ -48,8 +31,11 @@ function PhotoImg({ url }) {
 export default function Saha() {
   const { user } = useAuth();
   const isOwner = user?.role === 'owner';
-  const [projects, setProjects] = useState([]);
-  const [projectId, setProjectId] = useState(null);
+  const [params] = useSearchParams();
+  const pathParams = useParams(); // /saha/direk/:proje/:direk (QR akışı — proxy query soyduğu için)
+  const qProje = params.get('proje') ?? pathParams.proje;
+  const focusIdx = params.get('direk') ?? pathParams.direk;
+  const { projects, projectId, setProjectId } = useProjects(qProje);
   const [data, setData] = useState(null); // { project_name, poles, statuses, summary }
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -63,21 +49,6 @@ export default function Saha() {
   const mapInstanceRef = useRef(null);
   const layerRef = useRef(null);
   const fileRef = useRef(null);
-  const [params] = useSearchParams();
-  const pathParams = useParams(); // /saha/direk/:proje/:direk (QR akışı — proxy query soyduğu için)
-  const qProje = params.get('proje') ?? pathParams.proje;
-  const focusIdx = params.get('direk') ?? pathParams.direk;
-
-  useEffect(() => {
-    api
-      .get('/api/projects')
-      .then((p) => {
-        setProjects(p);
-        setProjectId(qProje && p.some((x) => x.id === Number(qProje)) ? Number(qProje) : (p[0]?.id ?? null));
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   async function load() {
     if (projectId == null) return;
@@ -185,11 +156,7 @@ export default function Saha() {
     fd.append('pole_idx', uploadPole);
     for (const f of fileRef.current.files) fd.append('photos', f);
     try {
-      await fetch(`/api/saha/${projectId}/photos`, {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + getToken() },
-        body: fd,
-      });
+      await api.upload(`/api/saha/${projectId}/photos`, fd);
       await load();
       setMsg({ type: 'ok', text: `${pName(uploadPole)} için fotoğraf eklendi.` });
     } catch (e) {

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
+import { api } from './api';
+import Modal from './components/Modal';
 import Dashboard from './pages/Dashboard';
 import Materials from './pages/Materials';
 import Suppliers from './pages/Suppliers';
@@ -48,11 +50,31 @@ function Sidebar() {
   const isOwner = user.role === 'owner';
   const isField = user.role === 'field';
   const [theme, toggleTheme] = useTheme();
+  const [pwOpen, setPwOpen] = useState(false);
+  const [oldPw, setOldPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [pwMsg, setPwMsg] = useState(null);
+  const [pwBusy, setPwBusy] = useState(false);
+
+  async function submitPw(e) {
+    e.preventDefault();
+    setPwBusy(true);
+    setPwMsg(null);
+    try {
+      await api.post('/api/auth/change-password', { old_password: oldPw, new_password: newPw });
+      setPwOpen(false);
+      setOldPw('');
+      setNewPw('');
+    } catch (err) {
+      setPwMsg(err.message);
+    } finally {
+      setPwBusy(false);
+    }
+  }
 
   return (
     <aside className="sidebar">
       <div className="brand">
-        
         <div className="brand-text">
           <h1>PTYP</h1>
           <p>Proje Yönetim Sistemi</p>
@@ -141,7 +163,6 @@ function Sidebar() {
       </nav>
       <div className="sidebar-foot">
         <div className="sidebar-user">
-          <span className="user-ico">{isOwner ? '' : ''}</span>
           <div>
             <div className="user-name">{user.display_name || user.username}</div>
             <div className="user-role">{isOwner ? 'İş Sahibi' : isField ? 'Saha Ekibi' : 'Satıcı'}</div>
@@ -149,6 +170,17 @@ function Sidebar() {
         </div>
         <button className="theme-toggle" onClick={toggleTheme}>
           {theme === 'dark' ? 'Aydınlık Tema' : 'Karanlık Tema'}
+        </button>
+        <button
+          className="theme-toggle"
+          onClick={() => {
+            setOldPw('');
+            setNewPw('');
+            setPwMsg(null);
+            setPwOpen(true);
+          }}
+        >
+          Şifre Değiştir
         </button>
         <button
           className="logout-btn"
@@ -160,6 +192,41 @@ function Sidebar() {
           Çıkış Yap
         </button>
       </div>
+      {pwOpen && (
+        <Modal title="Şifre Değiştir" onClose={() => setPwOpen(false)}>
+          <form onSubmit={submitPw}>
+            {pwMsg && <div className="form-error">{pwMsg}</div>}
+            <div className="field">
+              <label>Mevcut Şifre *</label>
+              <input
+                type="password"
+                value={oldPw}
+                onChange={(e) => setOldPw(e.target.value)}
+                required
+                autoFocus
+              />
+            </div>
+            <div className="field">
+              <label>Yeni Şifre (en az 6 karakter) *</label>
+              <input
+                type="password"
+                minLength={6}
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+                required
+              />
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn" onClick={() => setPwOpen(false)}>
+                Vazgeç
+              </button>
+              <button type="submit" className="btn btn-primary" disabled={pwBusy}>
+                {pwBusy ? 'Kaydediliyor…' : 'Güncelle'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </aside>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import Modal from '../components/Modal';
+import { fmtNum, useProjects, ProjectBar } from '../utils';
 
 const MOVEMENT = {
   giris: { label: 'Giriş', cls: 'badge-green' },
@@ -19,14 +20,8 @@ const EMPTY_FORM = {
   note: '',
 };
 
-function fmt(n) {
-  if (n == null || Number.isNaN(n)) return '—';
-  return Number(n).toLocaleString('tr-TR');
-}
-
 export default function Depo() {
-  const [projects, setProjects] = useState([]);
-  const [projectId, setProjectId] = useState(null);
+  const { projects, projectId, setProjectId } = useProjects();
   const [summary, setSummary] = useState([]);
   const [movements, setMovements] = useState([]);
   const [materials, setMaterials] = useState([]);
@@ -38,13 +33,6 @@ export default function Depo() {
   const [form, setForm] = useState(EMPTY_FORM);
 
   useEffect(() => {
-    api
-      .get('/api/projects')
-      .then((p) => {
-        setProjects(p);
-        setProjectId(p[0]?.id ?? null);
-      })
-      .catch(() => {});
     api
       .get('/api/materials')
       .then((m) => {
@@ -149,18 +137,7 @@ export default function Depo() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
-        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>
-          PROJE:
-        </span>
-        <select value={projectId ?? ''} onChange={(e) => setProjectId(Number(e.target.value))}>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <ProjectBar projects={projects} projectId={projectId} onChange={setProjectId} />
 
       {msg && (
         <div className={msg.type === 'ok' ? 'notice-banner' : 'form-error'} style={{ marginBottom: 12 }}>
@@ -196,11 +173,11 @@ export default function Depo() {
                     <td className="muted">{r.code || '—'}</td>
                     <td style={{ fontWeight: 600 }}>{r.name}</td>
                     <td>{r.unit}</td>
-                    <td className="num muted">{fmt(r.kesif)}</td>
-                    <td className="num">{fmt(r.total_in)}</td>
-                    <td className="num">{fmt(r.total_out)}</td>
+                    <td className="num muted">{fmtNum(r.kesif)}</td>
+                    <td className="num">{fmtNum(r.total_in)}</td>
+                    <td className="num">{fmtNum(r.total_out)}</td>
                     <td className="num" style={{ fontWeight: 700 }}>
-                      {fmt(r.remaining)}
+                      {fmtNum(r.remaining)}
                     </td>
                     <td>{statusBadge(r)}</td>
                   </tr>
@@ -244,7 +221,7 @@ export default function Depo() {
                       </td>
                       <td style={{ fontWeight: 600 }}>{m.material_name}</td>
                       <td className="num">
-                        {fmt(m.qty)} {m.unit}
+                        {fmtNum(m.qty)} {m.unit}
                       </td>
                       <td>{m.irsaliye_no || '—'}</td>
                       <td>{m.supplier_name || '—'}</td>
@@ -313,7 +290,7 @@ export default function Depo() {
                     <option value="">—</option>
                     {requests.map((r) => (
                       <option key={r.id} value={r.id}>
-                        #{r.id} {r.item_name} ({fmt(r.qty)} {r.unit})
+                        #{r.id} {r.item_name} ({fmtNum(r.qty)} {r.unit})
                       </option>
                     ))}
                   </select>

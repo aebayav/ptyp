@@ -571,6 +571,11 @@ tr.best td {
   margin-bottom: 10px;
 }
 
+.empty .empty-ico:empty,
+.stat-card .stat-ico:empty {
+  display: none;
+}
+
 /* ---------- Filtre çubuğu ---------- */
 .toolbar {
   display: flex;

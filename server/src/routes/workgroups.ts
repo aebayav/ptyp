@@ -152,9 +152,9 @@ router.put('/:id', async (req: Request, res: Response) => {
   );
   const cnt = await pool.query(
     `SELECT COUNT(*)::int AS c,
-            COUNT(*) FILTER (WHERE status = 'done')::int AS d,
+            COUNT(*) FILTER (WHERE t.status = 'done')::int AS d,
             COUNT(*) FILTER (WHERE ${LATE_TASK_SQL})::int AS l
-     FROM tasks WHERE work_group_id = $1`,
+     FROM tasks t WHERE t.work_group_id = $1`,
     [id]
   );
   res.json({ ...rows[0], task_count: cnt.rows[0].c, done_count: cnt.rows[0].d, late_count: cnt.rows[0].l });

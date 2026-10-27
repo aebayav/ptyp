@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
-import { fmtDate } from '../utils';
+import { fmtDate, today, useProjects } from '../utils';
 import Modal from '../components/Modal';
 
 const WEATHER_LABELS = {
@@ -42,14 +42,8 @@ const EMPTY_REPORT = {
   equipment: [],
 };
 
-function today() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 export default function DailyReports() {
-  const [projects, setProjects] = useState([]);
-  const [projectId, setProjectId] = useState(null);
+  const { projects, projectId, setProjectId } = useProjects();
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -59,17 +53,6 @@ export default function DailyReports() {
   const [form, setForm] = useState(EMPTY_REPORT);
   const [formError, setFormError] = useState(null);
   const [saving, setSaving] = useState(false);
-
-  async function loadProjects() {
-    try {
-      const p = await api.get('/api/projects');
-      setProjects(p);
-      setProjectId((prev) => (p.some((x) => x.id === prev) ? prev : p[0]?.id ?? null));
-    } catch (e) {
-      setError(e.message);
-      setLoading(false);
-    }
-  }
 
   async function loadReports() {
     if (projectId == null) {
@@ -86,10 +69,6 @@ export default function DailyReports() {
       setLoading(false);
     }
   }
-
-  useEffect(() => {
-    loadProjects();
-  }, []);
 
   useEffect(() => {
     loadReports();

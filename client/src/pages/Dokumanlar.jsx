@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { api } from '../api';
-import { fmtDate } from '../utils';
+import { api, apiDownload } from '../api';
+import { fmtDate, useProjects, ProjectBar } from '../utils';
 
 const CATEGORIES = {
   pafta: 'Pafta / Çizim',
@@ -17,23 +17,12 @@ const CATEGORY_BADGE = {
 };
 
 export default function Dokumanlar() {
-  const [projects, setProjects] = useState([]);
-  const [projectId, setProjectId] = useState(null);
+  const { projects, projectId, setProjectId } = useProjects();
   const [docs, setDocs] = useState([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [form, setForm] = useState({ title: '', category: 'pafta', revision: 'R0', notes: '' });
   const fileRef = useRef(null);
-
-  useEffect(() => {
-    api
-      .get('/api/projects')
-      .then((p) => {
-        setProjects(p);
-        setProjectId(p[0]?.id ?? null);
-      })
-      .catch(() => {});
-  }, []);
 
   async function load() {
     if (projectId == null) return;
@@ -68,13 +57,7 @@ export default function Dokumanlar() {
     fd.append('file', file);
     setBusy(true);
     try {
-      const res = await fetch('/api/documents', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + localStorage.getItem('ptyp_token') },
-        body: fd,
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d.error || 'Yükleme başarısız.');
+      await api.upload('/api/documents', fd);
       setForm({ title: '', category: 'pafta', revision: 'R0', notes: '' });
       fileRef.current.value = '';
       await load();
@@ -88,19 +71,7 @@ export default function Dokumanlar() {
 
   async function download(doc) {
     try {
-      const res = await fetch(`/api/documents/${doc.id}/download`, {
-        headers: { Authorization: 'Bearer ' + localStorage.getItem('ptyp_token') },
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || 'İndirme başarısız.');
-      }
-      const blob = await res.blob();
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = doc.file_name;
-      a.click();
-      URL.revokeObjectURL(a.href);
+      await apiDownload(`/api/documents/${doc.id}/download`, doc.file_name);
     } catch (e) {
       setMsg({ type: 'err', text: e.message });
     }
@@ -125,18 +96,7 @@ export default function Dokumanlar() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
-        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>
-          PROJE:
-        </span>
-        <select value={projectId ?? ''} onChange={(e) => setProjectId(Number(e.target.value))}>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <ProjectBar projects={projects} projectId={projectId} onChange={setProjectId} />
 
       {msg && (
         <div className={msg.type === 'ok' ? 'notice-banner' : 'form-error'} style={{ marginBottom: 12 }}>

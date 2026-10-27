@@ -96,9 +96,9 @@ router.get('/quotes', async (_req: Request, res: Response) => {
 
   // Karşılaştırma: malzeme başına en düşük teklif + hedef farkı
   const mats = await pool.query(`
-    SELECT m.code, m.name, m.target_price
-    FROM materials m LEFT JOIN quotes q ON q.material_id = m.id
-    GROUP BY m.id ORDER BY m.code
+    SELECT id, code, name, target_price
+    FROM materials
+    ORDER BY code
   `);
   const best = await pool.query(`
     SELECT DISTINCT ON (material_id) material_id, supplier_id, price, currency

@@ -1,36 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
-import { fmtDate } from '../utils';
+import { fmtDate, useProjects, ProjectBar } from '../utils';
 
 const W = 820;
 const H = 300;
 const PAD = { l: 46, r: 16, t: 18, b: 30 };
 
 export default function Planlama() {
-  const [projects, setProjects] = useState([]);
-  const [projectId, setProjectId] = useState(null);
+  const { projects, projectId, setProjectId } = useProjects();
   const [data, setData] = useState(null);
   const [msg, setMsg] = useState(null);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    api
-      .get('/api/projects')
-      .then((p) => {
-        setProjects(p);
-        setProjectId(p[0]?.id ?? null);
-      })
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     if (projectId == null) return;
-    setBusy(true);
     api
       .get(`/api/planning?project_id=${projectId}`)
       .then(setData)
-      .catch((e) => setMsg({ type: 'err', text: e.message }))
-      .finally(() => setBusy(false));
+      .catch((e) => setMsg({ type: 'err', text: e.message }));
   }, [projectId]);
 
   const chart = useMemo(() => {
@@ -68,18 +54,7 @@ export default function Planlama() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
-        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>
-          PROJE:
-        </span>
-        <select value={projectId ?? ''} onChange={(e) => setProjectId(Number(e.target.value))}>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <ProjectBar projects={projects} projectId={projectId} onChange={setProjectId} />
 
       {msg && (
         <div className="form-error" style={{ marginBottom: 12 }}>

@@ -1,29 +1,18 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import Modal from '../components/Modal';
-import { fmtDate } from '../utils';
+import { fmtDate, today, useProjects, ProjectBar } from '../utils';
 
 const INCIDENT_TR = { ramak_kala: 'Ramak Kala', kaza: 'Kaza' };
 const SEVERITY_TR = { hafif: 'Hafif', orta: 'Orta', agir: 'Ağır' };
 
 export default function Isg() {
-  const [projects, setProjects] = useState([]);
-  const [projectId, setProjectId] = useState(null);
+  const { projects, projectId, setProjectId } = useProjects();
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [modal, setModal] = useState(null); // 'training' | 'incident' | 'cert' | null
   const [form, setForm] = useState({});
-
-  useEffect(() => {
-    api
-      .get('/api/projects')
-      .then((p) => {
-        setProjects(p);
-        setProjectId(p[0]?.id ?? null);
-      })
-      .catch(() => {});
-  }, []);
 
   async function load() {
     if (projectId == null) return;
@@ -45,7 +34,13 @@ export default function Isg() {
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   function open(kind) {
-    setForm(kind === 'training' ? { topic: '', attendees: 0, training_date: '', notes: '' } : kind === 'incident' ? { incident_type: 'ramak_kala', severity: 'hafif', incident_date: '', description: '', root_cause: '', actions: '' } : { person_name: '', cert_type: 'Yüksekte Çalışma', issue_date: '', expiry_date: '', notes: '' });
+    setForm(
+      kind === 'training'
+        ? { topic: '', attendees: 0, training_date: today(), notes: '' }
+        : kind === 'incident'
+          ? { incident_type: 'ramak_kala', severity: 'hafif', incident_date: today(), description: '', root_cause: '', actions: '' }
+          : { person_name: '', cert_type: 'Yüksekte Çalışma', issue_date: '', expiry_date: '', notes: '' }
+    );
     setModal(kind);
   }
 
@@ -98,23 +93,13 @@ export default function Isg() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
-        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>
-          PROJE:
-        </span>
-        <select value={projectId ?? ''} onChange={(e) => setProjectId(Number(e.target.value))}>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+      <ProjectBar projects={projects} projectId={projectId} onChange={setProjectId}>
         {data && (
           <span className="muted" style={{ fontSize: 12 }}>
             ({data.counts.trainings} eğitim · {data.counts.ramak_kala} ramak kala · {data.counts.kaza} kaza)
           </span>
         )}
-      </div>
+      </ProjectBar>
 
       {msg && (
         <div className={msg.type === 'ok' ? 'notice-banner' : 'form-error'} style={{ marginBottom: 12 }}>

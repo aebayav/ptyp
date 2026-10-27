@@ -1,15 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import Modal from '../components/Modal';
-
-function fmtMoney(n) {
-  if (n == null || Number.isNaN(Number(n))) return '—';
-  return Number(n).toLocaleString('tr-TR', { maximumFractionDigits: 2 }) + ' ₺';
-}
+import { fmtMoney, useProjects, ProjectBar } from '../utils';
 
 export default function FiyatFarki() {
-  const [projects, setProjects] = useState([]);
-  const [projectId, setProjectId] = useState(null);
+  const { projects, projectId, setProjectId } = useProjects();
   const [indices, setIndices] = useState([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -24,16 +19,6 @@ export default function FiyatFarki() {
   const [amount, setAmount] = useState('');
   const [result, setResult] = useState(null);
   const [calcErr, setCalcErr] = useState(null);
-
-  useEffect(() => {
-    api
-      .get('/api/projects')
-      .then((p) => {
-        setProjects(p);
-        setProjectId(p[0]?.id ?? null);
-      })
-      .catch(() => {});
-  }, []);
 
   async function load() {
     if (projectId == null) return;
@@ -137,18 +122,7 @@ export default function FiyatFarki() {
         </button>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
-        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>
-          PROJE:
-        </span>
-        <select value={projectId ?? ''} onChange={(e) => setProjectId(Number(e.target.value))}>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <ProjectBar projects={projects} projectId={projectId} onChange={setProjectId} />
 
       {msg && (
         <div className={msg.type === 'ok' ? 'notice-banner' : 'form-error'} style={{ marginBottom: 12 }}>

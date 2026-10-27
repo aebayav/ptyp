@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, apiDownload } from '../api';
-import { fmtDate, StatusBadge } from '../utils';
+import { fmtDate, today, useProjects, StatusBadge } from '../utils';
 import Modal from '../components/Modal';
 import RouteMap from './RouteMap';
 
@@ -11,12 +11,10 @@ const GROUP_STATUS = {
   completed: { label: 'Tamamlandı', cls: 'badge-green' },
 };
 
-const PROJ_ICONS = { enh: '', tm: '', ges: '', res: '' };
-
 const TASK_STATUS = {
   todo: { label: 'Yapılacak', cls: 'badge-gray' },
   in_progress: { label: 'Devam Ediyor', cls: 'badge-blue' },
-  done: { label: 'Tamamlandı ', cls: 'badge-green' },
+  done: { label: 'Tamamlandı', cls: 'badge-green' },
 };
 
 const PRIORITY = {
@@ -36,11 +34,6 @@ const EMPTY_TASK = {
   assignee_id: '', due_date: '', status: 'todo', priority: 'normal',
 };
 
-function today() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 function ProgressBar({ value, mini }) {
   const v = Math.min(100, Math.max(0, Number(value) || 0));
   return (
@@ -52,6 +45,7 @@ function ProgressBar({ value, mini }) {
 }
 
 export default function WorkTracking() {
+  const { projects, projectId, setProjectId, reloadProjects: loadProjects } = useProjects();
   const [groups, setGroups] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [users, setUsers] = useState([]);
@@ -61,8 +55,6 @@ export default function WorkTracking() {
   const [groupModal, setGroupModal] = useState(null);
   const [taskModal, setTaskModal] = useState(null);
   const [tab, setTab] = useState('plan');
-  const [projects, setProjects] = useState([]);
-  const [projectId, setProjectId] = useState(null);
   const [projModal, setProjModal] = useState(null);
   const [projName, setProjName] = useState('');
   const [projType, setProjType] = useState('enh');
@@ -75,17 +67,6 @@ export default function WorkTracking() {
   const [tForm, setTForm] = useState(EMPTY_TASK);
   const [formError, setFormError] = useState(null);
   const [saving, setSaving] = useState(false);
-
-  async function loadProjects() {
-    try {
-      const p = await api.get('/api/projects');
-      setProjects(p);
-      setProjectId((prev) => (p.some((x) => x.id === prev) ? prev : (p[0]?.id ?? null)));
-    } catch (e) {
-      setError(e.message);
-      setLoading(false);
-    }
-  }
 
   async function load() {
     if (projectId == null) {
@@ -109,10 +90,6 @@ export default function WorkTracking() {
       setLoading(false);
     }
   }
-
-  useEffect(() => {
-    loadProjects();
-  }, []);
 
   useEffect(() => {
     load();
@@ -387,7 +364,7 @@ export default function WorkTracking() {
         <select value={projectId ?? ''} onChange={(e) => setProjectId(Number(e.target.value))}>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
-              {PROJ_ICONS[p.type] || ''} {p.name} — {p.pole_count} direk · {p.group_count} grup
+              {p.name} — {p.pole_count} direk · {p.group_count} grup
             </option>
           ))}
         </select>

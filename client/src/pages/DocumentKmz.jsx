@@ -1,55 +1,9 @@
-import { useEffect, useState } from 'react';
-import { api, apiDownload, getToken } from '../api';
-import { okumaBilgisi } from '../utils';
-
-// POST ile dosya indirme (Bearer token ile blob)
-async function postDownload(path, body, filename) {
-  const res = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + getToken() },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const d = await res.json().catch(() => ({}));
-    throw new Error(d.error || 'İndirme başarısız.');
-  }
-  const blob = await res.blob();
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-// /parse artık uzun işler (OCR) için 202 + job_id döner — panel proxy ~60-70 sn'den
-// uzun istekleri kestiği için iş arka planda koşar, bu yardımcı yoklayıp sonucu bekler.
-async function postParse(fd, onProgress) {
-  const res = await fetch('/api/kmz-generator/parse', {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + getToken() },
-    body: fd,
-  });
-  const j = await res.json().catch(() => ({}));
-  if (res.ok && j.job_id) {
-    const t0 = Date.now();
-    for (;;) {
-      await sleep(2000);
-      const s = await api.get(`/api/kmz-generator/job/${j.job_id}`);
-      if (onProgress) onProgress(s);
-      if (s.status === 'done') return s.result;
-      if (s.status === 'error') throw new Error(s.error || 'İşlem başarısız.');
-      if (Date.now() - t0 > 25 * 60 * 1000) throw new Error('İşlem çok uzun sürdü; lütfen tekrar deneyin.');
-    }
-  }
-  if (!res.ok) throw new Error(j.error || 'Okuma başarısız.');
-  return j;
-}
+import { useState } from 'react';
+import { api, apiDownload, apiPostDownload, postParse } from '../api';
+import { okumaBilgisi, useProjects } from '../utils';
 
 export default function DocumentKmz() {
-  const [projects, setProjects] = useState([]);
-  const [projectId, setProjectId] = useState(null);
+  const { projects, projectId, setProjectId } = useProjects();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [file, setFile] = useState(null);
@@ -60,15 +14,6 @@ export default function DocumentKmz() {
   const [utmZone, setUtmZone] = useState('0'); // her zaman otomatik algıla (il tablosu + doğrulama)
   const [batchProgress, setBatchProgress] = useState(null); // {done, total, log: [], live}
   const [live, setLive] = useState(null); // tek dosya için canlı OCR ilerlemesi
-
-  useEffect(() => {
-    api.get('/api/projects')
-      .then((p) => {
-        setProjects(p);
-        setProjectId(p[0]?.id ?? null);
-      })
-      .catch(() => {});
-  }, []);
 
   function removeFile(i) {
     setFiles((prev) => {
@@ -351,7 +296,7 @@ export default function DocumentKmz() {
 
   async function downloadExcel() {
     try {
-      await postDownload('/api/kmz-generator/export-rows', { poles: rows }, 'direkler-duzeltilmis.xlsx');
+      await apiPostDownload('/api/kmz-generator/export-rows', { poles: rows }, 'direkler-duzeltilmis.xlsx');
     } catch (e) {
       setMsg({ type: 'err', text: e.message });
     }

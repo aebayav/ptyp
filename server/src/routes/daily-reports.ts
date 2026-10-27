@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { requireAuth, requireRole, AuthedRequest } from '../auth';
+import { toDateOrNull } from '../dates';
 
 const router = Router();
 
@@ -47,7 +48,8 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 // Create report
 router.post('/', async (req: AuthedRequest, res: Response) => {
-  const { project_id, report_date, weather, temperature, work_summary, issues, crew, equipment } = req.body;
+  const { project_id, weather, temperature, work_summary, issues, crew, equipment } = req.body;
+  const report_date = toDateOrNull(req.body?.report_date, 'rapor tarihi');
 
   if (!Number.isInteger(project_id) || project_id <= 0) return res.status(400).json({ error: 'Geçerli bir proje seçin.' });
   if (!report_date) return res.status(400).json({ error: 'Tarih zorunludur.' });
@@ -109,7 +111,8 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
 // Update report
 router.put('/:id', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
-  const { report_date, weather, temperature, work_summary, issues, crew, equipment } = req.body;
+  const { weather, temperature, work_summary, issues, crew, equipment } = req.body;
+  const report_date = toDateOrNull(req.body?.report_date, 'rapor tarihi');
 
   const existing = await pool.query('SELECT * FROM daily_reports WHERE id = $1', [id]);
   if (existing.rowCount === 0) return res.status(404).json({ error: 'Rapor bulunamadı.' });

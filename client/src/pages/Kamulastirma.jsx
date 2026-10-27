@@ -1,23 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import Modal from '../components/Modal';
-
-let leafletReady = null;
-function loadLeaflet() {
-  if (leafletReady) return leafletReady;
-  leafletReady = new Promise((resolve) => {
-    if (window.L) return resolve(window.L);
-    const css = document.createElement('link');
-    css.rel = 'stylesheet';
-    css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    document.head.appendChild(css);
-    const js = document.createElement('script');
-    js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    js.onload = () => resolve(window.L);
-    document.head.appendChild(js);
-  });
-  return leafletReady;
-}
+import { loadLeaflet, useProjects, ProjectBar } from '../utils';
 
 const EASEMENT = {
   belirsiz: { label: 'Belirsiz', color: '#94a3b8' },
@@ -45,8 +29,7 @@ const EMPTY_FORM = {
 };
 
 export default function Kamulastirma() {
-  const [projects, setProjects] = useState([]);
-  const [projectId, setProjectId] = useState(null);
+  const { projects, projectId, setProjectId } = useProjects();
   const [poles, setPoles] = useState([]);
   const [parcels, setParcels] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -57,16 +40,6 @@ export default function Kamulastirma() {
   const mapDivRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const layerRef = useRef(null);
-
-  useEffect(() => {
-    api
-      .get('/api/projects')
-      .then((p) => {
-        setProjects(p);
-        setProjectId(p[0]?.id ?? null);
-      })
-      .catch(() => {});
-  }, []);
 
   async function load() {
     if (projectId == null) return;
@@ -218,21 +191,11 @@ export default function Kamulastirma() {
         </button>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
-        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>
-          PROJE:
-        </span>
-        <select value={projectId ?? ''} onChange={(e) => setProjectId(Number(e.target.value))}>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+      <ProjectBar projects={projects} projectId={projectId} onChange={setProjectId}>
         <span className="muted" style={{ fontSize: 12 }}>
           ({poles.length} direk · {Math.max(0, poles.length - 1)} açıklık)
         </span>
-      </div>
+      </ProjectBar>
 
       {msg && (
         <div className={msg.type === 'ok' ? 'notice-banner' : 'form-error'} style={{ marginBottom: 12 }}>
