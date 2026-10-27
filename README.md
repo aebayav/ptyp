@@ -38,6 +38,20 @@ Tedarikçiler kendi portalında yalnızca açık malzemeleri ve kendi teklifleri
 5. Düzeltilebilir tablo → KMZ üretimi + projeye kayıt. Toplu yüklemede tüm dosyaların DTL satırları birleştirilir.
 6. **Keşif**: DTL'den otomatik BOQ kalemleri üretilir — direk tipi adetleri, hat uzunluğu, iletken miktarı (kg/m), izolatör takımları. Kalemler düzenlenebilir, birim fiyat girilebilir, Excel'e aktarılabilir.
 
+## CI/CD (GitHub Actions)
+
+`.github/workflows/ci-cd.yml`:
+
+- **Her push / PR'de:** bağımlılıklar (`npm ci`), vitest testleri (parser + tip eşleştirme + DATE regresyonları), server + client build.
+- **main'e push'ta (testler geçerse):** Turguz VPS'e dağıtım — `git reset --hard origin/main` → `npm run build` → `sudo -n systemctl restart ptyp` → `is-active` sağlık kontrolü.
+
+Gereksinimler:
+
+1. GitHub repo ayarları → Secrets and variables → Actions → **`DEPLOY_SSH_KEY`** sırrı: `C:\Users\abaya\.ssh\id_ed25519` dosyasının içeriği (jump-host'a kayıtlı anahtar; şifresiz olmalı).
+2. Sunucuda `/etc/sudoers.d/ptyp-ci` — `turguz` kullanıcısına yalnızca `systemctl restart/is-active ptyp` için NOPASSWD yetkisi (dar kapsam, `visudo -c` ile doğrulanmış).
+
+Sır tanımlı değilken dağıtım adımı sessizce atlanır (testler yine koşar); sır eklendikten sonraki ilk push tam döngüyü çalıştırır.
+
 ## Proje yapısı
 
 ```

@@ -1,0 +1,86 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
+
+      - name: Bağımlılıklar — server
+        run: npm --prefix server ci --no-audit --no-fund
+
+      - name: Testler (vitest — parser, tip eşleştirme, DATE regresyonları)
+        run: npm --prefix server run test
+
+      - name: Bağımlılıklar — client
+        run: npm --prefix client ci --no-audit --no-fund
+
+      - name: Build (server tsc + client vite)
+        run: npm run build
+
+  deploy:
+    name: Deploy (Turguz VPS)
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      # Sır yoksa dağıtım sessizce atlanır (ilk kuruluma kadar kırmızı X önlenir)
+      - id: check
+        name: Dağıtım anahtarı var mı?
+        run: |
+          if [ -n "$SSH_KEY" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - uses: webfactory/ssh-agent@v0.9.0
+        if: steps.check.outputs.ready == 'true'
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Bilinen ana bilgisayarlar (jump + VPS)
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ssh.turguz.app >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H 162.55.66.41 >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Dağıt — git pull, build, restart, sağlık kontrolü
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          ssh -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+            -J ssh.turguz.app turguz@ptyp 'set -e
+          cd ~/ptyp
+          git fetch -q origin
+          git reset --hard origin/main -q
+          git log --oneline -1
+          npm run build
+          sudo -n systemctl restart ptyp
+          sleep 12
+          systemctl is-active ptyp'
+
+      - name: Anahtar yok — dağıtım atlandı
+        if: steps.check.outputs.ready == 'false'
+        run: echo "DEPLOY_SSH_KEY sırrı tanımlı değil; testler geçti, dağıtım atlandı. Repo ayarları → Secrets → Actions → DEPLOY_SSH_KEY."
