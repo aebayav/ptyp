@@ -303,21 +303,36 @@ class PreparedPage:
     v_row: np.ndarray | None = None  # her y satırındaki dikey tablo çizgisi piksel sayısı
 
 
-def auto_orient_page(img: np.ndarray) -> np.ndarray:
-    """Dikey (portre, h > w) taranmış yatay DTL tablolarını otomatik 90° döndürür.
-    Düz DTL sayfasında çok sütunlu tablo ızgarası üst/orta bölgede (0.20..0.55 H),
-    az dikey çizgili imza bloğu ise alt bölgede (0.80..0.95 H) yer alır."""
+def detect_auto_rotation(img: np.ndarray) -> int:
+    """Dikey (portre, h > w) taranmış yatay DTL tabloları için önerilen saat yönü açısı (0, 90, 270)."""
     h, w = img.shape[:2]
     if h <= w * 1.05:
-        return img
+        return 0
     ccw = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    cw = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
     _, v_ccw = ruling_masks(binarize(_to_gray(ccw)))
     v_row = (v_ccw > 0).sum(axis=1)
     H = len(v_row)
     top_v = float(v_row[int(H * 0.20) : int(H * 0.55)].mean()) if H > 10 else 0.0
     bot_v = float(v_row[int(H * 0.80) : int(H * 0.95)].mean()) if H > 10 else 0.0
-    return ccw if top_v >= bot_v else cw
+    return 270 if top_v >= bot_v else 90
+
+
+def rotate_page_orthogonal(img: np.ndarray, deg: int) -> np.ndarray:
+    deg = deg % 360
+    if deg == 90:
+        return cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+    if deg == 180:
+        return cv2.rotate(img, cv2.ROTATE_180)
+    if deg == 270:
+        return cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    return img
+
+
+def auto_orient_page(img: np.ndarray) -> np.ndarray:
+    """Dikey (portre, h > w) taranmış yatay DTL tablolarını otomatik 90° döndürür.
+    Düz DTL sayfasında çok sütunlu tablo ızgarası üst/orta bölgede (0.20..0.55 H),
+    az dikey çizgili imza bloğu ise alt bölgede (0.80..0.95 H) yer alır."""
+    return rotate_page_orthogonal(img, detect_auto_rotation(img))
 
 
 def prepare_page(original: np.ndarray) -> PreparedPage:
@@ -1738,13 +1753,68 @@ async def chat(req: ChatMsg):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+@app.post("/ocr/preview")
+async def ocr_preview(file: UploadFile):
+    buf = await file.read()
+    name = (file.filename or "").lower()
+    try:
+        if name.endswith(".pdf"):
+            import pypdfium2 as pdfium
+
+            def _pdf_first(b: bytes):
+                pdf = pdfium.PdfDocument(b)
+                try:
+                    cnt = len(pdf)
+                    if cnt == 0:
+                        return None, 0
+                    page = pdf[0]
+                    bitmap = page.render(scale=1.25, grayscale=False)
+                    arr = np.array(bitmap.to_pil().convert("RGB"))
+                    page.close()
+                    return arr, cnt
+                finally:
+                    pdf.close()
+
+            first_page, pages_count = await asyncio.to_thread(_pdf_first, buf)
+        elif name.endswith((".tif", ".tiff")):
+            def _tiff_first(b: bytes):
+                img = Image.open(io.BytesIO(b))
+                cnt = getattr(img, "n_frames", 1)
+                img.seek(0)
+                return np.array(img.convert("RGB")), cnt
+
+            first_page, pages_count = await asyncio.to_thread(_tiff_first, buf)
+        elif name.endswith((".png", ".jpg", ".jpeg")):
+            first_page = np.array(Image.open(io.BytesIO(buf)).convert("RGB"))
+            pages_count = 1
+        else:
+            return JSONResponse(status_code=400, content={"error": "Desteklenmeyen biçim"})
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": f"Önizleme oluşturulamadı: {e}"})
+
+    if first_page is None:
+        return JSONResponse(status_code=400, content={"error": "Görüntü bulunamadı"})
+
+    auto_rot = await asyncio.to_thread(detect_auto_rotation, first_page)
+    b64 = await asyncio.to_thread(jpeg_b64, first_page, 1100)
+    h, w = first_page.shape[:2]
+    return {
+        "preview": "data:image/jpeg;base64," + b64,
+        "width": w,
+        "height": h,
+        "pages_count": pages_count,
+        "auto_rotation": auto_rot,
+    }
+
+
 @app.post("/ocr/document")
 @app.post("/ocr/dtl")
-async def ocr_document(request: Request, file: UploadFile):
+async def ocr_document(request: Request, file: UploadFile, rotate: str = "auto"):
     t0 = time.time()
     buf = await file.read()
     name = (file.filename or "").lower()
-    log.info("istek: dosya=%s boyut=%d bayt", file.filename, len(buf))
+    rot_arg = (rotate or request.query_params.get("rotate") or "auto").strip().lower()
+    log.info("istek: dosya=%s boyut=%d bayt yön=%s", file.filename, len(buf), rot_arg)
     try:
         if name.endswith(".pdf"):
             images = await asyncio.to_thread(pages_from_pdf, buf)
@@ -1774,7 +1844,10 @@ async def ocr_document(request: Request, file: UploadFile):
                 log.warning("istemci bağlantıyı kapattı: %s (sayfa %d/%d)", file.filename, page_idx + 1, len(images))
                 return JSONResponse(status_code=499, content={"error": "İstemci bağlantıyı kapattı"})
             try:
-                original = await asyncio.to_thread(auto_orient_page, raw_page)
+                if rot_arg in ("0", "90", "180", "270"):
+                    original = await asyncio.to_thread(rotate_page_orthogonal, raw_page, int(rot_arg))
+                else:
+                    original = await asyncio.to_thread(auto_orient_page, raw_page)
                 need_hdr = page_idx == 0 or not dtl_header.get("line_name")
                 indra_rows, indra_weak, indra_dtl, indra_dtl_weak, indra_weak_rows, indra_ms = (
                     await ocr_page_indra(original)

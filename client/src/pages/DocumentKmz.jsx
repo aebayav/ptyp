@@ -2,12 +2,53 @@ import { useState } from 'react';
 import { api, apiDownload, apiPostDownload, postParse } from '../api';
 import { okumaBilgisi, useProjects } from '../utils';
 
+function fileKey(f) {
+  return `${f.name}::${f.size}`;
+}
+
+function isRotatableFile(f) {
+  return /\.(pdf|tif|tiff)$/i.test(f?.name || '');
+}
+
+const ROTATION_LABELS = {
+  auto: 'Otomatik',
+  0: '0° (Olduğu Gibi)',
+  90: '90° Sağa',
+  180: '180° Ters',
+  270: '90° Sola (270°)',
+};
+
+// Ham (0°) önizleme görüntüsünü tarayıcıda 90/180/270 derece döndürür
+function rotateDataUrl(rawUrl, deg) {
+  const angle = ((Number(deg) % 360) + 360) % 360;
+  if (!rawUrl || angle === 0) return Promise.resolve(rawUrl);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const swap = angle === 90 || angle === 270;
+      canvas.width = swap ? img.height : img.width;
+      canvas.height = swap ? img.width : img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate((angle * Math.PI) / 180);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+      resolve(canvas.toDataURL('image/jpeg', 0.88));
+    };
+    img.onerror = () => resolve(rawUrl);
+    img.src = rawUrl;
+  });
+}
+
 export default function DocumentKmz() {
   const { projects, projectId, setProjectId } = useProjects();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [file, setFile] = useState(null);
   const [files, setFiles] = useState([]);
+  const [rotations, setRotations] = useState({}); // { [fileKey]: 'auto' | '0' | '90' | '180' | '270' }
+  const [previews, setPreviews] = useState({}); // { [fileKey]: { loading, rawUrl, rotatedUrl, autoRotation, pagesCount, error } }
+  const [activePreviewKey, setActivePreviewKey] = useState(null);
   const [result, setResult] = useState(null);
   const [rows, setRows] = useState([]);
   const [preview, setPreview] = useState(null);
@@ -15,10 +56,76 @@ export default function DocumentKmz() {
   const [batchProgress, setBatchProgress] = useState(null); // {done, total, log: [], live}
   const [live, setLive] = useState(null); // tek dosya için canlı OCR ilerlemesi
 
+  async function loadFilePreview(f, currentRot = 'auto') {
+    if (!isRotatableFile(f)) return;
+    const k = fileKey(f);
+    setPreviews((prev) => ({ ...prev, [k]: { ...(prev[k] || {}), loading: true, error: null } }));
+    const fd = new FormData();
+    fd.append('file', f);
+    try {
+      const d = await api.upload('/api/kmz-generator/preview', fd);
+      const autoDeg = Number(d.auto_rotation) || 0;
+      const effDeg = currentRot === 'auto' ? autoDeg : Number(currentRot) || 0;
+      const rotatedUrl = await rotateDataUrl(d.preview, effDeg);
+      setPreviews((prev) => ({
+        ...prev,
+        [k]: {
+          loading: false,
+          rawUrl: d.preview,
+          rotatedUrl,
+          autoRotation: autoDeg,
+          pagesCount: d.pages_count || 1,
+          error: null,
+        },
+      }));
+    } catch (e) {
+      setPreviews((prev) => ({
+        ...prev,
+        [k]: { loading: false, error: e.message || 'Önizleme alınamadı' },
+      }));
+    }
+  }
+
+  function effectiveDeg(k) {
+    const r = rotations[k] ?? 'auto';
+    if (r === 'auto') return previews[k]?.autoRotation ?? 0;
+    return Number(r) || 0;
+  }
+
+  async function setFileRotation(f, nextRot) {
+    const k = fileKey(f);
+    const val = String(nextRot);
+    setRotations((prev) => ({ ...prev, [k]: val }));
+    const p = previews[k];
+    if (p?.rawUrl) {
+      const deg = val === 'auto' ? p.autoRotation || 0 : Number(val) || 0;
+      const rotatedUrl = await rotateDataUrl(p.rawUrl, deg);
+      setPreviews((prev) => ({ ...prev, [k]: { ...prev[k], rotatedUrl } }));
+    }
+  }
+
+  function stepFileRotation(f, deltaDeg) {
+    const k = fileKey(f);
+    const cur = effectiveDeg(k);
+    const next = (((cur + deltaDeg) % 360) + 360) % 360;
+    setFileRotation(f, String(next));
+  }
+
+  function rotateAllRotatable(deltaDeg) {
+    for (const f of files) {
+      if (isRotatableFile(f)) stepFileRotation(f, deltaDeg);
+    }
+  }
+
   function removeFile(i) {
     setFiles((prev) => {
+      const removed = prev[i];
       const next = prev.filter((_, idx) => idx !== i);
       setFile(next.length === 1 ? next[0] : null);
+      if (removed && activePreviewKey === fileKey(removed)) {
+        const nextRot = next.find(isRotatableFile);
+        setActivePreviewKey(nextRot ? fileKey(nextRot) : null);
+      }
       return next;
     });
     setMsg(null);
@@ -49,11 +156,13 @@ export default function DocumentKmz() {
     let batchCmUsed = null;
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
+      const rot = rotations[fileKey(f)] ?? 'auto';
       setBatchProgress({ done: i, total: files.length, log });
       const fd = new FormData();
       fd.append('project_id', projectId);
       fd.append('file', f);
       fd.append('tm3_cm', batchCmUsed ?? (utmZone === '0' ? 0 : utmZone));
+      fd.append('rotate', rot);
       try {
         const d = await postParse(fd, (s) =>
           setBatchProgress((prev) => ({ ...prev, live: `${s.progress} · ${s.elapsed_s} sn` }))
@@ -167,10 +276,12 @@ export default function DocumentKmz() {
     setResult(null);
     setPreview(null);
     setRows([]);
+    const rot = rotations[fileKey(file)] ?? 'auto';
     const fd = new FormData();
     fd.append('project_id', projectId);
     fd.append('file', file);
     fd.append('tm3_cm', utmZone === '0' ? 0 : utmZone);
+    fd.append('rotate', rot);
     try {
       const d = await postParse(fd, (s) => setLive(`${s.progress} · ${s.elapsed_s} sn`));
       setResult(d);
@@ -343,6 +454,13 @@ export default function DocumentKmz() {
     }
   }
 
+  const rotatableFiles = files.filter(isRotatableFile);
+  const activeFile = rotatableFiles.find((f) => fileKey(f) === activePreviewKey) || rotatableFiles[0] || null;
+  const activeKey = activeFile ? fileKey(activeFile) : null;
+  const activePreview = activeKey ? previews[activeKey] : null;
+  const activeRot = activeKey ? rotations[activeKey] ?? 'auto' : 'auto';
+  const activeDeg = activeKey ? effectiveDeg(activeKey) : 0;
+
   return (
     <div>
       <div className="page-head">
@@ -385,15 +503,24 @@ export default function DocumentKmz() {
               onChange={(e) => {
                 const picked = [...(e.target.files || [])];
                 if (!picked.length) return;
+                const newlyAdded = [];
                 setFiles((prev) => {
                   // aynı dosya iki kez eklenmesin (ad + boyut)
                   const next = [...prev];
                   for (const f of picked) {
-                    if (!next.some((x) => x.name === f.name && x.size === f.size)) next.push(f);
+                    if (!next.some((x) => x.name === f.name && x.size === f.size)) {
+                      next.push(f);
+                      newlyAdded.push(f);
+                    }
                   }
                   setFile(next.length === 1 ? next[0] : null);
                   return next;
                 });
+                const firstRot = picked.find(isRotatableFile);
+                if (firstRot) setActivePreviewKey((prevKey) => prevKey || fileKey(firstRot));
+                for (const f of picked) {
+                  if (isRotatableFile(f)) loadFilePreview(f, rotations[fileKey(f)] ?? 'auto');
+                }
                 setMsg(null);
                 e.target.value = '';
               }}
@@ -415,22 +542,199 @@ export default function DocumentKmz() {
                 : 'Oku ve Analiz Et'}
           </button>
         </div>
+
         {files.length > 0 && (
           <div className="card" style={{ marginTop: 10, marginBottom: 0, padding: 10 }}>
-            <div className="muted" style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
-              İŞLEME SIRASI
-            </div>
-            {files.map((f, i) => (
-              <div key={`${f.name}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: i === files.length - 1 ? 'none' : '1px solid var(--border)' }}>
-                <span style={{ minWidth: 22, fontWeight: 700, color: 'var(--muted)' }}>{i + 1}.</span>
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                <button className="btn btn-sm" onClick={() => moveFile(i, -1)} disabled={i === 0 || busy} title="Yukarı taşı">↑</button>
-                <button className="btn btn-sm" onClick={() => moveFile(i, 1)} disabled={i === files.length - 1 || busy} title="Aşağı taşı">↓</button>
-                <button className="btn btn-sm btn-danger" onClick={() => removeFile(i)} disabled={busy} title="Listeden çıkar">Sil</button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
+              <div className="muted" style={{ fontSize: 12, fontWeight: 600 }}>
+                1. ADIM — İŞLEME SIRASI VE SAYFA YÖNÜ
               </div>
-            ))}
+              {rotatableFiles.length > 1 && (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span className="muted" style={{ fontSize: 11.5 }}>Tüm PDF/TIFF&apos;leri döndür:</span>
+                  <button className="btn btn-sm" onClick={() => rotateAllRotatable(-90)} disabled={busy} title="Tümünü 90° sola döndür">↺ 90° Sola</button>
+                  <button className="btn btn-sm" onClick={() => rotateAllRotatable(90)} disabled={busy} title="Tümünü 90° sağa döndür">↻ 90° Sağa</button>
+                  <button className="btn btn-sm" onClick={() => rotateAllRotatable(180)} disabled={busy} title="Tümünü 180° ters çevir">⇅ 180°</button>
+                </div>
+              )}
+            </div>
+            {files.map((f, i) => {
+              const k = fileKey(f);
+              const rotatable = isRotatableFile(f);
+              const rot = rotations[k] ?? 'auto';
+              const deg = effectiveDeg(k);
+              const isSelected = activeKey === k;
+              return (
+                <div
+                  key={`${f.name}-${i}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '6px 4px',
+                    flexWrap: 'wrap',
+                    background: isSelected && rotatableFiles.length > 1 ? 'var(--bg-soft, rgba(37,99,235,0.06))' : 'transparent',
+                    borderRadius: 6,
+                    borderBottom: i === files.length - 1 ? 'none' : '1px solid var(--border)',
+                  }}
+                >
+                  <span style={{ minWidth: 22, fontWeight: 700, color: 'var(--muted)' }}>{i + 1}.</span>
+                  <span
+                    onClick={() => rotatable && setActivePreviewKey(k)}
+                    style={{
+                      flex: 1,
+                      minWidth: 160,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      cursor: rotatable ? 'pointer' : 'default',
+                      fontWeight: isSelected ? 600 : 400,
+                    }}
+                    title={rotatable ? 'Önizlemede görmek için tıklayın' : f.name}
+                  >
+                    {f.name}
+                  </span>
+                  {rotatable && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                      <button
+                        className="btn btn-sm"
+                        onClick={() => {
+                          setActivePreviewKey(k);
+                          stepFileRotation(f, -90);
+                        }}
+                        disabled={busy}
+                        title="90° sola döndür (saat yönünün tersine)"
+                      >
+                        ↺ 90° Sola
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        onClick={() => {
+                          setActivePreviewKey(k);
+                          stepFileRotation(f, 90);
+                        }}
+                        disabled={busy}
+                        title="90° sağa döndür (saat yönünde)"
+                      >
+                        ↻ 90° Sağa
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        onClick={() => {
+                          setActivePreviewKey(k);
+                          stepFileRotation(f, 180);
+                        }}
+                        disabled={busy}
+                        title="180° ters çevir"
+                      >
+                        ⇅ 180°
+                      </button>
+                      <select
+                        value={rot}
+                        onChange={(e) => {
+                          setActivePreviewKey(k);
+                          setFileRotation(f, e.target.value);
+                        }}
+                        disabled={busy}
+                        style={{ fontSize: 12, padding: '3px 6px', height: 28 }}
+                        title="Okuma yönü"
+                      >
+                        <option value="auto">
+                          Otomatik{previews[k]?.autoRotation != null ? ` (${previews[k].autoRotation}°)` : ''}
+                        </option>
+                        <option value="0">0° (Olduğu Gibi)</option>
+                        <option value="90">90° Sağa</option>
+                        <option value="180">180° Ters</option>
+                        <option value="270">90° Sola (270°)</option>
+                      </select>
+                      <span className="badge" style={{ fontSize: 11 }}>
+                        {deg}°
+                      </span>
+                    </div>
+                  )}
+                  <button className="btn btn-sm" onClick={() => moveFile(i, -1)} disabled={i === 0 || busy} title="Yukarı taşı">↑</button>
+                  <button className="btn btn-sm" onClick={() => moveFile(i, 1)} disabled={i === files.length - 1 || busy} title="Aşağı taşı">↓</button>
+                  <button className="btn btn-sm btn-danger" onClick={() => removeFile(i)} disabled={busy} title="Listeden çıkar">Sil</button>
+                </div>
+              );
+            })}
           </div>
         )}
+
+        {activeFile && !result && (
+          <div className="card" style={{ marginTop: 10, marginBottom: 0, padding: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+              <div>
+                <strong style={{ fontSize: 13 }}>Yön Kontrolü &amp; Önizleme:</strong>{' '}
+                <span className="muted" style={{ fontSize: 12.5 }}>
+                  {activeFile.name}
+                  {activePreview?.pagesCount > 1 ? ` (${activePreview.pagesCount} sayfa — 1. sayfa önizlemesi)` : ''}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button className="btn btn-sm" onClick={() => stepFileRotation(activeFile, -90)} disabled={busy}>
+                  ↺ 90° Sola Döndür
+                </button>
+                <button className="btn btn-sm" onClick={() => stepFileRotation(activeFile, 90)} disabled={busy}>
+                  ↻ 90° Sağa Döndür
+                </button>
+                <button className="btn btn-sm" onClick={() => stepFileRotation(activeFile, 180)} disabled={busy}>
+                  ⇅ 180° Ters Çevir
+                </button>
+                <button
+                  className="btn btn-sm"
+                  onClick={() => setFileRotation(activeFile, 'auto')}
+                  disabled={busy || activeRot === 'auto'}
+                >
+                  Otomatik Yön
+                </button>
+                <span className="badge">
+                  Seçili Yön: {ROTATION_LABELS[activeRot] || `${activeDeg}°`} ({activeDeg}°)
+                </span>
+              </div>
+            </div>
+            <div className="form-hint" style={{ marginBottom: 8 }}>
+              Tablo başlığı üstte, satırlar yatay ve düz okunacak şekilde yönü ayarlayıp <strong>{files.length > 1 ? `Toplu İşle (${files.length} belge)` : 'Oku ve Analiz Et'}</strong> düğmesine basın.
+            </div>
+            {rotatableFiles.length > 1 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                {rotatableFiles.map((rf, idx) => {
+                  const rk = fileKey(rf);
+                  return (
+                    <button
+                      key={rk}
+                      className={rk === activeKey ? 'btn btn-sm btn-accent' : 'btn btn-sm'}
+                      onClick={() => setActivePreviewKey(rk)}
+                      type="button"
+                    >
+                      {idx + 1}. {rf.name} ({effectiveDeg(rk)}°)
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {activePreview?.loading && (
+              <div className="muted" style={{ padding: '18px 0', textAlign: 'center', fontSize: 13 }}>
+                Sayfa önizlemesi hazırlanıyor…
+              </div>
+            )}
+            {activePreview?.error && (
+              <div className="form-hint" style={{ color: 'var(--warn, #d97706)' }}>
+                Canlı önizleme alınamadı ({activePreview.error}) — yine de yukarıdaki düğmelerle okuma yönünü ({activeDeg}°) seçerek işlemi başlatabilirsiniz.
+              </div>
+            )}
+            {activePreview?.rotatedUrl && !activePreview.loading && (
+              <div style={{ maxHeight: 380, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8, background: '#f8fafc', textAlign: 'center' }}>
+                <img
+                  src={activePreview.rotatedUrl}
+                  alt="Yön kontrol önizlemesi"
+                  style={{ display: 'inline-block', maxWidth: '100%', height: 'auto' }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         {batchProgress && (
           <div className="notice-banner" style={{ marginTop: 10, marginBottom: 0, whiteSpace: 'pre-wrap', fontSize: 12.5 }}>
             {batchProgress.live && (
@@ -455,7 +759,7 @@ export default function DocumentKmz() {
 
       {preview && (
         <div className="card" style={{ marginBottom: 16 }}>
-          <h3 style={{ marginTop: 0 }}>Belge Önizleme</h3>
+          <h3 style={{ marginTop: 0 }}>Okunan Belge Önizlemesi</h3>
           <div style={{ maxHeight: 360, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
             <img src={preview} alt="Belge önizleme" style={{ display: 'block', maxWidth: '100%' }} />
           </div>
@@ -585,7 +889,7 @@ export default function DocumentKmz() {
                   apiDownload(result.kmz, ((files.length ? files[0].name : file?.name) || 'guzergah').replace(/\.[^.]+$/, '') + '.kmz')
                 }
               >
-                Oluşan KMZ'yi İndir
+                Oluşan KMZ&apos;yi İndir
               </button>
             )}
           </div>

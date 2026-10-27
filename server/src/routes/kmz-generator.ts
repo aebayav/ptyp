@@ -12,7 +12,7 @@ import { parseExcelDtl, parsePdfTextDtl, DtlParseResult, DtlRow } from '../dtl-p
 import { detectRegion } from '../turkiye-regions';
 import { detectDocumentKind, analyzePdf, isTiff } from '../document-reader';
 import { parseKmz, routeLengthKm, PolePoint, PoleMeta } from '../kmz-parser';
-import { callOcr, OcrCell } from '../ocr-client';
+import { callOcr, callOcrPreview, OcrCell } from '../ocr-client';
 import { buildKmz, formatPoleDisplayName, formatPoleDescription, isPortalPoint } from '../kmz-builder';
 import { importPolesForProject } from '../pole-importer';
 import { normalizeDtlRowTypes } from '../tower-types';
@@ -210,6 +210,21 @@ function fakeJobRes(): Response {
   } as unknown as Response;
 }
 
+// PDF/TIFF ilk sayfa önizlemesi ve önerilen otomatik yön (OCR öncesi yön kontrolü adımı için)
+router.post('/preview', upload.single('file'), async (req: Request, res: Response) => {
+  if (!req.file) return res.status(400).json({ error: 'Dosya yüklenmedi.' });
+  const kind = detectDocumentKind(req.file.originalname);
+  if (kind !== 'pdf' && kind !== 'tiff') {
+    return res.status(400).json({ error: 'Önizleme yalnızca PDF ve TIFF dosyaları için desteklenir.' });
+  }
+  try {
+    const prev = await callOcrPreview(req.file.buffer, req.file.originalname);
+    res.json(prev);
+  } catch (e: any) {
+    res.status(503).json({ error: e.message || 'Önizleme servisi kullanılamıyor.' });
+  }
+});
+
 // Excel/PDF/TIFF → parse → KMZ üret → (isteğe bağlı) projeye aktar.
 // Uzun işler (taranmış belge OCR'ı 2-5 dk) panel proxy'sini aşamadığı için
 // istek ANINDA 202 + job_id döner; iş kuyrukta koşar, istemci /job/:id yoklar.
@@ -290,6 +305,10 @@ async function parseHandler(req: Request, res: Response, next: NextFunction): Pr
     } | null = null;
     // ITRF-96 / 3° TM orta meridyeni: 0 = otomatik algıla; ör. 42
     const tm3Cm = Number(req.body?.tm3_cm || 0);
+    // Sayfa döndürme: 'auto' | '0' | '90' | '180' | '270' (saat yönü)
+    const rawRot = String(req.body?.rotate || 'auto').trim().toLowerCase();
+    const rotateParam = ['0', '90', '180', '270', 'auto'].includes(rawRot) ? rawRot : 'auto';
+    const explicitRotate = rotateParam === '90' || rotateParam === '180' || rotateParam === '270';
 
     if (kind === 'excel') {
       try {
@@ -301,24 +320,24 @@ async function parseHandler(req: Request, res: Response, next: NextFunction): Pr
         return res.status(400).json({ error: 'Excel okunamadı: ' + (e.message || 'geçersiz içerik') });
       }
     } else if (kind === 'pdf') {
-      // PDF: önce metin katmanı kontrolü
+      // PDF: önce metin katmanı kontrolü (kullanıcı sayfayı elle 90°/180°/270° döndürdüyse doğrudan OCR'a git)
       let analysis;
       try {
         analysis = await analyzePdf(req.file.buffer);
       } catch (e: any) {
         return res.status(400).json({ error: 'PDF okunamadı: ' + (e.message || 'geçersiz içerik') });
       }
-      if (analysis.hasTextLayer) {
+      if (analysis.hasTextLayer && !explicitRotate) {
         source = 'pdf-text';
         textLines = analysis.text;
         poles = parsePdfText(analysis.text).poles;
         dtlResult = parsePdfTextDtl(analysis.text);
       }
-      // Metin katmanı yoksa veya metin katmanından hiç koordinat (WGS84 / TM3) çıkmadıysa OCR'a düş
-      if (!analysis.hasTextLayer || (poles.length === 0 && parseTm3Lines(analysis.text).length === 0)) {
+      // Metin katmanı yoksa, kullanıcı yön değiştirdiyse veya metin katmanından hiç koordinat çıkmadıysa OCR'a düş
+      if (explicitRotate || !analysis.hasTextLayer || (poles.length === 0 && parseTm3Lines(analysis.text).length === 0)) {
         try {
           if (jobReport) jobReport('OCR çalışıyor — taranmış belge okunuyor (birkaç dakika sürebilir)…');
-          const ocr = await callOcr(req.file.buffer, req.file.originalname);
+          const ocr = await callOcr(req.file.buffer, req.file.originalname, rotateParam);
           if (jobReport) jobReport('Direkler işleniyor ve kaydediliyor…');
           const { poles: p, uncertain, lines } = polesFromOcr(ocr);
           poles = p;
@@ -340,7 +359,7 @@ async function parseHandler(req: Request, res: Response, next: NextFunction): Pr
       // TIFF → OCR servisi
       try {
         if (jobReport) jobReport('OCR çalışıyor — taranmış görüntü okunuyor (birkaç dakika sürebilir)…');
-        const ocr = await callOcr(req.file.buffer, req.file.originalname);
+        const ocr = await callOcr(req.file.buffer, req.file.originalname, rotateParam);
         if (jobReport) jobReport('Direkler işleniyor ve kaydediliyor…');
         const { poles: p, uncertain, lines } = polesFromOcr(ocr);
         poles = p;
