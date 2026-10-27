@@ -15,6 +15,7 @@ export default function FiyatFarki() {
   const [msg, setMsg] = useState(null);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ period: '', index_name: 'TUFE', value: '', notes: '' });
+  const [autoBusy, setAutoBusy] = useState(false);
 
   // Hesaplama paneli
   const [indexName, setIndexName] = useState('TUFE');
@@ -74,6 +75,30 @@ export default function FiyatFarki() {
       setMsg({ type: 'err', text: err.message });
     } finally {
       setBusy(false);
+    }
+  }
+
+  // TCMB EVDS'den otomatik endeks çek — değer alanını doldurur (ve listeye kaydeder)
+  async function autoFetch() {
+    if (!form.period) {
+      setMsg({ type: 'err', text: 'Önce periyot girin (örn. 2026-03).' });
+      return;
+    }
+    setAutoBusy(true);
+    setMsg(null);
+    try {
+      const d = await api.post('/api/fiyat-farki/fetch', {
+        project_id: projectId,
+        period: form.period.trim(),
+        index_name: form.index_name,
+      });
+      setForm((f) => ({ ...f, value: String(d.value), notes: d.notes || f.notes }));
+      await load();
+      setMsg({ type: 'ok', text: `Otomatik çekildi: ${d.period} ${d.index_name} = ${d.value} (${d.source})` });
+    } catch (err) {
+      setMsg({ type: 'err', text: err.message });
+    } finally {
+      setAutoBusy(false);
     }
   }
 
@@ -274,6 +299,11 @@ export default function FiyatFarki() {
               <div className="field" style={{ flex: '1 1 140px' }}>
                 <label>Değer</label>
                 <input type="number" step="any" value={form.value} onChange={(e) => setForm((f) => ({ ...f, value: e.target.value }))} placeholder="1125.42" required />
+              </div>
+              <div className="field" style={{ flex: '0 0 auto', alignSelf: 'flex-end' }}>
+                <button type="button" className="btn" onClick={autoFetch} disabled={autoBusy} title="TCMB EVDS'den resmi TÜİK endeks değerini otomatik çeker">
+                  {autoBusy ? 'Çekiliyor…' : 'Otomatik Getir'}
+                </button>
               </div>
               <div className="field" style={{ flex: '2 1 180px' }}>
                 <label>Not</label>

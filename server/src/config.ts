@@ -28,6 +28,11 @@ export const config = {
   loginRateMax: Number(process.env.LOGIN_RATE_MAX || 10),
   // Reverse proxy (nginx / panel) arkasında gerçek istemci IP'si için
   trustProxy: process.env.TRUST_PROXY ?? (isProduction ? '1' : ''),
+  // Otomatik endeks çekme (TCMB EVDS — TÜİK endekslerinin resmi dağıtımı).
+  // Ücretsiz anahtar: https://evds2.tcmb.gov.tr → kayıt → API anahtarı.
+  evdsApiKey: process.env.EVDS_API_KEY || '',
+  evdsSeriesTuie: process.env.EVDS_SERIES_TUFE || 'TP.FG.J0', // TÜFE (2003=100)
+  evdsSeriesUfe: process.env.EVDS_SERIES_UFE || '', // ÜFE serisi isteğe bağlı tanımlanır
 };
 
 /**

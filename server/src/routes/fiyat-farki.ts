@@ -5,6 +5,7 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
+import { config } from '../config';
 
 const router = Router();
 router.use(requireAuth, requireRole('owner'));
@@ -59,6 +60,69 @@ router.delete('/:id', async (req: Request, res: Response) => {
   const r = await pool.query('DELETE FROM price_indices WHERE id = $1', [id]);
   if ((r.rowCount ?? 0) === 0) return res.status(404).json({ error: 'Kayıt bulunamadı.' });
   res.status(204).end();
+});
+
+// ---------- Otomatik endeks çekme (TCMB EVDS → TÜİK endeks değerleri) ----------
+// POST /api/fiyat-farki/fetch { project_id, period: 'YYYY-MM', index_name }
+// Çekilen değer price_indices'e upsert edilir ve kayıt döner.
+router.post('/fetch', async (req: Request, res: Response) => {
+  const pid = Number(req.body?.project_id);
+  const period = String(req.body?.period || '').trim();
+  const indexName = String(req.body?.index_name || 'TUFE').toUpperCase().trim();
+  if (!Number.isInteger(pid) || pid <= 0) return res.status(400).json({ error: 'Geçerli bir proje seçin.' });
+  if (!validPeriod(period)) return res.status(400).json({ error: 'Periyot YYYY-AA biçiminde olmalı (ör. 2026-03).' });
+
+  if (!config.evdsApiKey) {
+    return res.status(503).json({
+      error:
+        'Otomatik çekme için EVDS_API_KEY tanımlı değil. Ücretsiz anahtar alın: evds2.tcmb.gov.tr → kayıt ol → API anahtarı; sonra server/.env dosyasına EVDS_API_KEY ekleyin ve ptyp servisini yeniden başlatın.',
+    });
+  }
+  let series: string | null = null;
+  if (indexName === 'TUFE') series = config.evdsSeriesTuie || null;
+  else if (indexName === 'UFE' || indexName === 'YI-UFE') series = config.evdsSeriesUfe || null;
+  if (!series) {
+    return res.status(400).json({
+      error: `"${indexName}" için EVDS seri kodu tanımlı değil. server/.env dosyasına EVDS_SERIES_${indexName.replace(/[^A-Z]/g, '')} ekleyin.`,
+    });
+  }
+
+  const dd = `01-${period.slice(5)}-${period.slice(0, 4)}`; // 01-MM-YYYY (EVDS biçimi)
+  const url = `https://evds2.tcmb.gov.tr/service/evds/series=${series}&startDate=${dd}&endDate=${dd}&type=json&key=${config.evdsApiKey}`;
+  let raw: any;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 12000);
+    const resp = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(t);
+    raw = await resp.json().catch(() => null);
+    if (!resp.ok || !raw || !Array.isArray(raw.items) || raw.items.length === 0) {
+      return res.status(502).json({
+        error:
+          'EVDS\'den veri alınamadı (anahtar geçersiz veya servis yanıt vermedi). Anahtarı ve seri kodunu kontrol edin.',
+      });
+    }
+  } catch (e: any) {
+    return res.status(502).json({ error: 'EVDS\'ye ulaşılamadı: ' + (e?.name === 'AbortError' ? 'zaman aşımı.' : e?.message || 'bağlantı hatası.') });
+  }
+
+  // EVDS JSON: { items: [{ Tarih: '2026-03', <SERİ>: 1125.42 }] } — anahtar adı değişken,
+  // 'Tarih' dışındaki ilk alanı al
+  const item = raw.items[0];
+  const valueKey = Object.keys(item).find((k: string) => k !== 'Tarih');
+  const value = Number(item[valueKey ?? '']);
+  if (!valueKey || !Number.isFinite(value) || value <= 0) {
+    return res.status(502).json({ error: `EVDS yanıtında ${period} için değer bulunamadı.` });
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO price_indices (project_id, period, index_name, value, notes)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (project_id, period, index_name) DO UPDATE SET value = EXCLUDED.value, notes = EXCLUDED.notes
+     RETURNING *`,
+    [pid, period, indexName, value, `Otomatik: EVDS ${series}`]
+  );
+  res.status(201).json({ ...rows[0], source: 'EVDS', series });
 });
 
 // Pn hesabı: GET /api/fiyat-farki/compute?project_id=&index_name=&base=&current=&amount=
