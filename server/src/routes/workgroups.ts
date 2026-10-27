@@ -3,6 +3,7 @@ import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
 import { poleNumberFromName, poleProgress } from '../pole-statuses';
 import { toDateOrNull } from '../dates';
+import { LATE_TASK_SQL } from '../late-filter';
 
 const router = Router();
 
@@ -24,7 +25,7 @@ router.get('/', async (req: Request, res: Response) => {
     SELECT w.*,
            COUNT(t.id)::int AS task_count,
            COUNT(t.id) FILTER (WHERE t.status = 'done')::int AS done_count,
-           COUNT(t.id) FILTER (WHERE t.status != 'done' AND t.due_date IS NOT NULL AND t.due_date < CURRENT_DATE)::int AS late_count
+           COUNT(t.id) FILTER (WHERE ${LATE_TASK_SQL})::int AS late_count
     FROM work_groups w
     LEFT JOIN tasks t ON t.work_group_id = w.id
     ${where}
@@ -152,7 +153,7 @@ router.put('/:id', async (req: Request, res: Response) => {
   const cnt = await pool.query(
     `SELECT COUNT(*)::int AS c,
             COUNT(*) FILTER (WHERE status = 'done')::int AS d,
-            COUNT(*) FILTER (WHERE status != 'done' AND due_date != '' AND due_date < to_char(now(), 'YYYY-MM-DD'))::int AS l
+            COUNT(*) FILTER (WHERE ${LATE_TASK_SQL})::int AS l
      FROM tasks WHERE work_group_id = $1`,
     [id]
   );
