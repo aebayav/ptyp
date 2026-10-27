@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { poleNumberFromName, poleStageProgress } from '../src/pole-statuses';
-import { PHASE_TEMPLATES } from '../src/work-plan-generator';
+import { PHASE_TEMPLATES, detectCantons } from '../src/work-plan-generator';
 
 describe('poleNumberFromName', () => {
   it('parses standard and annotated pole labels', () => {
@@ -51,3 +51,21 @@ describe('PHASE_TEMPLATES', () => {
     }
   });
 });
+
+describe('detectCantons', () => {
+  it('treats only anchor/dead-end towers (N, D, KD) as canton boundaries, not suspension (T, KT)', () => {
+    const poles = [
+      { idx: 1, name: 'D-1', meta: { function: 'N', tower_type: 'PF', style: 'dead' } },
+      { idx: 2, name: 'D-2', meta: { function: 'T', tower_type: 'PB1', style: 'tower' } },
+      { idx: 3, name: 'D-3', meta: { function: 'KT', tower_type: 'PB2', style: 'tower' } },
+      { idx: 4, name: 'D-4', meta: { function: 'KD', tower_type: 'PE1', style: 'dead' } },
+      { idx: 5, name: 'D-5', meta: { function: 'T', tower_type: 'PB1', style: 'tower' } },
+      { idx: 6, name: 'D-6', meta: { function: 'N', tower_type: 'PF', style: 'dead' } },
+    ];
+    const cantons = detectCantons(poles, []);
+    expect(cantons).toHaveLength(2);
+    expect(cantons[0]).toMatchObject({ fromNum: 1, toNum: 4, poleCount: 4 });
+    expect(cantons[1]).toMatchObject({ fromNum: 4, toNum: 6, poleCount: 3 });
+  });
+});
+

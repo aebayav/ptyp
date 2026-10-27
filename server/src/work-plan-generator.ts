@@ -419,7 +419,7 @@ export interface AutoPlanOptions {
 }
 
 /** DTL veya direk listesinden gergi/durdurma kantonlarını çıkarır. */
-function detectCantons(
+export function detectCantons(
   poles: { idx: number; name: string; meta: any }[],
   dtlRows: any[]
 ): CantonSpan[] {
@@ -429,8 +429,9 @@ function detectCantons(
       name: p.name,
       func: String(p.meta?.function || '').toUpperCase().trim(),
       ttype: String(p.meta?.tower_type || '').toUpperCase().trim(),
+      style: String(p.meta?.style || '').toLowerCase().trim(),
     }))
-    .filter((p): p is { num: number; name: string; func: string; ttype: string } => p.num != null)
+    .filter((p): p is { num: number; name: string; func: string; ttype: string; style: string } => p.num != null)
     .sort((a, b) => a.num - b.num);
 
   if (numbered.length < 2) return [];
@@ -444,11 +445,14 @@ function detectCantons(
     }
   }
 
-  const isAnchor = (p: { num: number; func: string; ttype: string }, idx: number, arr: typeof numbered) => {
+  const isAnchor = (p: { num: number; func: string; ttype: string; style: string }, idx: number, arr: typeof numbered) => {
     if (idx === 0 || idx === arr.length - 1) return true;
     const f = p.func || dtlFuncByNum.get(p.num) || '';
-    if (['KD', 'KT', 'N', 'D', 'T', 'PORTAL'].includes(f)) return true;
-    if (/^(?:PB|PC|PD|PE|PF|2FS|2FN)/.test(p.ttype) && f !== 'A' && f !== 'T') return true;
+    // T = Taşıyıcı, KT = Köşede Taşıyıcı, A = Askı -> bunlar gergi/durdurma DEĞİLDİR
+    if (['KD', 'N', 'D', 'PORTAL'].includes(f)) return true;
+    if (['T', 'KT', 'A'].includes(f)) return false;
+    if (p.style === 'dead') return true;
+    if (/^(?:PC|PD|PE|PF|2FN)/.test(p.ttype)) return true;
     return false;
   };
 
