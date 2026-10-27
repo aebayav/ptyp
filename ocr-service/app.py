@@ -1942,3 +1942,120 @@ async def ocr_document(request: Request, file: UploadFile, rotate: str = "auto")
         "dtl_rows": final_dtl,
     }
 
+
+# ---------- %100 Lokal Saha Fotoğrafı Doğrulama & Görsel Öznitelik Çıkarımı ----------
+
+def _compute_dhash_hex(gray: np.ndarray) -> str:
+    """Alt %12 filigran bandını hariç tutarak 64-bit dHash (16 karakter hex) üretir.
+    Böylece aynı fotoğraf farklı direk etiketiyle tekrar yüklense bile yakalanır."""
+    h, w = gray.shape
+    core = gray[: max(8, int(h * 0.88)), :]
+    resized = cv2.resize(core, (9, 8), interpolation=cv2.INTER_AREA)
+    diff = resized[:, 1:] > resized[:, :-1]
+    bits = 0
+    for b in diff.flatten():
+        bits = (bits << 1) | int(bool(b))
+    return f"{bits:016x}"
+
+
+def analyze_pole_photo_bytes(buf: bytes, claimed_stage: str = "") -> dict:
+    """Saha direk fotoğrafını dış buluta çıkmadan tamamen lokal OpenCV ile analiz eder."""
+    pil_img = Image.open(io.BytesIO(buf)).convert("RGB")
+    rgb = np.array(pil_img)
+    h, w, _ = rgb.shape
+    # Analiz hızı için maksimum 960px boyuta ölçekle (alt %12 filigran bandını hariç tut)
+    core_rgb = rgb[: max(32, int(h * 0.88)), :]
+    ch, cw, _ = core_rgb.shape
+    scale = min(1.0, 960.0 / max(ch, cw, 1))
+    if scale < 1.0:
+        core_rgb = cv2.resize(core_rgb, (int(cw * scale), int(ch * scale)), interpolation=cv2.INTER_AREA)
+
+    gray = cv2.cvtColor(core_rgb, cv2.COLOR_RGB2GRAY)
+    dhash = _compute_dhash_hex(cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY))
+
+    # 1. Bulanıklık (Laplacian varyansı) ve parlaklık/kontrast
+    lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    blur_score = int(round(min(100.0, max(0.0, (np.log1p(lap_var) / np.log1p(350.0)) * 100.0))))
+    brightness = float(gray.mean())
+    contrast = float(gray.std())
+
+    # 2. Renk ve doku oranları (HSV)
+    hsv = cv2.cvtColor(core_rgb, cv2.COLOR_RGB2HSV)
+    H_ch, S_ch, V_ch = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+
+    # Toprak / kazı dokusu (turuncu-kahverengi-sarımsı, orta doygunluk)
+    soil_mask = (H_ch >= 6) & (H_ch <= 28) & (S_ch >= 35) & (S_ch <= 210) & (V_ch >= 35) & (V_ch <= 220)
+    soil_ratio = float(soil_mask.mean())
+
+    # Beton / çakıl / galvanizli gri yüzey (düşük doygunluk, orta parlaklık)
+    gray_surface_mask = (S_ch <= 42) & (V_ch >= 55) & (V_ch <= 205)
+    concrete_gray_ratio = float(gray_surface_mask.mean())
+
+    # Gökyüzü (üst %60'ta mavi veya parlak açık gökyüzü)
+    upper_h = max(1, int(gray.shape[0] * 0.65))
+    sky_mask = (
+        ((H_ch[:upper_h, :] >= 90) & (H_ch[:upper_h, :] <= 135) & (S_ch[:upper_h, :] >= 25) & (V_ch[:upper_h, :] >= 110))
+        | ((S_ch[:upper_h, :] <= 35) & (V_ch[:upper_h, :] >= 195))
+    )
+    sky_ratio = float(sky_mask.mean())
+
+    # 3. Yapısal / çelik kafes ve iletken çizgi yoğunluğu (Canny + HoughLinesP)
+    edges = cv2.Canny(gray, 65, 175)
+    edge_density = float((edges > 0).mean())
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180.0, threshold=38, minLineLength=24, maxLineGap=8)
+    line_count = len(lines) if lines is not None else 0
+    structural_line_score = round(min(1.0, (line_count / 65.0) * 0.7 + min(1.0, edge_density / 0.12) * 0.3), 3)
+
+    # 4. Aşama uyumluluk skorları (0.0 .. 1.0)
+    # Dış mekan / saha ortamı doğrulaması (aşırı düz tek renk ekran/duvar çekimlerini ayıklar)
+    is_blank_or_uniform = contrast < 16.0 or edge_density < 0.008
+    if is_blank_or_uniform:
+        affinities = {k: 0.15 for k in ("excavation", "foundation", "erection", "fittings", "stringing", "completed", "issue")}
+    else:
+        affinities = {
+            "excavation": round(min(1.0, 0.45 + soil_ratio * 1.4 + concrete_gray_ratio * 0.5 + edge_density * 1.8), 3),
+            "foundation": round(min(1.0, 0.45 + concrete_gray_ratio * 1.1 + soil_ratio * 0.8 + structural_line_score * 0.45), 3),
+            "erection": round(min(1.0, 0.42 + structural_line_score * 0.65 + sky_ratio * 0.45 + concrete_gray_ratio * 0.3), 3),
+            "fittings": round(min(1.0, 0.42 + structural_line_score * 0.65 + sky_ratio * 0.45), 3),
+            "stringing": round(min(1.0, 0.42 + structural_line_score * 0.60 + sky_ratio * 0.50), 3),
+            "completed": round(min(1.0, 0.48 + structural_line_score * 0.55 + sky_ratio * 0.35 + concrete_gray_ratio * 0.25), 3),
+            "issue": 0.85,
+        }
+
+    st_key = (claimed_stage or "").strip().lower()
+    claimed_affinity = affinities.get(st_key, 0.75)
+
+    return {
+        "dhash": dhash,
+        "width": w,
+        "height": h,
+        "blur_laplacian": round(lap_var, 1),
+        "blur_score": blur_score,
+        "brightness": round(brightness, 1),
+        "contrast": round(contrast, 1),
+        "soil_ratio": round(soil_ratio, 3),
+        "concrete_gray_ratio": round(concrete_gray_ratio, 3),
+        "sky_ratio": round(sky_ratio, 3),
+        "edge_density": round(edge_density, 4),
+        "line_count": line_count,
+        "structural_line_score": structural_line_score,
+        "is_blank_or_uniform": bool(is_blank_or_uniform),
+        "claimed_stage": st_key,
+        "claimed_affinity": claimed_affinity,
+        "affinities": affinities,
+    }
+
+
+@app.post("/verify-pole-photo")
+async def verify_pole_photo_endpoint(file: UploadFile = File(...), stage: str = ""):
+    try:
+        buf = await file.read()
+        if not buf:
+            return JSONResponse(status_code=400, content={"error": "Boş görsel"})
+        res = await asyncio.to_thread(analyze_pole_photo_bytes, buf, stage)
+        return res
+    except Exception as e:
+        log.exception("Fotoğraf doğrulama hatası")
+        return JSONResponse(status_code=500, content={"error": f"Görsel analiz hatası: {e}"})
+
+

@@ -24,6 +24,8 @@ export default function ProgressPayments() {
   const [form, setForm] = useState({ period_label: '', notes: '', items: [] });
   const [formError, setFormError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [poolReadyCount, setPoolReadyCount] = useState(0);
+  const [transferringPool, setTransferringPool] = useState(false);
 
   async function loadPayments() {
     if (projectId == null) {
@@ -35,6 +37,10 @@ export default function ProgressPayments() {
       const list = await api.get(`/api/progress-payments?project_id=${projectId}`);
       setPayments(list);
       setSelPayment((prev) => (prev && list.some((x) => x.id === prev.id) ? prev : null));
+      api
+        .get(`/api/saha/${projectId}/hakedis-pool`)
+        .then((hp) => setPoolReadyCount(hp?.summary?.ready_count || 0))
+        .catch(() => setPoolReadyCount(0));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -213,6 +219,32 @@ export default function ProgressPayments() {
     }
   }
 
+  async function transferFromSahaPool() {
+    if (projectId == null) return;
+    if (
+      !window.confirm(
+        `Saha karar motoru ile doğrulanmış ${poolReadyCount} adet direk imalatı taslak hakediş dönemine aktarılacak. Onaylıyor musunuz?`
+      )
+    ) {
+      return;
+    }
+    setTransferringPool(true);
+    try {
+      const res = await api.post(`/api/saha/${projectId}/hakedis-pool/transfer`, {
+        payment_id: selPayment?.status === 'draft' ? selPayment.id : undefined,
+      });
+      await loadPayments();
+      if (res.payment) {
+        setSelPayment(res.payment);
+        await loadPaymentDetails(res.payment.id);
+      }
+    } catch (e) {
+      alert('Hakediş havuzu aktarımı başarısız: ' + e.message);
+    } finally {
+      setTransferringPool(false);
+    }
+  }
+
   return (
     <div>
       <div className="page-head">
@@ -220,7 +252,19 @@ export default function ProgressPayments() {
           <h1>Hakediş Yönetimi</h1>
           <p className="sub">Aylık hakediş hesaplama ve takip</p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {projectId != null && poolReadyCount > 0 && (
+            <button
+              className="btn btn-primary"
+              onClick={transferFromSahaPool}
+              disabled={transferringPool}
+              title="Saha fotoğraflarıyla doğrulanmış direk metrajlarını hakedişe aktar"
+            >
+              {transferringPool
+                ? 'Aktarılıyor…'
+                : `🛡️ Saha Havuzundan Aktar (${poolReadyCount} Hazır)`}
+            </button>
+          )}
           {projectId != null && (
             <button className="btn btn-accent" onClick={openNewModal}>+ Yeni Hakediş</button>
           )}

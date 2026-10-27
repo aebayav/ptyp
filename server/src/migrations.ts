@@ -589,6 +589,69 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+
+  {
+    // %100 Lokal Saha Fotoğrafı Doğrulama Karar Motoru + Otomatik Hakediş Havuzu:
+    //  1) pole_photos tablosuna koordinat ifşa etmeyen bağıl sapma (gps_distance_m),
+    //     en yakın direk kilidi (nearest_pole_idx/name/distance_m), görsel parmak izi (phash/sha256),
+    //     karar durumu (decision_status), puan (decision_score) ve açıklanabilir karne (scorecard) sütunları
+    //  2) hakedis_pool tablosu: onaylanan direk aşamalarını DTL metraj/tonaj karşılıklarıyla hakediş havuzunda toplar
+    id: 10,
+    name: 'saha-decision-hakedis-pool',
+    up: async (c) => {
+      const ppCols = await columns(c, 'pole_photos');
+      const addCol = async (col: string, def: string) => {
+        if (!ppCols.has(col)) {
+          await c.query(`ALTER TABLE pole_photos ADD COLUMN ${col} ${def}`);
+        }
+      };
+      await addCol('stage', `TEXT NOT NULL DEFAULT ''`);
+      await addCol('phash', `TEXT NOT NULL DEFAULT ''`);
+      await addCol('sha256', `TEXT NOT NULL DEFAULT ''`);
+      await addCol('gps_distance_m', `NUMERIC(8,1)`);
+      await addCol('nearest_pole_idx', `INTEGER`);
+      await addCol('nearest_pole_name', `TEXT NOT NULL DEFAULT ''`);
+      await addCol('nearest_distance_m', `NUMERIC(8,1)`);
+      await addCol('decision_status', `TEXT NOT NULL DEFAULT 'auto_approved'`);
+      await addCol('decision_score', `INTEGER NOT NULL DEFAULT 85`);
+      await addCol('scorecard', `JSONB NOT NULL DEFAULT '{}'`);
+      await addCol('reviewed_by', `INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+      await addCol('reviewed_at', `TIMESTAMPTZ`);
+      await addCol('review_note', `TEXT NOT NULL DEFAULT ''`);
+
+      await c.query(`CREATE INDEX IF NOT EXISTS idx_pole_photos_phash ON pole_photos(project_id, phash)`);
+      await c.query(`CREATE INDEX IF NOT EXISTS idx_pole_photos_decision ON pole_photos(project_id, decision_status)`);
+
+      await c.query(`
+        CREATE TABLE IF NOT EXISTS hakedis_pool (
+          id                SERIAL PRIMARY KEY,
+          project_id        INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          pole_idx          INTEGER NOT NULL,
+          pole_name         TEXT NOT NULL DEFAULT '',
+          stage             TEXT NOT NULL,
+          tower_type        TEXT NOT NULL DEFAULT '',
+          pole_function     TEXT NOT NULL DEFAULT '',
+          work_group_id     INTEGER REFERENCES work_groups(id) ON DELETE SET NULL,
+          item_name         TEXT NOT NULL DEFAULT '',
+          unit              TEXT NOT NULL DEFAULT 'adet',
+          qty               NUMERIC(12,2) NOT NULL DEFAULT 1,
+          unit_price        NUMERIC(14,2) NOT NULL DEFAULT 0,
+          evidence_photo_id INTEGER REFERENCES pole_photos(id) ON DELETE SET NULL,
+          decision_score    INTEGER NOT NULL DEFAULT 0,
+          gps_distance_m    NUMERIC(8,1),
+          status            TEXT NOT NULL DEFAULT 'ready',
+          payment_id        INTEGER REFERENCES progress_payments(id) ON DELETE SET NULL,
+          reviewed_by       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          reviewed_at       TIMESTAMPTZ,
+          notes             TEXT NOT NULL DEFAULT '',
+          created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (project_id, pole_idx, stage)
+        );
+        CREATE INDEX IF NOT EXISTS idx_hakedis_pool_project ON hakedis_pool(project_id, status);
+      `);
+    },
+  },
 ];
 
 /** Bekleyen migrasyonları sırayla uygular. */
