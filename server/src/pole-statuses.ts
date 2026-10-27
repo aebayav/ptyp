@@ -11,12 +11,35 @@ export const POLE_STATUSES: Record<string, { label: string; color: string; progr
   issue: { label: 'Sorun / Engel', color: '#8b1d1d', progress: 0 },
 };
 
+// İş gruplarının bağlanabileceği saha aşamaları (minProgress: o aşamayı tamamlanmış saymak için gereken direk ilerlemesi)
+export const SAHA_STAGES: Record<string, { label: string; minProgress: number }> = {
+  '': { label: 'Genel Direk Ortalaması', minProgress: 0 },
+  all: { label: 'Genel Direk Ortalaması', minProgress: 0 },
+  excavation: { label: 'Kazı Aşaması (≥Kazı)', minProgress: 15 },
+  foundation: { label: 'Temel Aşaması (≥Temel)', minProgress: 30 },
+  erection: { label: 'Direk Montajı (≥Montaj)', minProgress: 50 },
+  fittings: { label: 'Donanım / İzolatör (≥Donanım)', minProgress: 70 },
+  stringing: { label: 'İletken Çekimi (≥Tel Çekimi)', minProgress: 85 },
+  completed: { label: 'Tamamlanma (Tamamlandı)', minProgress: 100 },
+};
+
 export function poleProgress(status: string | null | undefined): number {
   return POLE_STATUSES[status || 'none']?.progress ?? 0;
 }
 
-// "D-14", "D14", "14(S)" → 14; "Portal-Başlangıç" → null
+/** Belirli bir saha aşaması için tek direğin katkı yüzdesi (0..100). */
+export function poleStageProgress(status: string | null | undefined, sahaStage?: string | null): number {
+  const prog = poleProgress(status);
+  const stg = String(sahaStage || '').trim();
+  const minP = SAHA_STAGES[stg]?.minProgress ?? 0;
+  if (minP <= 0) return prog;
+  return prog >= minP ? 100 : 0;
+}
+
+// "D-14", "D14", "14(S)", "Direk 14" → 14; "Portal-Başlangıç" → null
 export function poleNumberFromName(name: string | null | undefined): number | null {
-  const m = String(name || '').match(/^D[-.\s]?(\d{1,4})/i);
+  const s = String(name || '').trim();
+  if (!s || /^portal/i.test(s)) return null;
+  const m = s.match(/^(?:(?:direk|dp|d|p)[-._\s]*)?(\d{1,4})(?:\s*\([A-Za-z0-9]+\))?/i);
   return m ? parseInt(m[1], 10) : null;
 }

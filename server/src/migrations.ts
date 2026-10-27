@@ -566,6 +566,29 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+
+  {
+    // Otomatik iş planı & saha aşaması senkronizasyonu:
+    //  1) work_groups.saha_stage: iş grubunun bağlı olduğu saha direk aşaması
+    //     ('excavation'|'foundation'|'erection'|'fittings'|'stringing'|'completed'|'all'|'')
+    //  2) work_groups.code benzersizliğini global yerine proje bazına (project_id, code) taşı
+    id: 9,
+    name: 'work-plan-automation',
+    up: async (c) => {
+      const wgCols = await columns(c, 'work_groups');
+      if (!wgCols.has('saha_stage')) {
+        await c.query(`ALTER TABLE work_groups ADD COLUMN saha_stage TEXT NOT NULL DEFAULT ''`);
+      }
+      if (await constraintExists(c, 'work_groups_code_key')) {
+        await c.query(`ALTER TABLE work_groups DROP CONSTRAINT work_groups_code_key`);
+      }
+      if (!(await constraintExists(c, 'work_groups_project_code_key'))) {
+        await c.query(
+          `ALTER TABLE work_groups ADD CONSTRAINT work_groups_project_code_key UNIQUE (project_id, code)`
+        );
+      }
+    },
+  },
 ];
 
 /** Bekleyen migrasyonları sırayla uygular. */

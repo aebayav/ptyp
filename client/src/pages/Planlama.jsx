@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { fmtDate, useProjects, ProjectBar } from '../utils';
 
@@ -10,14 +11,64 @@ export default function Planlama() {
   const { projects, projectId, setProjectId } = useProjects();
   const [data, setData] = useState(null);
   const [msg, setMsg] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  function loadPlanning(pid = projectId) {
+    if (pid == null) return Promise.resolve();
+    return api
+      .get(`/api/planning?project_id=${pid}`)
+      .then(setData)
+      .catch((e) => setMsg({ type: 'err', text: e.message }));
+  }
 
   useEffect(() => {
     if (projectId == null) return;
-    api
-      .get(`/api/planning?project_id=${projectId}`)
-      .then(setData)
-      .catch((e) => setMsg({ type: 'err', text: e.message }));
+    loadPlanning(projectId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  async function handleQuickGenerate() {
+    if (projectId == null) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await api.post('/api/workgroups/auto-generate', {
+        project_id: projectId,
+        mode: 'hybrid',
+        replace_existing: true,
+      });
+      await loadPlanning(projectId);
+      setMsg({
+        type: 'ok',
+        text: `Otomatik iş planı oluşturuldu (${res.created_groups} iş grubu, ${res.created_tasks} görev) ve S-eğrisi güncellendi.`,
+      });
+    } catch (e) {
+      setMsg({ type: 'err', text: e.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSyncSaha() {
+    if (projectId == null) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await api.post('/api/workgroups/sync-saha', { project_id: projectId });
+      await loadPlanning(projectId);
+      setMsg({
+        type: 'ok',
+        text:
+          res.updated > 0
+            ? `${res.updated} iş grubunun ilerlemesi saha direk durumlarından güncellendi.`
+            : 'Tüm iş grupları güncel saha ilerlemesiyle zaten uyumlu.',
+      });
+    } catch (e) {
+      setMsg({ type: 'err', text: e.message });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const chart = useMemo(() => {
     if (!data?.curve?.dates?.length) return null;
@@ -33,6 +84,7 @@ export default function Planlama() {
   const gantt = useMemo(() => {
     if (!data?.groups?.length) return null;
     const groups = data.groups.filter((g) => g.planned_start);
+    if (!groups.length) return null;
     const min = groups.map((g) => g.planned_start).sort()[0];
     const max = [...groups.map((g) => g.planned_end || data.summary.today), data.summary.today].sort().pop();
     const total = Math.max(1, (new Date(max) - new Date(min)) / 86400000);
@@ -52,12 +104,20 @@ export default function Planlama() {
           <h1>Plan &amp; Gerçekleşme</h1>
           <p className="sub">Ağırlıklı ilerlemeden otomatik S-eğrisi ve gecikme uyarısı</p>
         </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn" onClick={handleSyncSaha} disabled={busy}>
+            🔄 Sahadan Güncelle
+          </button>
+          <Link to="/is-takibi" className="btn">
+            İş Takibinde Düzenle
+          </Link>
+        </div>
       </div>
 
       <ProjectBar projects={projects} projectId={projectId} onChange={setProjectId} />
 
       {msg && (
-        <div className="form-error" style={{ marginBottom: 12 }}>
+        <div className={msg.type === 'ok' ? 'notice-banner' : 'form-error'} style={{ marginBottom: 12 }}>
           {msg.text}
         </div>
       )}
@@ -65,8 +125,15 @@ export default function Planlama() {
       {data.groups.length === 0 ? (
         <div className="card">
           <div className="empty">
-            Bu projede ağırlıklı iş grubu yok. İş Takibi sayfasından iş gruplarına ağırlık ve planlanan tarih
-            girin — eğri otomatik çizilir.
+            <div>Bu projede henüz ağırlıklı iş grubu veya takvim tanımlanmamış.</div>
+            <div style={{ marginTop: 10, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button className="btn btn-accent" onClick={handleQuickGenerate} disabled={busy}>
+                {busy ? 'Oluşturuluyor…' : '⚡ Otomatik İş Planı Oluştur'}
+              </button>
+              <Link to="/is-takibi" className="btn">
+                İş Takibi Sayfasına Git
+              </Link>
+            </div>
           </div>
         </div>
       ) : (
@@ -183,7 +250,7 @@ export default function Planlama() {
                                 top: 5,
                                 height: 12,
                                 left: `${gantt.pos(g.planned_start)}%`,
-                                width: `${Math.max(0, (gantt.pos(g.planned_end || s.today) - gantt.pos(g.planned_start)) * Math.min(100, g.progress) / 100)}%`,
+                                width: `${Math.max(0, ((gantt.pos(g.planned_end || s.today) - gantt.pos(g.planned_start)) * Math.min(100, g.progress)) / 100)}%`,
                                 background: g.late ? '#dc2626' : '#2563eb',
                                 borderRadius: 3,
                                 opacity: 0.85,

@@ -10,6 +10,7 @@ import { pool } from '../db';
 import { requireAuth, requireRole, AuthedRequest } from '../auth';
 import { POLE_STATUSES, poleNumberFromName, poleProgress } from '../pole-statuses';
 import { toDateOrNull } from '../dates';
+import { syncWorkGroupsFromSaha } from '../work-plan-generator';
 
 const router = Router();
 
@@ -140,6 +141,8 @@ router.put('/:id/status', async (req: Request, res: Response) => {
        updated_by = EXCLUDED.updated_by, updated_at = now()`,
     [projectId, idx, status, note, uid]
   );
+  // Saha direk durumu güncellendiğinde bağlı iş gruplarının ilerlemesini otomatik senkronize et
+  await syncWorkGroupsFromSaha(projectId, true).catch(() => {});
   res.json({ pole_idx: idx, status, status_label: POLE_STATUSES[status].label, note });
 });
 
