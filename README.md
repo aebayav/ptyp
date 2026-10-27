@@ -18,7 +18,7 @@ tedarik, iş takibi, hakediş, keşif (BOQ), saha günlük raporları ve belgede
 | Kamulaştırma | Açıklık bazında parsel/malik/irtifak/bedel takibi; izinsiz parseller haritada kırmızı |
 | Plan & Gerçekleşme | Ağırlıklı ilerlemeden otomatik S-eğrisi + Gantt + gecikme uyarısı |
 | Hakediş Yönetimi | Aylık hakediş hesaplama (sözleşme miktarları, birim fiyatlar) |
-| Fiyat Farkı | TÜİK endeks kayıtları + Pn formülü (Pn = İn/İo, Fark = Tutar × (Pn − 1)) |
+| Fiyat Farkı | TÜİK endeks kayıtları + Pn formülü (Pn = İn/İo, Fark = Tutar × (Pn − 1)); **Otomatik Getir** ile TCMB EVDS'den resmi endeks değeri çekilir (`EVDS_API_KEY` gerekli — evds2.tcmb.gov.tr'den ücretsiz) |
 | Keşif (BOQ) | DTL belgesinden otomatik keşif özeti — düzenlenebilir kalemler, Excel çıktısı |
 | Saha | Direk bazlı ilerleme + fotoğraf + QR kartları + malzeme talebi (field rolü) |
 | Saha Günlük Raporu | Günlük personel, ekipman ve imalat kaydı |
