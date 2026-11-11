@@ -6,6 +6,7 @@ After=network.target
 WorkingDirectory=/root/ptyp/ocr-service
 Environment=OLLAMA_URL=http://127.0.0.1:11434
 Environment=VISION_MODEL=ptyp-ai
+Environment=CONF_THRESHOLD=0.85
 Environment=OLLAMA_ATTEMPTS=2
 ExecStart=/root/ptyp/ocr-service/.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8787
 Restart=always

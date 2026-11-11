@@ -48,7 +48,7 @@ app = FastAPI(title="PTYP OCR Servisi", version="2.1.0")
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 VISION_MODEL = os.environ.get("VISION_MODEL", "ptyp-ai")
-CONF_THRESHOLD = float(os.environ.get("CONF_THRESHOLD", "0.70"))
+CONF_THRESHOLD = float(os.environ.get("CONF_THRESHOLD", "0.85"))
 # Ollama çağrısı kaç kez denenir / kaç sn beklenir (0 = devre dışı)
 OLLAMA_ATTEMPTS = int(os.environ.get("OLLAMA_ATTEMPTS", "2"))
 OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "240"))
@@ -2162,16 +2162,17 @@ def _indra_rows_from_page(
             need_st = not re.match(r"(?i)^(?:d|dp|pb|dm)[.-]\d+", str(dtl.get("pole") or ""))
             if not (has_core and (dtl.get("station_text") or not need_st)):
                 dtl_weak.append((max(0, y0 - 4), y1 + 4, f"{dtl_idx}:{dtl.get('pole')}"))
+        by0 = max(0, y0 - 4)
         if len(cells) < 3 or parsed.get("weak"):
             # Direk benzeri başlangıcı olan eksik/çift-northing satır → GLM dolgusu
             if parsed.get("pole") or re.search(r"^\d{1,3}\b", joined):
-                weak_ranges.append((max(0, y0 - 4), y1 + 4))
+                weak_ranges.append((by0, y1 + 4))
                 # Dolgu başarısız olursa satır yok olmasın: belirsiz (0.4) olarak korunur
                 kept = cells
                 if len(kept) >= 3:
                     for c in kept[1:3]:
                         c["conf"] = 0.4
-                weak_rows.append((y0, kept))
+                weak_rows.append((by0, kept))
             continue
         coord_confs = [
             float(l.get("conf") or 0.0)
@@ -2181,7 +2182,12 @@ def _indra_rows_from_page(
         confs = coord_confs or [float(l.get("conf") or 0.0) for l in items if (l.get("conf") or 0) > 0]
         avg = sum(confs) / len(confs) if confs else 0.0
         for c in cells[1:3]:
-            c["conf"] = round(avg, 4) if avg >= 0.85 else 0.4
+            c["conf"] = round(avg, 4) if avg >= CONF_THRESHOLD else 0.4
+        if avg < CONF_THRESHOLD:
+            # Güven eşiğinin (%85) altında kalan satırları Qwen (VLM) doğrulamasına gönder
+            weak_ranges.append((by0, y1 + 4))
+            weak_rows.append((by0, cells))
+            continue
         rows.append((y0, cells))
     return rows, weak_ranges, dtl_rows, dtl_weak, weak_rows
 
