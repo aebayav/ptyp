@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { api, getToken } from '../api';
+import { api, apiUrl, getToken } from '../api';
 import { useAuth } from '../AuthContext';
 import Modal from '../components/Modal';
 import { loadLeaflet, useProjects } from '../utils';
@@ -22,7 +22,7 @@ function PhotoImg({ url, className = 'photo-thumb', onClick }) {
     let alive = true;
     (async () => {
       try {
-        const res = await fetch(url, { headers: { Authorization: 'Bearer ' + getToken() } });
+        const res = await fetch(apiUrl(url), { headers: { Authorization: 'Bearer ' + getToken() } });
         if (!res.ok) return;
         const blob = await res.blob();
         const objectUrl = URL.createObjectURL(blob);
@@ -111,17 +111,38 @@ export default function Saha() {
   const layerRef = useRef(null);
   const cameraInputRef = useRef(null);
 
-  // Çevrimdışı / çevrimiçi dinleyicisi
+  // Çevrimdışı / çevrimiçi dinleyicisi ve Service Worker Background Sync mesajı
   useEffect(() => {
     const onOnline = () => setIsOnline(true);
     const onOffline = () => setIsOnline(false);
+    const onSwMessage = (ev) => {
+      if (ev.data?.type === 'PTYP_SYNC_NOW') {
+        setIsOnline(true);
+      }
+    };
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', onSwMessage);
+    }
     return () => {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', onSwMessage);
+      }
     };
   }, []);
+
+  // Şebeke geri geldiğinde bekleyen çevrimdışı kayıtları arka planda otomatik gönder
+  useEffect(() => {
+    if (!isOnline || offlineQueue.length === 0 || syncingOffline) return;
+    const t = setTimeout(() => {
+      syncOfflineQueueNow(true);
+    }, 900);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline, offlineQueue.length]);
 
   async function refreshOfflineQueue() {
     if (projectId == null) return;
@@ -434,7 +455,7 @@ export default function Saha() {
     }
   }
 
-  async function syncOfflineQueueNow() {
+  async function syncOfflineQueueNow(isAuto = false) {
     if (offlineQueue.length === 0 || syncingOffline) return;
     setSyncingOffline(true);
     let okCount = 0;
@@ -462,9 +483,14 @@ export default function Saha() {
       }
       await refreshOfflineQueue();
       await load();
-      setMsg({ type: 'ok', text: `✓ Çevrimdışı kuyruktaki ${okCount} kayıt başarıyla doğrulandı ve hakediş havuzuna aktarıldı.` });
+      setMsg({
+        type: 'ok',
+        text: `✓ ${isAuto ? 'Otomatik senkronizasyon: ' : ''}Çevrimdışı kuyruktaki ${okCount} kayıt başarıyla doğrulandı ve hakediş havuzuna aktarıldı.`,
+      });
     } catch (e) {
-      setMsg({ type: 'err', text: `Senkronizasyon sırasında hata (${okCount} tamamlandı): ${e.message}` });
+      if (!isAuto || okCount > 0) {
+        setMsg({ type: 'err', text: `Senkronizasyon sırasında hata (${okCount} tamamlandı): ${e.message}` });
+      }
     } finally {
       setSyncingOffline(false);
     }
@@ -561,7 +587,7 @@ export default function Saha() {
   async function openQr() {
     if (projectId == null) return;
     try {
-      const res = await fetch(`/api/saha/${projectId}/qr`, {
+      const res = await fetch(apiUrl(`/api/saha/${projectId}/qr`), {
         headers: { Authorization: 'Bearer ' + getToken() },
       });
       if (!res.ok) throw new Error('QR sayfası üretilemedi.');
@@ -631,18 +657,15 @@ export default function Saha() {
       <div className="page-head" style={{ flexWrap: 'wrap', gap: 10 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <h1 style={{ margin: 0 }}>Saha &amp; Mobil Doğrulama</h1>
+            <h1 style={{ margin: 0 }}>Saha</h1>
             <span
               className={`badge ${isOnline ? 'badge-green' : 'badge-amber'}`}
               style={{ fontSize: 11 }}
-              title="Lokal Doğrulama & Çevrimdışı Senkronizasyon Durumu"
             >
-              {isOnline ? '● Çevrimiçi (Lokal Karar Motoru Aktif)' : '⚡ Çevrimdışı Mod (Kuyruğa Kaydedilir)'}
+              {isOnline ? '● Çevrimiçi' : '⚡ Çevrimdışı'}
             </span>
           </div>
-          <p className="sub">
-            Direk bazlı saha ilerlemesi, koordinat gizlilik korumalı kanıt fotoğrafı ve otomatik hakediş havuzu
-          </p>
+          <p className="sub">Direk ilerleme ve saha takibi</p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button
@@ -650,7 +673,7 @@ export default function Saha() {
             onClick={() => locateNearestPole(false)}
             disabled={projectId == null || gpsState.loading}
           >
-            {gpsState.loading ? '📍 Konum Alınıyor…' : '📍 Yanımdaki Direği Bul'}
+            {gpsState.loading ? '📍 Aranıyor…' : '📍 Yakın Direk'}
           </button>
           <button className="btn" onClick={openQr} disabled={projectId == null} title="Direk QR kartlarını yazdırmak için">
             QR Çıktısı
@@ -675,7 +698,7 @@ export default function Saha() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
               <div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                  📍 Cihaz İçi GPS En Yakın Direk Tespiti (Açık Koordinat Kaydedilmez)
+                  📍 En Yakın Direk
                 </div>
                 <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2 }}>
                   {nearestMatch.nearestPole.name}{' '}
@@ -685,7 +708,7 @@ export default function Saha() {
                   </span>
                   {' — '}
                   <span style={{ color: nearestMatch.nearestDistanceM <= 55 ? '#16a34a' : '#d97706' }}>
-                    Δ {nearestMatch.nearestDistanceM} metre
+                    Δ {nearestMatch.nearestDistanceM} m
                   </span>
                 </div>
               </div>
@@ -698,13 +721,13 @@ export default function Saha() {
                     setFlashIdx(nearestMatch.nearestPole.idx);
                   }}
                 >
-                  Listede Göster
+                  Göster
                 </button>
                 <button
                   className="btn btn-sm btn-accent"
                   onClick={() => openCaptureModal(nearestMatch.nearestPole)}
                 >
-                  📸 {nearestMatch.nearestPole.name} İçin Kanıt Çek
+                  📸 Fotoğraf Ekle
                 </button>
               </div>
             </div>
@@ -725,18 +748,13 @@ export default function Saha() {
             gap: 10,
           }}
         >
-          <div>
-            <b>⚡ Çevrimdışı Kuyrukta {offlineQueue.length} Bekleyen Saha Kanıtı Var</b>
-            <div style={{ fontSize: 12, opacity: 0.9 }}>
-              Şebeke yokken çekilen fotoğraflar cihazınızda güvenle saklandı.
-            </div>
-          </div>
+          <b>⚡ Bekleyen {offlineQueue.length} çevrimdışı kayıt</b>
           <button
             className="btn btn-sm btn-primary"
             onClick={syncOfflineQueueNow}
             disabled={!isOnline || syncingOffline}
           >
-            {syncingOffline ? 'Gönderiliyor…' : '🔄 Şimdi Sunucuya Gönder'}
+            {syncingOffline ? 'Gönderiliyor…' : '🔄 Gönder'}
           </button>
         </div>
       )}
@@ -779,9 +797,9 @@ export default function Saha() {
               🗼 Direkler ({data.poles.length})
             </button>
             <button className={`tab-chip ${tab === 'pool' ? 'on' : ''}`} onClick={() => setTab('pool')}>
-              🛡️ Doğrulama &amp; Hakediş Havuzu
+              🛡️ Hakediş Havuzu
               {poolCounts.ready + poolCounts.pending_review > 0
-                ? ` (${poolCounts.ready} Hazır${poolCounts.pending_review > 0 ? ` · ${poolCounts.pending_review} İnceleme` : ''})`
+                ? ` (${poolCounts.ready + poolCounts.pending_review})`
                 : ''}
             </button>
             <button className={`tab-chip ${tab === 'requests' ? 'on' : ''}`} onClick={() => setTab('requests')}>
@@ -822,12 +840,7 @@ export default function Saha() {
               </div>
 
               <div className="card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-                  <h3 style={{ margin: 0 }}>Direk Listesi &amp; Kanıtlı İlerleme</h3>
-                  <span className="muted" style={{ fontSize: 12 }}>
-                    🔒 Fotoğraflardan GPS EXIF verisi otomatik temizlenir; yalnızca direğe bağıl sapma (Δm) doğrulanır.
-                  </span>
-                </div>
+                <h3 style={{ margin: '0 0 8px' }}>Direk Listesi</h3>
 
                 {filteredPoles.map((p) => {
                   const st = statuses[p.status] || statuses.none;
@@ -869,9 +882,8 @@ export default function Saha() {
                         <button
                           className="btn btn-sm btn-primary"
                           onClick={() => openCaptureModal(p)}
-                          title="Kamera ile doğrulanmış aşama fotoğrafı çek ve hakediş havuzuna gönder"
                         >
-                          📸 Kanıt Çek ({p.photos.length})
+                          📸 Fotoğraf ({p.photos.length})
                         </button>
                       </div>
 
@@ -972,53 +984,39 @@ export default function Saha() {
                   }}
                 >
                   <div className="card" style={{ padding: '12px 16px', borderLeft: '4px solid #16a34a' }}>
-                    <div className="muted" style={{ fontSize: 11.5, fontWeight: 700 }}>🟢 HAKEDİŞE HAZIR (ONAYLI)</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, marginTop: 4 }}>{poolData.summary.ready_count} İmalat</div>
-                    <div className="muted" style={{ fontSize: 11.5 }}>
-                      Karar motorundan geçti, aktarıma hazır
-                    </div>
+                    <div className="muted" style={{ fontSize: 11.5, fontWeight: 700 }}>🟢 ONAYLI</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4 }}>{poolData.summary.ready_count}</div>
                   </div>
                   <div className="card" style={{ padding: '12px 16px', borderLeft: '4px solid #d97706' }}>
-                    <div className="muted" style={{ fontSize: 11.5, fontWeight: 700 }}>🟡 TEKNİK OFİS İNCELEMESİ</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, marginTop: 4 }}>{poolData.summary.pending_review_count} Kayıt</div>
-                    <div className="muted" style={{ fontSize: 11.5 }}>
-                      Sınırda kalan / tek tık onay bekleyen
-                    </div>
+                    <div className="muted" style={{ fontSize: 11.5, fontWeight: 700 }}>🟡 İNCELEMEDE</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4 }}>{poolData.summary.pending_review_count}</div>
                   </div>
                   <div className="card" style={{ padding: '12px 16px', borderLeft: '4px solid #2563eb' }}>
-                    <div className="muted" style={{ fontSize: 11.5, fontWeight: 700 }}>🏗️ HAZIR DTL METRAJI</div>
-                    <div style={{ fontSize: 16, fontWeight: 800, marginTop: 6 }}>
-                      {poolData.summary.ready_steel_kg.toLocaleString('tr-TR')} kg Çelik
+                    <div className="muted" style={{ fontSize: 11.5, fontWeight: 700 }}>🏗️ HAZIR METRAJ</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, marginTop: 4 }}>
+                      {poolData.summary.ready_steel_kg.toLocaleString('tr-TR')} kg
                     </div>
                     <div className="muted" style={{ fontSize: 11.5 }}>
                       Beton: {poolData.summary.ready_concrete_m3} m³ · Kazı: {poolData.summary.ready_excavation_m3} m³
                     </div>
                   </div>
                   <div className="card" style={{ padding: '12px 16px', borderLeft: '4px solid #64748b' }}>
-                    <div className="muted" style={{ fontSize: 11.5, fontWeight: 700 }}>📄 HAKEDİŞE AKTARILAN</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, marginTop: 4 }}>{poolData.summary.transferred_count} Kalem</div>
-                    <div className="muted" style={{ fontSize: 11.5 }}>
-                      Reddedilen: {poolData.summary.rejected_count}
-                    </div>
+                    <div className="muted" style={{ fontSize: 11.5, fontWeight: 700 }}>📄 AKTARILAN</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4 }}>{poolData.summary.transferred_count}</div>
                   </div>
                 </div>
               )}
 
               <div className="card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
-                  <div>
-                    <h3 style={{ margin: 0 }}>Lokal Karar Motoru &amp; Canlı Hakediş Havuzu</h3>
-                    <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                      Doğrulanan her direk aşaması DTL tablosundaki tip ve tonajıyla otomatik metraj satırına dönüşür.
-                    </div>
-                  </div>
+                  <h3 style={{ margin: 0 }}>Hakediş Havuzu</h3>
                   {isOwner && (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       <button
                         className="btn"
                         onClick={() => navigate('/hakedisler')}
                       >
-                        Hakediş Yönetimine Git →
+                        Hakedişler →
                       </button>
                       <button
                         className="btn btn-primary"
@@ -1027,7 +1025,7 @@ export default function Saha() {
                       >
                         {transferBusy
                           ? 'Aktarılıyor…'
-                          : `📄 Onaylı Havuzu Hakedişe Aktar (${poolData.summary?.ready_count || 0})`}
+                          : `📄 Hakedişe Aktar (${poolData.summary?.ready_count || 0})`}
                       </button>
                     </div>
                   )}
@@ -1036,10 +1034,10 @@ export default function Saha() {
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
                   {[
                     { key: 'all', label: `Tümü (${poolData.items.length})` },
-                    { key: 'pending_review', label: `🟡 İnceleme Bekleyen (${poolData.summary?.pending_review_count || 0})` },
-                    { key: 'ready', label: `🟢 Hakedişe Hazır (${poolData.summary?.ready_count || 0})` },
+                    { key: 'pending_review', label: `🟡 İnceleme (${poolData.summary?.pending_review_count || 0})` },
+                    { key: 'ready', label: `🟢 Hazır (${poolData.summary?.ready_count || 0})` },
                     { key: 'transferred', label: `📄 Aktarılan (${poolData.summary?.transferred_count || 0})` },
-                    { key: 'rejected', label: `🔴 Reddedilen (${poolData.summary?.rejected_count || 0})` },
+                    { key: 'rejected', label: `🔴 Red (${poolData.summary?.rejected_count || 0})` },
                   ].map((f) => (
                     <button
                       key={f.key}
@@ -1054,23 +1052,21 @@ export default function Saha() {
                 {poolBusy ? (
                   <div className="empty">Yükleniyor…</div>
                 ) : poolData.items.length === 0 ? (
-                  <div className="empty">
-                    Henüz hakediş havuzunda kayıt yok. Direk listesinden <b>📸 Kanıt Çek</b> ile fotoğraf yüklediğinizde karar motoru otomatik olarak burayı doldurur.
-                  </div>
+                  <div className="empty">Henüz kayıt yok.</div>
                 ) : (
                   <div className="table-wrap">
                     <table>
                       <thead>
                         <tr>
-                          <th>Kanıt</th>
-                          <th>Direk &amp; DTL Tipi</th>
+                          <th>Fotoğraf</th>
+                          <th>Direk</th>
                           <th>Aşama</th>
-                          <th>Hakediş Kalemi (Otomatik DTL Metrajı)</th>
+                          <th>İmalat Kalemi</th>
                           <th className="num">Miktar</th>
-                          <th>Konum Sapması</th>
-                          <th>Karar Karnesi</th>
+                          <th>Sapma</th>
+                          <th>Puan</th>
                           <th>Durum</th>
-                          {isOwner && <th>Teknik Ofis</th>}
+                          {isOwner && <th>İşlem</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -1344,11 +1340,10 @@ export default function Saha() {
       {/* MODAL 1: KANITLI SAHA FOTOĞRAFI & AŞAMA DOĞRULAMA */}
       {capturePole && (
         <Modal
-          title={`📸 Saha Kanıtı & Doğrulama — ${capturePole.name}`}
+          title={`📸 Fotoğraf Yükle — ${capturePole.name}`}
           onClose={() => setCapturePole(null)}
         >
           <form onSubmit={submitGuidedCapture}>
-            {/* Dijital Direk İkizi Bilgisi */}
             <div
               style={{
                 background: 'var(--bg-soft, #f1f5f9)',
@@ -1360,11 +1355,11 @@ export default function Saha() {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
                 <span>
-                  <b>DTL Dijital İkiz:</b> {capturePole.name} · Tip: <b>{capturePole.tower_type || 'Standart'}</b>
+                  <b>{capturePole.name}</b> · Tip: <b>{capturePole.tower_type || 'Standart'}</b>
                   {capturePole.pole_function ? ` (${capturePole.pole_function})` : ''}
                 </span>
                 <span>
-                  Mevcut Durum: <b>{statuses[capturePole.status]?.label || 'Başlamadı'}</b>
+                  Durum: <b>{statuses[capturePole.status]?.label || 'Başlamadı'}</b>
                 </span>
               </div>
               <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
@@ -1379,13 +1374,13 @@ export default function Saha() {
                       fontWeight: 700,
                     }}
                   >
-                    📍 Hedef Direğe Mesafe: Δ {nearestMatch.selectedDistanceM} m
+                    📍 Mesafe: Δ {nearestMatch.selectedDistanceM} m
                     {nearestMatch.wrongPoleWarning
-                      ? ` (⚠️ Dikkat: Fiziksel olarak ${nearestMatch.nearestPole.name} [${nearestMatch.nearestDistanceM}m] yanındasınız!)`
-                      : ' (Konum Doğrulandı)'}
+                      ? ` (⚠️ En yakın: ${nearestMatch.nearestPole.name})`
+                      : ''}
                   </span>
                 ) : (
-                  <span className="muted">📍 GPS mesafesi doğrulanmadı</span>
+                  <span className="muted">📍 GPS doğrulanmadı</span>
                 )}
                 <button
                   type="button"
@@ -1393,13 +1388,13 @@ export default function Saha() {
                   onClick={() => locateNearestPole(false)}
                   disabled={gpsState.loading}
                 >
-                  {gpsState.loading ? 'Konum Alınıyor…' : '📍 Konumu Yenile'}
+                  {gpsState.loading ? 'Alınıyor…' : '📍 Konum Al'}
                 </button>
               </div>
             </div>
 
             <div className="field">
-              <label>Beyan Edilen İmalat Aşaması *</label>
+              <label>İmalat Aşaması *</label>
               <select
                 value={captureStage}
                 onChange={(e) => {
@@ -1417,7 +1412,6 @@ export default function Saha() {
               </select>
             </div>
 
-            {/* Aşamaya Özel Çekim Rehberi & Kontrol Listesi */}
             <div
               style={{
                 border: '1px solid var(--border, #dbe2ea)',
@@ -1426,11 +1420,8 @@ export default function Saha() {
                 marginBottom: 12,
               }}
             >
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#0d1f3c', marginBottom: 4 }}>
-                🎯 Çekim Rehberi: {checklistConfig.shotHint}
-              </div>
-              <div style={{ fontSize: 12, fontWeight: 600, marginTop: 8, marginBottom: 4 }}>
-                Saha Kalite Kontrol Listesi (Karar Puanına +5 Katkı):
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                Kontrol Listesi
               </div>
               {checklistConfig.items.map((item) => {
                 const checked = captureChecklist.includes(item);
@@ -1460,9 +1451,8 @@ export default function Saha() {
               })}
             </div>
 
-            {/* Kamera Çekim Butonu & Önizlemeler */}
             <div className="field">
-              <label>Saha Fotoğrafları (EXIF Temizlenir &amp; Koordinatsız Damgalanır) *</label>
+              <label>Fotoğraf *</label>
               <input
                 ref={cameraInputRef}
                 type="file"
@@ -1479,11 +1469,8 @@ export default function Saha() {
                   onClick={() => cameraInputRef.current?.click()}
                   disabled={processingPhoto}
                 >
-                  {processingPhoto ? 'İşleniyor…' : '📷 Kamerayı Aç / Fotoğraf Ekle'}
+                  {processingPhoto ? 'İşleniyor…' : '📷 Fotoğraf Çek / Seç'}
                 </button>
-                <span className="muted" style={{ fontSize: 11.5 }}>
-                  Açık koordinat yazılmaz; otomatik sıkıştırılır (~350 KB).
-                </span>
               </div>
 
               {processedPhotos.length > 0 && (
@@ -1608,8 +1595,8 @@ export default function Saha() {
                 disabled={processedPhotos.length === 0 || submittingCapture}
               >
                 {submittingCapture
-                  ? 'Karar Motoru Doğruluyor…'
-                  : `🛡️ Doğrula ve Hakediş Havuzuna Gönder (${processedPhotos.length})`}
+                  ? 'Kaydediliyor…'
+                  : `Kaydet (${processedPhotos.length})`}
               </button>
             </div>
           </form>

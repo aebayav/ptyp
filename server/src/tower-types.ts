@@ -5,12 +5,17 @@
 // belirsizse OLDUĞU GİBİ bırakır (sessizce uydurma yapılmaz — kullanıcı görür).
 
 const PREFIXES = ['PA', 'PB', 'PC', 'PD', 'PE', 'PF'];
+const HEAVY_PREFIXES = ['CPA', 'CPB', 'CPC', 'CPD', 'CPE', 'CPF', '3PA', '3PB', '3PC', '3PD', '3PE', '3PF'];
 const DOUBLE = ['2FS', '2FN'];
 
 function buildVocabulary(): string[] {
-  const out = new Set<string>(['PORTAL']);
+  const out = new Set<string>(['PORTAL', 'CPFH']);
   for (const p of PREFIXES) {
     out.add(p); // rakamı okunamayan çıplak tip (PB, PF...) geçerli kalır
+    for (let d = 1; d <= 6; d++) out.add(p + d);
+  }
+  for (const p of HEAVY_PREFIXES) {
+    out.add(p);
     for (let d = 1; d <= 6; d++) out.add(p + d);
   }
   for (const p of DOUBLE) {

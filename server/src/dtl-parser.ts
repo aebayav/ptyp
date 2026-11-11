@@ -52,12 +52,37 @@ const HEADER_PAT =
   /(?:TOWER\s+NO|WIND\s+SPAN|WEIGHT\s+SPAN|INSULATOR|ARA\s+MESAFE|FONKS.YON|Tek\s+Ask|direklerin\s+ara|\(1\)\s*\(2\)|MAX\s+TOWER|S\.I\.NO\.)/i;
 
 const CENTER_RE =
-  /(?:(?<func>\b(?:KD|KT|N|D|T|A|B|C)\b)\s+)?(?:(?<pole2>\d{1,3}(?:\s*\([A-Z0-9]+\))?)\s+)?(?<ttype>\b(?:C?P[A-F]\d?(?:\([A-Z0-9]+\))?|2F[SN]\d|[1-4][A-Z]\d?|(?:K|G|T|D|N|PB|PA|PC|PD|PE|PF)[-./]?\d{1,3})\b)\s+(?<height>\d{1,2}(?:\.\d)?)\s+(?<body_ext>[+-]?\d{1,2})\b/i;
+  /(?:(?<func>\b(?:KD|KT|BD|N|D|T|A|B|C)\b)\s+)?(?:(?<pole2>(?:(?:MEV\.?\s*)?(?:D|DP|PB|DM)[.-]?\s*)?\d{1,3}(?:\s*\([A-Z0-9]+\))?)\s+)?(?<ttype>\b(?:C?P[A-F](?:\d|H)?(?:\([A-Z0-9]+\))?|[1-4]P[A-F]\d?(?:\([A-Z0-9]+\))?|2F[SN]\d?|[1-4][A-Z]\d?|(?:K|G|T|D|N|PB|PA|PC|PD|PE|PF)[-./]?\d{1,3}))\s+(?<height>\d{1,2}(?:\.\d)?)(?:\s+(?<body_ext>[+-]?\d{1,2})(?!\.\d)\b)?/i;
+
+function normalizeTowerTypeTokens(s: string): string {
+  let out = s.replace(
+    /\b(C?P[A-F][0-9IilT\]):H]?|[1-4]P[A-F][0-9IilT\]):]?|2F[SN][0-9IilT\]):]?)\(([NS])\b(?!\))/gi,
+    '$1($2)'
+  );
+  out = out.replace(/\bCPEH\b/gi, 'CPFH');
+  out = out.replace(/\bPE[1IilT\]):]?\s*\(N\)/gi, 'PF1(N)');
+  out = out.replace(/\b(C?P[A-F]|[1-4]P[A-F]|2F[SN])[IilT\]):](?=\b|\(|$|\s)/g, '$11');
+  return out;
+}
 
 export function normalizeCrossing(raw: string): string {
-  const s = (raw || '').replace(/[|]+/g, ' ').replace(/\s+/g, ' ').trim();
+  let s = (raw || '')
+    .replace(/[|]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s\-.,;]+|[\s\-.,;]+$/g, '')
+    .trim();
   if (!s) return '';
   const u = s.toUpperCase();
+  if (
+    ['PLANLANAN', 'OTOYOL', 'OTO YOL', 'KATENER', 'BORU HATTI', 'HABAŞ', 'GES', 'HES', 'RES', 'TM'].some((k) =>
+      u.includes(k)
+    )
+  ) {
+    s = s.replace(/\.\s*(?=(?:400|380|154)\s*kV\b)/gi, ', ');
+    s = s.replace(/M[İI]HAL[İIO]C?[ÇC]IK/gi, 'MİHALIÇÇIK');
+    s = s.replace(/\bIZMIR\b/g, 'İZMİR');
+    return s;
+  }
   const items: string[] = [];
   if (u.includes('ASFALT') || u.includes('YOL') || u.includes('ŞOSE') || u.includes('SOSE')) {
     items.push('ASFALT YOL');
@@ -99,11 +124,24 @@ export function normalizeRemarks(raw: string): string {
   if (!s) return '';
   const u = s.toUpperCase();
   const items: string[] = [];
-  if (u.includes('ZEL') || u.includes('ASK') || u.includes('ASL') || u.includes('TAK') || u.includes('TOK')) {
+  if (
+    ((u.includes('ÖZEL') || u.includes('OZEL') || u.includes('ZEL')) &&
+      (u.includes('ASK') || u.includes('ASL') || u.includes('TAK') || u.includes('TOK'))) ||
+    (u.includes('ASKI') && (u.includes('TAK') || u.includes('TOK')))
+  ) {
     items.push('Özel Askı Takımı');
   }
-  if (u.includes('KATOD')) {
+  if (u.includes('KATOD') || u.includes('KATAT')) {
     items.push('KATODİK KORUMA');
+  }
+  if (u.includes('BRAN') && (u.includes('DİR') || u.includes('DIR'))) {
+    items.push('Branşman Direği');
+  }
+  if (u.includes('BAĞLANTI') || u.includes('BAGLANTI') || u.includes('BABLANTI')) {
+    items.push('BAĞLANTI ANLAŞ.');
+  }
+  if (u.includes('KAP.') && (u.includes('YAP') || u.includes('GAP'))) {
+    items.push('KAP. YAPILACAKTIR.');
   }
   if (u.includes('EV') && u.includes('KONSOL')) {
     items.push('ÇEVİRME KONSOLLU');
@@ -160,14 +198,16 @@ export function parseDtlLine(line: string): DtlRow | null {
   if (!s) return null;
 
   // Silik ondalık / kilometraj noktalarını onar
-  s = s.replace(/\b(\d{1,3})\s*[*+-]\s*(\d{3})[., ](\d{2})\b/g, '$1+$2.$3');
-  s = s.replace(/\b(\d{1,3}\+\d{3})(\d{2})\b/g, '$1.$2');
-  s = s.replace(/\b(\d{1,3}\+\d{3})\s+(\d{2})\b/g, '$1.$2');
-  s = s.replace(/\b(\d{6,7})\s+(\d{2})\b/g, '$1.$2');
-  s = s.replace(/\b([12]\d{3})\s+(\d{2})\b/g, '$1.$2');
-  s = s.replace(/^(\s*(?:PORTAL\.?|\d{1,3}(?:\([A-Z0-9]+\))?)\s+\d{2,3})\s+(\d{2})\b/i, '$1.$2');
-  s = s.replace(/\b(8|9|10|11|12|13)\s+(\d0)\b/g, '$1.$2');
-  s = s.replace(/([+-]0)\s+(\d0)\b/g, '$1.$2');
+  s = s.replace(/\b(\d{1,3})\s*[*+]\s*(\d{3})[., ](\d{2})\b(?!\+)/g, '$1+$2.$3');
+  s = s.replace(/\b(\d{1,3})-(\d{3})[., ](\d{2})\b(?!\+)/g, '$1+$2.$3');
+  s = s.replace(/\b(\d{1,3}\+\d{3})(\d{2})\b(?!\.\d)/g, '$1.$2');
+  s = s.replace(/\b(\d{1,3}\+\d{3})\s+(\d{2})\b(?!\.\d)/g, '$1.$2');
+  s = s.replace(/\b(\d{6,7})\s+(\d{2})\b(?!\.\d)/g, '$1.$2');
+  s = s.replace(/\b([12]\d{3})\s+(\d{2})\b(?!\.\d)(?!\+)/g, '$1.$2');
+  s = s.replace(/^(\s*(?:PORTAL\.?|\d{1,3}(?:\([A-Z0-9]+\))?)\s+\d{2,3})\s+(\d{2})\b(?!\.\d)/i, '$1.$2');
+  s = s.replace(/(?<![+\d.])\b(8|9|10|11|12|13)50\b(?!\.\d)/g, '$1.50');
+  s = s.replace(/(?<=\.\d{2}\s)(8|9|10|11|12|13)\s+([05]0)\b(?!\.\d)/g, '$1.$2');
+  s = s.replace(/([+-]0)\s+(\d0)\b(?!\.\d)/g, '$1.$2');
 
   if (/^PORTAL\b/i.test(s)) {
     const coordsAll = s.match(COORD_RE) || [];
@@ -228,6 +268,7 @@ export function parseDtlLine(line: string): DtlRow | null {
     };
   }
 
+  s = normalizeTowerTypeTokens(s);
   const m = CENTER_RE.exec(s);
   if (!m || !m.groups) return null;
 
@@ -235,17 +276,21 @@ export function parseDtlLine(line: string): DtlRow | null {
   const right = s.slice(m.index + m[0].length).trim();
 
   let func = (m.groups.func || '').toUpperCase();
-  const pole2 = (m.groups.pole2 || '').trim();
-  const ttype = normalizeTowerType(m.groups.ttype.toUpperCase().replace('2FN1', '2FS1'));
+  const pole2 = (m.groups.pole2 || '').replace(/\s+/g, '').trim();
+  const rawTtype = m.groups.ttype.toUpperCase();
+  if (!func && (rawTtype.includes('(N)') || rawTtype.includes('(S)'))) {
+    func = 'N';
+  }
+  const ttype = normalizeTowerType(rawTtype);
   const height = parseFloat(m.groups.height);
-  let body_ext = parseFloat(m.groups.body_ext);
+  let body_ext: number | null = m.groups.body_ext !== undefined ? parseFloat(m.groups.body_ext) : null;
 
   let pole = '';
   let leftRest = left;
-  const mP1 = left.match(/^(\d{1,3}(?:\([A-Z0-9]+\))?)\s+(.*)/i);
+  const mP1 = left.match(/^((?:(?:MEV\.?\s*)?(?:D|DP|PB|DM)[.-]?\s*)?\d{1,3}(?:\([A-Z0-9]+\))?)(?:\s+(.*)|$)/i);
   if (mP1) {
-    pole = mP1[1];
-    leftRest = mP1[2];
+    pole = mP1[1].replace(/\s+/g, '');
+    leftRest = (mP1[2] || '').trim();
   } else {
     pole = pole2;
   }
@@ -270,9 +315,10 @@ export function parseDtlLine(line: string): DtlRow | null {
   const weight_span_m = bNums.length >= 3 ? bNums[2] : null;
 
   let some_no = '';
-  const mSome = afterSt.match(/\b(ND\.[12]|[S8]\.\d{1,2}|S\.I)\b/i);
+  const mSome = afterSt.match(/\b(ND\.?\s*[12]|[S8]\.\d{1,2}|S\.I)\b/i);
   if (mSome && mSome.index !== undefined) {
-    some_no = mSome[1].toUpperCase().replace('S.I', 'S.1');
+    some_no = mSome[1].replace(/\s+/g, '').toUpperCase().replace('S.I', 'S.1');
+    if (some_no === 'ND1' || some_no === 'ND2') some_no = 'ND.' + some_no.slice(-1);
     if (some_no.startsWith('8.')) some_no = 'S.' + some_no.slice(2);
     afterSt = (afterSt.slice(0, mSome.index) + ' ' + afterSt.slice(mSome.index + mSome[0].length)).trim();
   }
@@ -331,30 +377,37 @@ export function parseDtlLine(line: string): DtlRow | null {
     insulator_set = 'ÇA';
   } else if (insulator_count.includes('/')) {
     insulator_set = 'ÇGÇG';
-  } else {
+  } else if (insulator_count) {
     insulator_set = func === 'T' ? 'A' : 'ÇGÇG';
   }
 
   const extNums = (extPart.match(/[+-]?\d+(?:\.\d+)?/g) || []).map(parseFloat);
   const hook_diff_m = extNums.length >= 1 ? extNums[0] : null;
   const center_ext_m = extNums.length >= 2 ? extNums[1] : null;
-  const legs = extNums.slice(2, 6).map((x) => Math.trunc(x));
-  while (legs.length < 4) {
-    legs.push(legs.length > 0 ? legs[legs.length - 1] : 0);
+  const legs: (number | null)[] = extNums.slice(2, 6).map((x) => Math.trunc(x));
+  if (legs.length > 0) {
+    while (legs.length < 4) {
+      legs.push(legs[legs.length - 1]);
+    }
+  } else {
+    legs.push(null, null, null, null);
   }
 
   const tailNums = tailRight.match(/\b\d\b/g) || [];
   const profile_no = tailNums.length >= 2 ? parseInt(tailNums[tailNums.length - 2], 10) : null;
   const ice_zone = tailNums.length >= 2 ? parseInt(tailNums[tailNums.length - 1], 10) : null;
-  const remarksRaw = tailRight.replace(/(?:^|\s+)\d(?:\s+\d)?\s*$/, '').trim();
-  const remarks = normalizeRemarks(remarksRaw);
+  const remarksRaw = tailRight.replace(/(?:^|\s+)[1-9Iil]\.?(?:\s+[1-9Iil]\.?)?\s*$/i, '').trim();
+  let remarks = normalizeRemarks(remarksRaw);
+  if (func === 'BD' && !remarks) {
+    remarks = 'Branşman Direği';
+  }
 
   if (!func) {
     func = insulator_set === 'A' || insulator_set === 'ÇA' ? 'T' : 'KD';
   }
 
   const h0Default = /^P[DEF]/.test(ttype) ? 13.0 : 16.0;
-  if (body_ext !== 0 && Number.isFinite(height)) {
+  if (body_ext !== null && body_ext !== 0 && Number.isFinite(height)) {
     const ab = Math.abs(body_ext);
     body_ext = Math.abs(height - ab - h0Default) < Math.abs(height + ab - h0Default) ? ab : -ab;
   }
@@ -398,51 +451,97 @@ function formatStationText(stationM: number): string {
   return `${km}+${intPart.padStart(3, '0')}.${decPart}`;
 }
 
+function findValidOffsetRuns(offsets: (number | null)[], minRun = 3): [number, number, number][] {
+  const runs: [number, number, number][] = [];
+  let curOff: number | null = null;
+  let curStart = 0;
+  const ext = [...offsets, null];
+  for (let idx = 0; idx < ext.length; idx++) {
+    const o = ext[idx];
+    if (o !== null && o === curOff) continue;
+    if (curOff !== null && idx - curStart >= minRun) {
+      runs.push([curStart, idx - 1, curOff]);
+    }
+    curOff = o;
+    curStart = idx;
+  }
+  return runs;
+}
+
+function inferPoleFromRuns(tIdx: number, rawPole: string, runs: [number, number, number][]): string | null {
+  if (runs.length === 0) return null;
+  const s = (rawPole || '').trim();
+  if (s && !/^\d{1,3}(?:\([A-Z0-9]+\))?$/i.test(s)) return null;
+  for (const [a, b] of runs) {
+    if (tIdx >= a && tIdx <= b) return null;
+  }
+  for (let i = 0; i < runs.length - 1; i++) {
+    const [, b1, off1] = runs[i];
+    const [a2, , off2] = runs[i + 1];
+    if (tIdx > b1 && tIdx < a2 && off1 === off2 && off1 + tIdx >= 1) {
+      return String(off1 + tIdx);
+    }
+  }
+  let bestOff: number | null = null;
+  let bestDist = 999;
+  for (const [a, b, off] of runs) {
+    const dist = tIdx < a ? a - tIdx : tIdx - b;
+    if (dist <= 2 && dist < bestDist && off + tIdx >= 1) {
+      bestDist = dist;
+      bestOff = off;
+    }
+  }
+  return bestOff !== null ? String(bestOff + tIdx) : null;
+}
+
 export function finalizeDtlRows(rows: DtlRow[]): DtlRow[] {
   if (rows.length === 0) return [];
   const out = rows.map((r) => ({ ...r }));
 
-  // 1. PORTAL dışındaki direklerin ardışık numara kontrolü
+  // 1. PORTAL dışındaki direklerin ardışık numara kontrolü (çok-bölümlü dizileri ve D.13 gibi ön-ekli adları koru)
   const towerIndices: number[] = [];
   const offsets: (number | null)[] = [];
   out.forEach((r, idx) => {
     if (r.pole === 'PORTAL' || r.tower_type === 'PORTAL') return;
     const tIdx = towerIndices.length;
     towerIndices.push(idx);
-    const m = r.pole.match(/^(\d{1,3})/);
+    const m = r.pole.trim().match(/^(\d{1,3})(?:\([A-Z0-9]+\))?$/i);
     offsets.push(m ? parseInt(m[1], 10) - tIdx : null);
   });
 
-  let bestAnchor: number | null = null;
-  let bestRun = 0;
-  let curAnchor: number | null = null;
-  let curRun = 0;
-  for (const o of [...offsets, null]) {
-    if (o !== null && o === curAnchor) {
-      curRun++;
-    } else {
-      if (curAnchor !== null && curRun > bestRun) {
-        bestAnchor = curAnchor;
-        bestRun = curRun;
-      }
-      curAnchor = o;
-      curRun = o !== null ? 1 : 0;
-    }
-  }
-  if (bestAnchor !== null && bestRun >= 3) {
+  const runs = findValidOffsetRuns(offsets, 3);
+  if (runs.length > 0) {
     towerIndices.forEach((rowIdx, tIdx) => {
       const r = out[rowIdx];
-      const suffixMatch = r.pole.match(/(\([A-Z0-9]+\))$/i);
-      const suffix = suffixMatch ? suffixMatch[1].toUpperCase() : '';
-      r.pole = `${bestAnchor! + tIdx}${suffix}`;
+      const want = inferPoleFromRuns(tIdx, r.pole, runs);
+      if (want !== null) {
+        const suffixMatch = r.pole.match(/(\([A-Z0-9]+\))$/i);
+        const suffix = suffixMatch ? suffixMatch[1].toUpperCase() : '';
+        r.pole = `${want}${suffix}`;
+      }
     });
   }
 
+  // Tablodaki P-serisi direkler 1 alt-serisiyse (PA1, PB1, PD1, PE1, PF1), hücre çizgisine değen çıplak PA/PB/PE tiplerini tamamla
+  const seriesDigits = out
+    .map((r) => (r.tower_type || '').match(/^C?P[A-F](\d)$/)?.[1])
+    .filter((d): d is string => Boolean(d));
+  if (seriesDigits.length >= 5 && new Set(seriesDigits).size === 1 && seriesDigits[0] === '1') {
+    for (const r of out) {
+      if (/^P[A-F]$/.test(r.tower_type || '')) {
+        r.tower_type = r.tower_type + '1';
+      }
+    }
+  }
+
   // 2. İstasyon (station_m) ve ara mesafe (span_m) çapraz doğrulaması:
-  //    station_m[i+1] = station_m[i] + span_m[i]
+  //    station_m[i+1] = station_m[i] + span_m[i] (yalnız ardışık direk çiftlerinde)
   for (let i = 0; i < towerIndices.length - 1; i++) {
     const cur = out[towerIndices[i]];
     const nxt = out[towerIndices[i + 1]];
+    const mC = cur.pole.trim().match(/^(\d{1,3})(?:\([A-Z0-9]+\))?$/i);
+    const mN = nxt.pole.trim().match(/^(\d{1,3})(?:\([A-Z0-9]+\))?$/i);
+    if (!(mC && mN && parseInt(mN[1], 10) === parseInt(mC[1], 10) + 1)) continue;
     if (cur.station_m !== null && nxt.station_m !== null && cur.span_m !== null) {
       const expectedNext = Math.round((cur.station_m + cur.span_m) * 100) / 100;
       const diff = Math.abs(nxt.station_m - expectedNext);

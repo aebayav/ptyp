@@ -1,5 +1,7 @@
 node_modules/
 client/dist/
+client/android/
+client/ios/
 server/dist/
 server/uploads/
 server/.env

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { useAuth } from '../AuthContext';
 import Modal from '../components/Modal';
 import { fmtDate, today, useProjects, ProjectBar } from '../utils';
 
@@ -7,6 +8,8 @@ const INCIDENT_TR = { ramak_kala: 'Ramak Kala', kaza: 'Kaza' };
 const SEVERITY_TR = { hafif: 'Hafif', orta: 'Orta', agir: 'Ağır' };
 
 export default function Isg() {
+  const { user } = useAuth();
+  const isOwner = user?.role === 'owner';
   const { projects, projectId, setProjectId } = useProjects();
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -122,7 +125,7 @@ export default function Isg() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
+      <div className="two-col" style={{ gap: 14 }}>
         <div className="card">
           <h3 style={{ marginTop: 0 }}>Sertifikalar</h3>
           {(data?.certifications || []).length === 0 ? (
@@ -149,9 +152,11 @@ export default function Isg() {
                           {fmtDate(c.expiry_date)}
                         </td>
                         <td>
-                          <button className="btn btn-sm btn-danger" onClick={() => remove('cert', c.id)}>
-                            Sil
-                          </button>
+                          {isOwner && (
+                            <button className="btn btn-sm btn-danger" onClick={() => remove('cert', c.id)}>
+                              Sil
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -190,9 +195,11 @@ export default function Isg() {
                       </td>
                       <td className="muted">{i.description.slice(0, 60)}{i.description.length > 60 ? '…' : ''}</td>
                       <td>
-                        <button className="btn btn-sm btn-danger" onClick={() => remove('incident', i.id)}>
-                          Sil
-                        </button>
+                        {isOwner && (
+                          <button className="btn btn-sm btn-danger" onClick={() => remove('incident', i.id)}>
+                            Sil
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -226,9 +233,11 @@ export default function Isg() {
                       <td style={{ fontWeight: 600 }}>{t.topic}</td>
                       <td className="num">{t.attendees}</td>
                       <td>
-                        <button className="btn btn-sm btn-danger" onClick={() => remove('training', t.id)}>
-                          Sil
-                        </button>
+                        {isOwner && (
+                          <button className="btn btn-sm btn-danger" onClick={() => remove('training', t.id)}>
+                            Sil
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

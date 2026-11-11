@@ -25,6 +25,12 @@ describe('normalizeTowerType — bildirilen bozulmalar', () => {
   it('küçük harfler büyütülür: pb1 → PB1', () => {
     expect(normalizeTowerType('pb1')).toBe('PB1');
   });
+
+  it('3PBI → 3PB1, 2FNI → 2FN1, CPEH(N) → CPFH', () => {
+    expect(normalizeTowerType('3PBI')).toBe('3PB1');
+    expect(normalizeTowerType('2FNI')).toBe('2FN1');
+    expect(normalizeTowerType('CPEH(N)')).toBe('CPFH');
+  });
 });
 
 describe('normalizeTowerType — temiz tiplere dokunmaz', () => {

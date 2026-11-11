@@ -89,11 +89,11 @@ export default function Dashboard() {
       <div className="grid-cards">
         <div className="stat-card accent">
           <div className="stat-value">{fmtMoney(overview.bestTotal)}</div>
-          <div className="stat-label">En İyi Teklifler Toplamı (her malzemenin en düşük fiyatı)</div>
+          <div className="stat-label">En İyi Teklifler Toplamı</div>
         </div>
         <div className="stat-card">
           <div className="stat-value">{overview.withoutQuotes}</div>
-          <div className="stat-label">Henüz Teklif Alınmamış Malzeme</div>
+          <div className="stat-label">Teklif Alınmamış Malzeme</div>
         </div>
         <Link to="/saha" style={{ textDecoration: 'none', color: 'inherit' }}>
           <div className="stat-card accent" style={{ cursor: 'pointer' }}>
@@ -101,7 +101,7 @@ export default function Dashboard() {
             <div className="progress-track mini" style={{ marginTop: 8, marginBottom: 4 }}>
               <div className="progress-fill" style={{ width: `${overview.sahaProgress ?? 0}%` }} />
             </div>
-            <div className="stat-label">Saha İlerlemesi · {overview.sahaPoles ?? 0} direk</div>
+            <div className="stat-label">Saha · {overview.sahaPoles ?? 0} direk</div>
           </div>
         </Link>
         <Link to="/is-takibi" style={{ textDecoration: 'none', color: 'inherit' }}>
@@ -110,13 +110,13 @@ export default function Dashboard() {
             <div className="progress-track mini" style={{ marginTop: 8, marginBottom: 4 }}>
               <div className="progress-fill" style={{ width: `${overview.overallProgress ?? 0}%` }} />
             </div>
-            <div className="stat-label">Genel Fiziki İlerleme</div>
+            <div className="stat-label">Fiziki İlerleme</div>
           </div>
         </Link>
         <Link to="/is-takibi" style={{ textDecoration: 'none', color: 'inherit' }}>
           <div className="stat-card warn" style={{ cursor: 'pointer' }}>
             <div className="stat-value">{overview.lateTasks ?? 0}</div>
-            <div className="stat-label">Geciken Görev · {overview.openTasks ?? 0} açık</div>
+            <div className="stat-label">Geciken · {overview.openTasks ?? 0} açık</div>
           </div>
         </Link>
       </div>
@@ -125,24 +125,24 @@ export default function Dashboard() {
         <Link to="/saha" style={{ textDecoration: 'none', color: 'inherit' }}>
           <div className={`stat-card ${overview.openSahaRequests > 0 ? 'warn' : ''}`} style={{ cursor: 'pointer' }}>
             <div className="stat-value">{overview.openSahaRequests ?? 0}</div>
-            <div className="stat-label">Açık Saha Malzeme Talebi</div>
+            <div className="stat-label">Saha Malzeme Talebi</div>
           </div>
         </Link>
         <Link to="/kamulastirma" style={{ textDecoration: 'none', color: 'inherit' }}>
           <div className={`stat-card ${overview.unpermittedParcels > 0 ? 'warn' : ''}`} style={{ cursor: 'pointer' }}>
             <div className="stat-value">{overview.unpermittedParcels ?? 0}</div>
-            <div className="stat-label">İzinsiz Kamulaştırma Parseli</div>
+            <div className="stat-label">İzinsiz Parsel</div>
           </div>
         </Link>
         <Link to="/isg" style={{ textDecoration: 'none', color: 'inherit' }}>
           <div className={`stat-card ${overview.expiringCerts > 0 ? 'warn' : ''}`} style={{ cursor: 'pointer' }}>
             <div className="stat-value">{overview.expiringCerts ?? 0}</div>
-            <div className="stat-label">Süresi Yaklaşan / Biten Sertifika (≤30 gün)</div>
+            <div className="stat-label">Yaklaşan Sertifika</div>
           </div>
         </Link>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, flexWrap: 'wrap' }} className="two-col">
+      <div className="two-col">
         <div className="card">
           <h3>Son Eklenen Malzemeler</h3>
           {recentMaterials.length === 0 ? (

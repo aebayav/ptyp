@@ -1,5 +1,5 @@
-const CACHE_NAME = 'ptyp-saha-shell-v1';
-const SHELL_URLS = ['/', '/saha', '/manifest.json'];
+const CACHE_NAME = 'ptyp-saha-shell-v3';
+const SHELL_URLS = ['/', '/saha', '/gunluk-raporlar', '/isg', '/manifest.json'];
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -15,6 +15,18 @@ self.addEventListener('activate', (event) => {
     )
   );
   self.clients.claim();
+});
+
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'ptyp-saha-sync') {
+    event.waitUntil(
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+        for (const client of clients) {
+          client.postMessage({ type: 'PTYP_SYNC_NOW' });
+        }
+      })
+    );
+  }
 });
 
 self.addEventListener('fetch', (event) => {

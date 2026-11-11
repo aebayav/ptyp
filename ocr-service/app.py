@@ -47,17 +47,17 @@ log = logging.getLogger("ocr")
 app = FastAPI(title="PTYP OCR Servisi", version="2.1.0")
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
-VISION_MODEL = os.environ.get("VISION_MODEL", "glm-ocr")
+VISION_MODEL = os.environ.get("VISION_MODEL", "ptyp-ai")
 CONF_THRESHOLD = float(os.environ.get("CONF_THRESHOLD", "0.70"))
 # Ollama çağrısı kaç kez denenir / kaç sn beklenir (0 = devre dışı)
-OLLAMA_ATTEMPTS = int(os.environ.get("OLLAMA_ATTEMPTS", "1"))
+OLLAMA_ATTEMPTS = int(os.environ.get("OLLAMA_ATTEMPTS", "2"))
 OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "240"))
 # Aynı anda Ollama'ya gönderilecek bant isteği (OLLAMA_NUM_PARALLEL ile uyumlu tutun)
-# Ollama tek modeli sırayla işler; 2 eşzamanlı istek 1.3B f16 modelde
-# llama-server çökmelerine yol açtı (HTTP 500 + bağlantı kopması) → 1 kalmalı
 OCR_CONCURRENCY = max(1, int(os.environ.get("OCR_CONCURRENCY", "1")))
-# PDF render ölçeği (2.0 ≈ 144 dpi)
-PDF_SCALE = float(os.environ.get("PDF_SCALE", "2.0"))
+# PDF render ölçeği (taban ölçek; düşük çözünürlüklü sayfalarda otomatik yükseltilir)
+PDF_SCALE = float(os.environ.get("PDF_SCALE", "2.5"))
+# Düşük çözünürlüklü görüntülerin OCR öncesi büyütüleceği hedef uzun kenar (piksel)
+MIN_OCR_LONG_EDGE = int(os.environ.get("MIN_OCR_LONG_EDGE", "3300"))
 
 # ---------- Indra OCR (hızlı CPU motoru — ana yol) ----------
 # glm-ocr (VLM) yedek olarak duruyor: indra yetersizse / belirsiz doğrulamada.
@@ -74,7 +74,8 @@ RETRY_WEAK = os.environ.get("RETRY_WEAK", "1") != "0"
 # ---------- Görüntü hazırlama ----------
 
 def pages_from_pdf(buf: bytes) -> list[np.ndarray]:
-    """PDF'ten sayfa görüntüleri (pypdfium2 — sistem bağımlılığı yok)."""
+    """PDF'ten sayfa görüntüleri (pypdfium2 — sistem bağımlılığı yok).
+    Küçük/düşük boyutlu PDF sayfalarında uzun kenar en az MIN_OCR_LONG_EDGE olacak şekilde ölçeklenir."""
     import pypdfium2 as pdfium
 
     pdf = pdfium.PdfDocument(buf)
@@ -82,7 +83,10 @@ def pages_from_pdf(buf: bytes) -> list[np.ndarray]:
     try:
         for i in range(len(pdf)):
             page = pdf[i]
-            bitmap = page.render(scale=PDF_SCALE, grayscale=False)
+            pw, ph = page.get_size()
+            long_pt = max(pw, ph, 1.0)
+            dyn_scale = max(PDF_SCALE, min(4.0, MIN_OCR_LONG_EDGE / long_pt))
+            bitmap = page.render(scale=dyn_scale, grayscale=False)
             pages.append(np.array(bitmap.to_pil().convert("RGB")))
             page.close()
     finally:
@@ -303,18 +307,58 @@ class PreparedPage:
     v_row: np.ndarray | None = None  # her y satırındaki dikey tablo çizgisi piksel sayısı
 
 
+def _dtl_orientation_score(land_img: np.ndarray) -> float:
+    """Yatay DTL sayfasının düz (0°) mü yoksa baş aşağı (180°) mı olduğunu puanlar.
+    Düz DTL sayfasında:
+      1. Üst %5..28 bölgesi (tablo sütun başlıkları) alt %72..95 bölgesinden (imza bloğu) daha fazla yatay çizgi içerir.
+      2. Tablo gövdesinde sağ yarı (%50..88: direk tipi, boy, gövde, 6 ayak/uzatma sütunu, kot, izolatör, Y/X koordinatları)
+         sol yarıdan (%12..50: çoğu satırda boş olan Some No, Açı, Geçilen Yer) her zaman daha yoğundur."""
+    b = binarize(_to_gray(land_img))
+    H, W = b.shape
+    hk = max(60, W // 20)
+    hlines = cv2.morphologyEx(b, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (25, 3)))
+    hlines = cv2.morphologyEx(hlines, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (hk, 1)))
+    top_h = float((hlines[int(0.05 * H) : int(0.28 * H), :] > 0).mean())
+    bot_h = float((hlines[int(0.72 * H) : int(0.95 * H), :] > 0).mean())
+    mid_r = float((b[int(0.22 * H) : int(0.75 * H), int(0.50 * W) : int(0.88 * W)] > 0).mean())
+    mid_l = float((b[int(0.25 * H) : int(0.78 * H), int(0.12 * W) : int(0.50 * W)] > 0).mean())
+    return (top_h - bot_h) * 2.0 + (mid_r - mid_l)
+
+
 def detect_auto_rotation(img: np.ndarray) -> int:
-    """Dikey (portre, h > w) taranmış yatay DTL tabloları için önerilen saat yönü açısı (0, 90, 270)."""
+    """Dikey (portre, h > w) veya ters taranmış yatay DTL tabloları için önerilen saat yönü açısı (0, 90, 180, 270)."""
     h, w = img.shape[:2]
     if h <= w * 1.05:
-        return 0
-    ccw = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    _, v_ccw = ruling_masks(binarize(_to_gray(ccw)))
-    v_row = (v_ccw > 0).sum(axis=1)
-    H = len(v_row)
-    top_v = float(v_row[int(H * 0.20) : int(H * 0.55)].mean()) if H > 10 else 0.0
-    bot_v = float(v_row[int(H * 0.80) : int(H * 0.95)].mean()) if H > 10 else 0.0
-    return 270 if top_v >= bot_v else 90
+        return 0 if _dtl_orientation_score(img) >= -0.005 else 180
+    cw = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+    return 90 if _dtl_orientation_score(cw) >= 0.0 else 270
+
+
+def deskew_for_ocr(img: np.ndarray) -> tuple[np.ndarray, float]:
+    """Indra OCR öncesi gri/anti-aliasing dokusunu bozmadan ince tarama eğimini (skew) düzeltir.
+    Eğik sayfalarda (örn. 0.6° eğimde 3300px genişlikte ~35px dikey kayma) sağdaki koordinatların
+    alt satıra kaymasını tamamen önler."""
+    h, w = img.shape[:2]
+    # Çok küçük (ör. <1100px) görüntülerde karakter bacaklarının kopmaması için ılımlı büyütme
+    if max(h, w) < 1100:
+        s = min(2.2, 1650.0 / max(h, w, 1))
+        img = cv2.resize(img, (int(round(w * s)), int(round(h * s))), interpolation=cv2.INTER_CUBIC)
+        h, w = img.shape[:2]
+    speck = _speck_area(h)
+    gray = normalize_background(_to_gray(img))
+    ink = remove_specks(binarize(gray), speck)
+    skew = 0.0
+    for _ in range(2):
+        a = estimate_skew(ink)
+        if not (0.08 <= abs(a) <= 7.0) or abs(skew + a) > 7.0:
+            break
+        skew += a
+        rot_g = rotate(gray, skew, 255)
+        ink = remove_specks(binarize(rot_g), speck)
+    if abs(skew) >= 0.08:
+        border = (255, 255, 255) if img.ndim == 3 else 255
+        img = rotate(img, skew, border)
+    return img
 
 
 def rotate_page_orthogonal(img: np.ndarray, deg: int) -> np.ndarray:
@@ -405,6 +449,18 @@ ROW_PROMPT = (
     "Y ve X 6-7 haneli koordinat sayıları, ondalık kısmı dahil aynen koru; uydurma. Başka bir şey yazma."
 )
 
+BAND_TEXT_PROMPT = (
+    "Text Recognition:"
+    if "glm" in VISION_MODEL.lower()
+    else "Bu tablo satırındaki tüm hücreleri soldan sağa ' | ' ile ayırarak aynen yaz. Rakamları ve harfleri değiştirme, açıklama ekleme."
+)
+
+HEADER_TEXT_PROMPT = (
+    "Text Recognition:"
+    if "glm" in VISION_MODEL.lower()
+    else "Görüntüdeki başlık bilgilerini (Hat adı, Gerilim kV, İletken tipi, Notlar) olduğu gibi oku, açıklama ekleme."
+)
+
 COORD_RE = re.compile(r"\b\d{6,7}(?:[.,]\d{1,4})?\b")
 # Direk kalıbı: PB1, D-14, P3, DP-2, Direk 5, Portal (kelime sınırı ile ND.1 içindeki D.1 eşleşmez)
 POLE_PAT_RE = re.compile(r"(?i)\b(?:direk\s*)?(?:portal|(?:d|p|dp|pb|dm)[-./]?\d{1,4})\b")
@@ -412,14 +468,15 @@ POLE_PAT_RE = re.compile(r"(?i)\b(?:direk\s*)?(?:portal|(?:d|p|dp|pb|dm)[-./]?\d
 ECHO_WORDS = ("yalnızca", "formatta", "başka bir şey", "uydurma", "aynen koru", "koordinat değeri")
 # Rakam bağlamında sık OCR karışıklıkları (yalnızca rakam veya rakam+nokta sonrasında)
 _DIGIT_FIX = {"O": "0", "o": "0", "D": "0", "Q": "0", "l": "1", "I": "1", "i": "1",
+              ")": "1", "]": "1", "!": "1",
               "S": "5", "s": "5", "B": "8", "Z": "2", "z": "2", "G": "6", "g": "9", "<": "4"}
-_DIGIT_FIX_RE = re.compile(r"(\d\.?)([OoDQlIiSsBZzGg<])(?=[\d.OoDQlIiSsBZzGg<\s|]|$)")
+_DIGIT_FIX_RE = re.compile(r"(\d\.?)([OoDQlIi\)\]!SsBZzGg<])(?=[\d.OoDQlIi\)\]!SsBZzGg<\s|]|$)")
 
 
 def _fix_digits(s: str) -> str:
     """Rakamların içinde/sonunda kalan harf benzeri karakterleri rakama çevir
-    (ör. 4256O07.4O → 4256007.40, 369O4O.OO → 369040.00). Ardışık karışıklıklar
-    (4OO1, .OO) için üç geçiş uygulanır."""
+    (ör. 4256O07.4O → 4256007.40, 369O4O.OO → 369040.00, 59232).58 → 592321.58).
+    Ardışık karışıklıklar (4OO1, .OO) için üç geçiş uygulanır."""
     for _ in range(3):
         s = _DIGIT_FIX_RE.sub(lambda m: m.group(1) + _DIGIT_FIX[m.group(2)], s)
     return s
@@ -428,15 +485,30 @@ def _fix_digits(s: str) -> str:
 def _normalize_coord_str(s: str) -> str:
     """Koordinat metnindeki OCR kaynaklı boşluk, nokta düşmesi ve harf-rakam karışıklıklarını onar."""
     out = (s or "").replace(",", ".")
-    # Token başında yutulmuş "5": Indra "594377.00"i "$94377.00" / "S94377.00" okuyabilir.
+    # Token başında yutulmuş "5": Indra "594377.00"i "$94377.00" / "$9232).58" okuyabilir.
     # 5 haneye düşünce COORD_RE göremez; "son iki 6-7 haneli sayı" kuralı istasyon hücresini
     # (örn. "22+122.18" → "224122.18") easting sanar (D-65 vakası). Bu yüzden önce onarılmalı.
-    out = re.sub(r"(?<![\w.,])([$S])(?=\d{3,})", "5", out)
+    out = re.sub(r"(?<![\w.,])([$S])(?=[\d\)\]!Iil]{3,})", "5", out)
     out = re.sub(r"(?<=[\d\s])<(?=\d)", "4", out)
+    # 7 haneli Northing'de 7. basamağın ve noktanın ") " / "] " olarak okunması: "423249) 73" → "4232491.73"
+    out = re.sub(r"\b([345]\d{5})[\)\]!Iil]\s*(\d{2})\b", r"\g<1>1.\2", out)
     out = _fix_digits(out)
-    # Binlik ayırıcı / OCR boşluğu: "4 256 007.40" → "4256007.40"
+    # Binlik ayırıcı / OCR boşluğu veya düşük çözünürlükte tire/iki nokta: "4 256 007.40", "593-403.70", "592:094.81"
     out = re.sub(r"\b(\d{1,3})[ ](\d{3})[ ](\d{3})(?=\.\d|\b)", r"\1\2\3", out)
-    out = re.sub(r"\b(\d{3})[ '’](\d{3})(?=\.\d|\b)", r"\1\2", out)
+    out = re.sub(r"\b(\d{3})[ '’:\-](\d{3})(?=\.\d|\b)", r"\1\2", out)
+    out = re.sub(r"\b([345]\d{2,3})[ '’:\-](\d{3,4})(?=\.\d{1,3}\b)", r"\1\2", out)
+    # Düşük çözünürlükte 7 haneli Northing veya 6 haneli Easting içinde rastgele basamakta tek boşluk:
+    # ör. "4241 148.90" → "4241148.90", "59 2321.58" → "592321.58"
+    out = re.sub(
+        r"\b([345]\d{1,5})\s+(\d{1,5})(?=\.\d{1,3}\b)",
+        lambda m: (m.group(1) + m.group(2)) if len(m.group(1) + m.group(2)) == 7 else m.group(0),
+        out,
+    )
+    out = re.sub(
+        r"\b([2-8]\d{1,4})\s+(\d{1,4})(?=\.\d{1,3}\b)",
+        lambda m: (m.group(1) + m.group(2)) if len(m.group(1) + m.group(2)) == 6 else m.group(0),
+        out,
+    )
     # 7 haneli Northing'de son basamağın boşlukla ayrılması: "425861 7 00" veya "425861 7.00" → "4258617.00"
     out = re.sub(r"\b([345]\d{5})\s+(\d)[.\s](\d{2})\b", r"\1\2.\3", out)
     # Ondalık noktası düşüp 8-9 haneye birleşmiş koordinatlar: "37315021" → "373150.21", "425734335" → "4257343.35"
@@ -550,7 +622,7 @@ async def glm_read(images_b64: list[str], prompt: str, num_predict: int, timeout
                     "stream": False,
                     "think": False,
                     "options": {
-                        "num_ctx": 1024 if num_predict <= 200 else 2048,
+                        "num_ctx": 2048 if num_predict <= 200 else 4096,
                         "num_predict": num_predict,
                         "temperature": 0,
                         "top_k": 1,
@@ -562,7 +634,10 @@ async def glm_read(images_b64: list[str], prompt: str, num_predict: int, timeout
                 timeout=timeout or OLLAMA_TIMEOUT,
             )
             if r.status_code == 200:
-                return (r.json().get("response") or "").strip() or None
+                resp = (r.json().get("response") or "").strip()
+                if "<think>" in resp:
+                    resp = re.sub(r"<think>.*?</think>", "", resp, flags=re.S).strip()
+                return resp or None
             if r.status_code == 404:  # model yok → boşuna tekrar deneme
                 return None
             last_err = f"HTTP {r.status_code}"
@@ -713,26 +788,67 @@ DTL_HEADER_PAT = re.compile(
     r"Tek\s+Ask|direklerin\s+ara|\(1\)\s*\(2\)|MAX\s+TOWER|S\.I\.NO\.)"
 )
 DTL_CENTER_RE = re.compile(
-    r"(?i)(?:(?P<func>\b(?:KD|KT|N|D|T|A|B|C)\b)\s+)?"
-    r"(?:(?P<pole2>\d{1,3}(?:\s*\([A-Z0-9]+\))?)\s+)?"
-    r"(?P<ttype>\b(?:C?P[A-F]\d?(?:\([A-Z0-9]+\))?|2F[SN]\d|[1-4][A-Z]\d?|(?:K|G|T|D|N|PB|PA|PC|PD|PE|PF)[-./]?\d{1,3}))\s+"
-    r"(?P<height>\d{1,2}(?:\.\d)?)\s+"
-    r"(?P<body_ext>[+-]?\d{1,2})\b"
+    r"(?i)(?:(?P<func>\b(?:KD|KT|BD|N|D|T|A|B|C)\b)\s+)?"
+    r"(?:(?P<pole2>(?:(?:MEV\.?\s*)?(?:D|DP|PB|DM)[.-]?\s*)?\d{1,3}(?:\s*\([A-Z0-9]+\))?)\s+)?"
+    r"(?P<ttype>\b(?:C?P[A-F](?:\d|H)?(?:\([A-Z0-9]+\))?|[1-4]P[A-F]\d?(?:\([A-Z0-9]+\))?|2F[SN]\d?|[1-4][A-Z]\d?|(?:K|G|T|D|N|PB|PA|PC|PD|PE|PF)[-./]?\d{1,3}))\s+"
+    r"(?P<height>\d{1,2}(?:\.\d)?)"
+    r"(?:\s+(?P<body_ext>[+-]?\d{1,2})(?!\.\d)\b)?"
 )
+
+
+def _normalize_ttype_tokens(s: str) -> str:
+    """Indra/GLM OCR kaynaklı direk tipi harf-rakam karışıklıklarını (PAI→PA1, PBI→PB1,
+    PFl(N)→PF1(N), PEI(N)→PF1(N), 2FNI→2FN1, 3PBI→3PB1, CPEH(N→CPFH(N), PF]→PF1,
+    PSI→PB1, 'PB 1 26'→'PB1 26' vb.) onarır."""
+    s = re.sub(
+        r"\b(C?P[A-F][0-9IilT\]\):H]?|[1-4]P[A-F][0-9IilT\]\):]?|2F[SN][0-9IilT\]\):]?)\(([NS])\b(?!\))",
+        r"\1(\2)",
+        s,
+        flags=re.I,
+    )
+    s = re.sub(r"\bCPEH\b", "CPFH", s, flags=re.I)
+    s = re.sub(r"\bPS[1IilT\]\):]?\b", "PB1", s, flags=re.I)
+    s = re.sub(r"\bPE[1IilT\]\):]?\s*\(N\)", "PF1(N)", s, flags=re.I)
+    s = re.sub(r"\b(C?P[A-F]|[1-4]P[A-F]|2F[SN])[IilT\]\):](?=\b|\(|$|\s)", r"\g<1>1", s)
+    # Düşük çözünürlükte direk tipi ile alt-seri rakamı arasına boşluk girmesi: "PB 1 26" → "PB1 26"
+    s = re.sub(r"\b(C?P[A-F]|[1-4]P[A-F]|2F[SN])\s+([12])\s+(?=[1-5]\d\b)", r"\1\2 ", s, flags=re.I)
+    return s
 
 
 def normalize_crossing(raw: str) -> str:
     s = re.sub(r"[|]+", " ", raw or "")
-    s = re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r"\s+", " ", s).strip(" -.,;")
     if not s:
         return ""
     u = s.upper()
+    # Özel isimli veya detaylı geçiş açıklamalarını (otoyol, katener, adlandırılmış EİH, doğal gaz boru hattı vb.) olduğu gibi koru
+    if any(
+        k in u
+        for k in (
+            "PLANLANAN",
+            "OTOYOL",
+            "OTO YOL",
+            "KATENER",
+            "BORU HATTI",
+            "HABAŞ",
+            "GES",
+            "HES",
+            "RES",
+            "TM",
+        )
+    ):
+        s = re.sub(r"\.\s*(?=(?:400|380|154)\s*kV\b)", ", ", s, flags=re.I)
+        s = re.sub(r"M[İI]HAL[İIO]C?[ÇC]IK", "MİHALIÇÇIK", s, flags=re.I)
+        s = re.sub(r"\bIZMIR\b", "İZMİR", s)
+        return s
     items: list[str] = []
-    if "380" in u and any(k in u for k in ("E.İ.H", "E.I.H", "E.LH", "E.L.H", "E I H", "E L H", "KV")):
+    if "400" in u and any(k in u for k in ("E.İ.H", "E.I.H", "E.LH", "E.L.H", "E I H", "E L H", "EİH", "EIH", "KV")):
+        items.append("400 kV E.İ.H.")
+    elif "380" in u and any(k in u for k in ("E.İ.H", "E.I.H", "E.LH", "E.L.H", "E I H", "E L H", "EİH", "EIH", "KV")):
         items.append("380 kV E.İ.H.")
-    elif "154" in u and any(k in u for k in ("E.İ.H", "E.I.H", "E.LH", "E.L.H", "E I H", "E L H", "KV")):
+    elif "154" in u and any(k in u for k in ("E.İ.H", "E.I.H", "E.LH", "E.L.H", "E I H", "E L H", "EİH", "EIH", "KV")):
         items.append("154 kV E.İ.H.")
-    elif any(k in u for k in ("34.5", "34,5", "E.İ.H", "E.I.H", "E.LH", "E.L.H", "E I H", "E L H")):
+    elif any(k in u for k in ("34.5", "34,5", "E.İ.H", "E.I.H", "E.LH", "E.L.H", "E I H", "E L H", "EİH", "EIH")):
         items.append("34.5 kV E.İ.HATTI")
     if "O.G" in u or "O.6" in u or "O G" in u or re.search(r"\bOG\b", u):
         items.append("O.G. HATTI")
@@ -760,10 +876,18 @@ def normalize_remarks(raw: str) -> str:
         return ""
     u = s.upper()
     items: list[str] = []
-    if any(k in u for k in ("ZEL", "ASK", "ASL", "TAK", "TOK")):
+    if (("ÖZEL" in u or "OZEL" in u or "ZEL" in u) and any(k in u for k in ("ASK", "ASL", "TAK", "TOK"))) or (
+        "ASKI" in u and ("TAK" in u or "TOK" in u)
+    ):
         items.append("Özel Askı Takımı")
     if "KATOD" in u or "KATAT" in u:
         items.append("Katodik Koruma")
+    if "BRAN" in u and ("DİR" in u or "DIR" in u):
+        items.append("Branşman Direği")
+    if "BAĞLANTI" in u or "BAGLANTI" in u or "BABLANTI" in u:
+        items.append("BAĞLANTI ANLAŞ.")
+    if "KAP." in u and any(k in u for k in ("YAP", "GAP")):
+        items.append("KAP. YAPILACAKTIR.")
     if "EV" in u and "KONSOL" in u:
         items.append("ÇEVİRME KONSOLLU")
     if "MIKROKAZ" in u or "MİKROKAZ" in u:
@@ -828,15 +952,20 @@ def parse_dtl_line(line: str) -> dict | None:
     s = re.sub(r"\b[S$B]\+(\d{3})", r"8+\1", s)
     s = re.sub(r"\bO\+(\d{3})", r"0+\1", s)
     s = re.sub(r"\bK[↑|1I]\s+(?=\d{1,3}\b)", "KD ", s)
-    s = re.sub(r"\b(\d{1,3})\s*[*+-]\s*(\d{3})[., ](\d{2})\b", r"\1+\2.\3", s)
-    s = re.sub(r"\b(\d{1,3}\+\d{3})(\d{2})\b", r"\1.\2", s)
-    s = re.sub(r"\b(\d{1,3}\+\d{3})\s+(\d{2})\b", r"\1.\2", s)
-    s = re.sub(r"\b(\d{6,7})\s+(\d{2})\b", r"\1.\2", s)
-    s = re.sub(r"\b([12]\d{3}|[5-9]\d{2})\s+(\d{2})\b", r"\1.\2", s)
+    s = re.sub(r"\b(\d{1,3})\s*[*+]\s*(\d{3})[., ](\d{2})\b(?!\+)", r"\1+\2.\3", s)
+    s = re.sub(r"\b(\d{1,3})-(\d{3})[., ](\d{2})\b(?!\+)", r"\1+\2.\3", s)
+    s = re.sub(r"\b(\d{1,3}\+\d{3})(\d{2})\b(?!\.\d)", r"\1.\2", s)
+    s = re.sub(r"\b(\d{1,3}\+\d{3})\s+(\d{2})\b(?!\.\d)", r"\1.\2", s)
+    s = re.sub(r"\b(\d{6,7})\s+(\d{2})\b(?!\.\d)", r"\1.\2", s)
+    # 4 ondalıklı grad açısında nokta yerine iki nokta veya boşluk: "215:0850" / "218 0686" → "215.0850"
+    s = re.sub(r"\b([123]\d{2})[:\s](\d{4})\b", r"\1.\2", s)
+    s = re.sub(r"\b([12]\d{3}|[5-9]\d{2})\s+(\d{2})\b(?!\.\d)(?!\+)", r"\1.\2", s)
     s = re.sub(r"\b([12]\d{3}|[5-9]\d{2})(\d{2})(?=\s+(?:[ÇC]?G|G/|[ÇC]?A\b|\d{1,2}(?:/\d{1,2})?\b|U\d{2,3}))", r"\1.\2", s, flags=re.I)
-    s = re.sub(r"^(\s*(?:PORTAL\.?|\d{1,3}(?:\([A-Z0-9]+\))?)\s+\d{2,3})(?:\s+|)(\d{2})\b", r"\1.\2", s, flags=re.I)
-    s = re.sub(r"\b(8|9|10|11|12|13)(?:\s+|)(\d0)\b", r"\1.\2", s)
-    s = re.sub(r"(?<!\S)([+-]0)\s+(\d0)\b", r"\1.\2", s)
+    s = re.sub(r"^(\s*(?:PORTAL\.?|\d{1,3}(?:\([A-Z0-9]+\))?)\s+\d{2,3})(?:\s+|)(\d{2})\b(?!\.\d)", r"\1.\2", s, flags=re.I)
+    # İşaretsiz veya işaretli "0 00" (hook_diff_m) onarımı "10 50" kuralından ÖNCE çalışmalı ki (?<=\.\d{2}\s) tetiklensin
+    s = re.sub(r"(?<!\S)([+-]?0)\s+([05]0)\b(?!\.\d)", r"\1.\2", s)
+    s = re.sub(r"(?<![+\d.])\b(8|9|10|11|12|13)50\b(?!\.\d)", r"\1.50", s)
+    s = re.sub(r"(?<=\.\d{2}\s)(8|9|10|11|12|13)\s+([05]0)\b(?!\.\d)", r"\1.\2", s)
 
     if re.match(r"(?i)^PORTAL\b", s):
         coords_p = COORD_RE.findall(s)
@@ -890,6 +1019,7 @@ def parse_dtl_line(line: str) -> dict | None:
             "ice_zone": None,
         }
 
+    s = _normalize_ttype_tokens(s)
     m = DTL_CENTER_RE.search(s)
     if not m:
         return None
@@ -897,18 +1027,22 @@ def parse_dtl_line(line: str) -> dict | None:
     right = s[m.end() :].strip()
 
     func = (m.group("func") or "").upper()
-    pole2 = (m.group("pole2") or "").strip()
-    raw_ttype = m.group("ttype").upper().replace("2FN1", "2FS1")
+    pole2 = re.sub(r"\s+", "", (m.group("pole2") or "").strip())
+    raw_ttype = m.group("ttype").upper()
     if not func and ("(N)" in raw_ttype or "(S)" in raw_ttype):
         func = "N"
     ttype = re.sub(r"\([A-Z0-9]+\)$", "", raw_ttype)
     height = float(m.group("height"))
-    body_ext = float(m.group("body_ext"))
+    body_ext = float(m.group("body_ext")) if m.group("body_ext") is not None else None
 
-    m_p1 = re.match(r"^(\d{1,3}(?:\([A-Z0-9]+\))?)\s+(.*)", left, flags=re.I)
+    m_p1 = re.match(
+        r"^((?:(?:MEV\.?\s*)?(?:D|DP|PB|DM)[.-]?\s*)?\d{1,3}(?:\([A-Z0-9]+\))?)(?:\s+(.*)|$)",
+        left,
+        flags=re.I,
+    )
     if m_p1:
-        pole = m_p1.group(1)
-        left_rest = m_p1.group(2)
+        pole = re.sub(r"\s+", "", m_p1.group(1))
+        left_rest = (m_p1.group(2) or "").strip()
     else:
         pole = pole2
         left_rest = left
@@ -917,6 +1051,12 @@ def parse_dtl_line(line: str) -> dict | None:
         func = "N"
 
     m_st = re.search(r"\b(\d{1,3})\+(\d{3}(?:\.\d{1,2})?)\b", left_rest)
+    if not m_st:
+        # Düşük çözünürlükte kilometraj "+" işaretinin "4" veya "1" okunması: "74085.26" → "7+085.26"
+        left_rest_fixed = re.sub(r"\b(\d{1,2})[41](\d{3}\.\d{2})\b", r"\1+\2", left_rest, count=1)
+        if left_rest_fixed != left_rest:
+            left_rest = left_rest_fixed
+            m_st = re.search(r"\b(\d{1,3})\+(\d{3}(?:\.\d{1,2})?)\b", left_rest)
     station_text, station_m, before_st, after_st = "", None, left_rest, ""
     if m_st:
         station_text = m_st.group(0)
@@ -930,11 +1070,16 @@ def parse_dtl_line(line: str) -> dict | None:
     weight_span_m = b_nums[2] if len(b_nums) >= 3 else None
 
     some_no = ""
-    m_some = re.search(r"(?i)\b(ND\.[12]|[S8]\.\d{1,2}|S\.I)\b", after_st)
+    m_some = re.search(r"(?i)(?:^|\b)(ND\.?\s*[12]|[S85$][.\s]\s*\d{1,2}|S\.I)\b", after_st)
     if m_some:
-        some_no = m_some.group(1).upper().replace("S.I", "S.1")
-        if some_no.startswith("8."):
-            some_no = "S." + some_no[2:]
+        raw_some = re.sub(r"\s+", "", m_some.group(1).upper()).replace("S.I", "S.1")
+        if raw_some in ("ND1", "ND2"):
+            some_no = "ND." + raw_some[-1]
+        elif raw_some[0] in ("S", "8", "5", "$"):
+            digits = re.sub(r"\D+", "", raw_some[1:])
+            some_no = f"S.{digits}" if digits else raw_some
+        else:
+            some_no = raw_some
         after_st = (after_st[: m_some.start()] + " " + after_st[m_some.end() :]).strip()
 
     line_angle = None
@@ -982,27 +1127,34 @@ def parse_dtl_line(line: str) -> dict | None:
         ins_set = "ÇA"
     elif "/" in ins_count:
         ins_set = "ÇGÇG"
-    else:
+    elif ins_count:
         ins_set = "A" if func == "T" else "ÇGÇG"
+    else:
+        ins_set = ""
 
     ext_nums = [float(x) for x in re.findall(r"[+-]?\d+(?:\.\d+)?", ext_part)]
     hook_diff = ext_nums[0] if len(ext_nums) >= 1 else None
     center_ext = ext_nums[1] if len(ext_nums) >= 2 else None
-    legs = [int(x) for x in ext_nums[2:6]]
-    while len(legs) < 4:
-        legs.append(legs[-1] if legs else 0)
+    legs: list[int | None] = [int(x) for x in ext_nums[2:6]]
+    if legs:
+        while len(legs) < 4:
+            legs.append(legs[-1])
+    else:
+        legs = [None, None, None, None]
 
     tail_nums = re.findall(r"\b\d\b", tail_right)
     profile_no = int(tail_nums[-2]) if len(tail_nums) >= 2 else None
     ice_zone = int(tail_nums[-1]) if len(tail_nums) >= 2 else None
-    remarks_raw = re.sub(r"(?:^|\s+)\d(?:\s+\d)?\s*$", "", tail_right).strip()
+    remarks_raw = re.sub(r"(?i)(?:^|\s+)[1-9Iil]\.?(?:\s+[1-9Iil]\.?)?\s*$", "", tail_right).strip()
     remarks = normalize_remarks(remarks_raw)
+    if func == "BD" and not remarks:
+        remarks = "Branşman Direği"
 
     if not func:
         func = "T" if ins_set in ("A", "ÇA") else "KD"
 
     h0_default = 13.0 if ttype.startswith(("PD", "PE", "PF")) else 16.0
-    if body_ext != 0 and height is not None:
+    if body_ext is not None and body_ext != 0 and height is not None:
         ab = abs(body_ext)
         body_ext = ab if abs((height - ab) - h0_default) < abs((height + ab) - h0_default) else -ab
 
@@ -1045,6 +1197,52 @@ def _fmt_station(st_m: float) -> str:
     return f"{km}+{ip.zfill(3)}.{dp}"
 
 
+def _find_valid_offset_runs(offsets: list[int | None], min_run: int = 3) -> list[tuple[int, int, int]]:
+    """En az `min_run` uzunluğundaki tüm ardışık sabit-ofset koşularını (başlangıç, bitiş, ofset) döner."""
+    runs: list[tuple[int, int, int]] = []
+    cur_off: int | None = None
+    cur_start = 0
+    for idx, o in enumerate(offsets + [None]):
+        if o is not None and o == cur_off:
+            continue
+        if cur_off is not None and idx - cur_start >= min_run:
+            runs.append((cur_start, idx - 1, cur_off))
+        cur_off = o
+        cur_start = idx
+    return runs
+
+
+def _infer_pole_from_runs(t_idx: int, raw_pole: str, runs: list[tuple[int, int, int]], locked: bool = False) -> str | None:
+    """Çok bölümlü DTL'lerde (ör. 1..28 + 12..64 + D.13..D.14) geçerli koşuları (>=3) ve
+    ön-ekli direkleri (D.13, PORTAL vb.) korur; yalnız koşu içindeki/bitişiğindeki tekil OCR
+    sapmalarını onarır."""
+    if not runs:
+        return None
+    s = (raw_pole or "").strip()
+    if s and not re.fullmatch(r"\d{1,3}(?:\([A-Z0-9]+\))?", s, flags=re.I):
+        return None  # PORTAL, D.13, MEV.D.1 gibi özel adlara dokunma
+    for a, b, _ in runs:
+        if a <= t_idx <= b:
+            return None  # Zaten >=3 uzunluklu geçerli bir ardışık dizinin parçası
+    # İki aynı ofsetli koşunun arasında kalmış tekil/ardışık satır (kesinlikle aynı serinin parçasıdır, locked olsa bile onarılır)
+    for idx in range(len(runs) - 1):
+        _, b1, off1 = runs[idx]
+        a2, _, off2 = runs[idx + 1]
+        if b1 < t_idx < a2 and off1 == off2 and off1 + t_idx >= 1:
+            return str(off1 + t_idx)
+    if locked:
+        return None
+    # Tek bir koşunun hemen başında/sonunda (<=2 satır mesafede) kalmış satır
+    best_off = None
+    best_dist = 999
+    for a, b, off in runs:
+        dist = (a - t_idx) if t_idx < a else (t_idx - b)
+        if dist <= 2 and dist < best_dist and off + t_idx >= 1:
+            best_dist = dist
+            best_off = off
+    return str(best_off + t_idx) if best_off is not None else None
+
+
 def finalize_dtl_rows(rows: list[dict]) -> list[dict]:
     """DTL satırlarında ardışık direk numarası ve kilometraj/ara mesafe tutarlılığını doğrular."""
     if not rows:
@@ -1058,39 +1256,92 @@ def finalize_dtl_rows(rows: list[dict]) -> list[dict]:
             continue
         t_idx = len(tower_indices)
         tower_indices.append(idx)
-        m = re.match(r"^(\d{1,3})", str(r.get("pole") or ""))
+        pole_str = str(r.get("pole") or "").strip()
+        m = re.fullmatch(r"(\d{1,3})(?:\([A-Z0-9]+\))?", pole_str, flags=re.I)
         offsets.append(int(m.group(1)) - t_idx if m else None)
 
-    best_anchor, best_run = None, 0
-    cur_anchor, cur_run = None, 0
-    for o in offsets + [None]:
-        if o is not None and o == cur_anchor:
-            cur_run += 1
-        else:
-            if cur_anchor is not None and cur_run > best_run:
-                best_anchor, best_run = cur_anchor, cur_run
-            cur_anchor, cur_run = o, 1 if o is not None else 0
-
-    if best_anchor is not None and best_run >= 3:
+    runs = _find_valid_offset_runs(offsets, min_run=3)
+    if runs:
         for t_idx, row_idx in enumerate(tower_indices):
             r = out[row_idx]
-            m_suf = re.search(r"(\([A-Z0-9]+\))$", str(r.get("pole") or ""), flags=re.I)
-            suffix = m_suf.group(1).upper() if m_suf else ""
-            r["pole"] = f"{best_anchor + t_idx}{suffix}"
+            pole_str = str(r.get("pole") or "").strip()
+            want = _infer_pole_from_runs(t_idx, pole_str, runs, locked=bool(r.get("pole_locked")))
+            if want is not None:
+                m_suf = re.search(r"(\([A-Z0-9]+\))$", pole_str, flags=re.I)
+                suffix = m_suf.group(1).upper() if m_suf else ""
+                r["pole"] = f"{want}{suffix}"
+
+    # Tablodaki tüm P-serisi direkler 1 alt-serisiyse (PA1, PB1, PD1, PE1, PF1), hücre çizgisine
+    # değdiği için "1"i düşmüş çıplak PA/PB/PC/PD/PE/PF tiplerini tamamla
+    series_digits = [
+        m.group(1)
+        for r in out
+        for m in [re.fullmatch(r"C?P[A-F](\d)", str(r.get("tower_type") or ""))]
+        if m
+    ]
+    if len(series_digits) >= 5 and set(series_digits) == {"1"}:
+        for r in out:
+            tt = str(r.get("tower_type") or "")
+            if re.fullmatch(r"P[A-F]", tt):
+                r["tower_type"] = tt + "1"
+
+    # İleri ve geri geçişle eksik istasyon (station_m) değerlerini ara mesafeden (span_m) tamamla
+    for i in range(len(tower_indices) - 1):
+        cur = out[tower_indices[i]]
+        nxt = out[tower_indices[i + 1]]
+        m_c = re.fullmatch(r"(\d{1,3})(?:\([A-Z0-9]+\))?", str(cur.get("pole") or "").strip(), flags=re.I)
+        m_n = re.fullmatch(r"(\d{1,3})(?:\([A-Z0-9]+\))?", str(nxt.get("pole") or "").strip(), flags=re.I)
+        if not (m_c and m_n and int(m_n.group(1)) == int(m_c.group(1)) + 1):
+            continue
+        cur_st, nxt_st, cur_sp = cur.get("station_m"), nxt.get("station_m"), cur.get("span_m")
+        if cur_st is not None and cur_sp is not None and nxt_st is None:
+            inferred = round(cur_st + cur_sp, 2)
+            nxt["station_m"] = inferred
+            nxt["station_text"] = _fmt_station(inferred)
+
+    for i in range(len(tower_indices) - 2, -1, -1):
+        cur = out[tower_indices[i]]
+        nxt = out[tower_indices[i + 1]]
+        m_c = re.fullmatch(r"(\d{1,3})(?:\([A-Z0-9]+\))?", str(cur.get("pole") or "").strip(), flags=re.I)
+        m_n = re.fullmatch(r"(\d{1,3})(?:\([A-Z0-9]+\))?", str(nxt.get("pole") or "").strip(), flags=re.I)
+        if not (m_c and m_n and int(m_n.group(1)) == int(m_c.group(1)) + 1):
+            continue
+        cur_st, nxt_st, cur_sp = cur.get("station_m"), nxt.get("station_m"), cur.get("span_m")
+        if nxt_st is not None and cur_sp is not None and cur_st is None:
+            inferred = round(nxt_st - cur_sp, 2)
+            if inferred >= 0:
+                cur["station_m"] = inferred
+                cur["station_text"] = _fmt_station(inferred)
 
     for i in range(len(tower_indices) - 1):
         cur = out[tower_indices[i]]
         nxt = out[tower_indices[i + 1]]
+        m_c = re.fullmatch(r"(\d{1,3})(?:\([A-Z0-9]+\))?", str(cur.get("pole") or "").strip(), flags=re.I)
+        m_n = re.fullmatch(r"(\d{1,3})(?:\([A-Z0-9]+\))?", str(nxt.get("pole") or "").strip(), flags=re.I)
+        if not (m_c and m_n and int(m_n.group(1)) == int(m_c.group(1)) + 1):
+            continue
         cur_st, nxt_st, cur_sp = cur.get("station_m"), nxt.get("station_m"), cur.get("span_m")
         if cur_st is not None and nxt_st is not None and cur_sp is not None:
             expected_next = round(cur_st + cur_sp, 2)
             if abs(nxt_st - expected_next) > 1.0:
                 fixed_cur_st = round(nxt_st - cur_sp, 2)
-                if fixed_cur_st >= 0 and abs(fixed_cur_st - cur_st) >= 900:
-                    cur["station_m"] = fixed_cur_st
-                    cur["station_text"] = _fmt_station(fixed_cur_st)
-                elif nxt_st > cur_st and (nxt_st - cur_st) < 1200:
-                    cur["span_m"] = round(nxt_st - cur_st, 2)
+                # Sonraki direğin istasyonu da hatalıysa (ör. cur_st + cur_sp + nxt_sp == nxt2_st), nxt_st'yi onar
+                nxt2_ok = False
+                if i + 2 < len(tower_indices):
+                    nxt2 = out[tower_indices[i + 2]]
+                    nxt_sp, nxt2_st = nxt.get("span_m"), nxt2.get("station_m")
+                    if nxt_sp is not None and nxt2_st is not None and abs(( expected_next + nxt_sp ) - nxt2_st) <= 1.5:
+                        nxt["station_m"] = expected_next
+                        nxt["station_text"] = _fmt_station(expected_next)
+                        nxt2_ok = True
+                if not nxt2_ok:
+                    if fixed_cur_st >= 0 and abs(fixed_cur_st - cur_st) >= 900:
+                        cur["station_m"] = fixed_cur_st
+                        cur["station_text"] = _fmt_station(fixed_cur_st)
+                    elif nxt_st > cur_st and (nxt_st - cur_st) < 1200:
+                        wsp = cur.get("wind_span_m")
+                        if cur_sp is None or wsp is None or abs((nxt_st - cur_st) - wsp) <= 85:
+                            cur["span_m"] = round(nxt_st - cur_st, 2)
 
     return out
 
@@ -1099,7 +1350,7 @@ async def extract_dtl_header_from_page(prep: PreparedPage) -> dict:
     """Sayfanın üst başlık bloğundan gerilim, iletken ve hat adını okur."""
     h, w = prep.gray.shape
     top_crop = prep.gray[0 : int(h * 0.22), int(w * 0.05) : int(w * 0.75)]
-    text = await glm_read([encode_b64(top_crop, max_w=1600, fmt=".png")], "Text Recognition:", 160)
+    text = await glm_read([encode_b64(top_crop, max_w=1600, fmt=".png")], HEADER_TEXT_PROMPT, 160)
     return parse_dtl_header_text(text or "")
 
 
@@ -1191,15 +1442,77 @@ def _int_len(s: str) -> int:
     return len(str(s).replace(",", ".").split(".")[0])
 
 
-def _finalize_rows(rows: list[list[dict]]) -> list[list[dict]]:
+def _single_digit_variants(coord_str: str) -> list[tuple[str, float]]:
+    """Koordinatın tam sayı kısmındaki tekil rakam hatalarını (0-9 değişimi) üretir."""
+    s = str(coord_str).replace(",", ".").strip()
+    parts = s.split(".", 1)
+    int_p = parts[0]
+    dec_p = "." + parts[1] if len(parts) > 1 else ""
+    if not int_p.isdigit():
+        return []
+    out: list[tuple[str, float]] = []
+    for idx in range(len(int_p)):
+        orig_ch = int_p[idx]
+        for d in "0123456789":
+            if d == orig_ch:
+                continue
+            if idx == 0 and d == "0":
+                continue
+            cand_s = int_p[:idx] + d + int_p[idx + 1 :] + dec_p
+            val = _num(cand_s)
+            if val is not None:
+                out.append((cand_s, val))
+    return out
+
+
+def _heal_coarse_prefix(coord_str: str, ref_val: float, max_dist: float = 2600.0) -> tuple[str, float] | None:
+    """100k / 10k / 1k basamaklarındaki kaba OCR sapmalarını (ör. 414xxxx veya 434xxxx -> 424xxxx)
+    veya tek basamak düşmesini (ör. 53058.47 -> 593058.47) komşu/medyan referansına göre düzeltir."""
+    s = str(coord_str).replace(",", ".").strip()
+    parts = s.split(".", 1)
+    int_p = parts[0]
+    dec_p = "." + parts[1] if len(parts) > 1 else ""
+    ref_int = str(int(round(ref_val)))
+    if not int_p.isdigit():
+        return None
+    best_s, best_v, best_d = None, 0.0, max_dist
+    if len(int_p) == len(ref_int) - 1:
+        for idx in range(len(int_p) + 1):
+            for d in "0123456789":
+                if idx == 0 and d == "0":
+                    continue
+                cand_s = int_p[:idx] + d + int_p[idx:] + dec_p
+                v = _num(cand_s)
+                if v is not None and abs(v - ref_val) < best_d:
+                    best_s, best_v, best_d = cand_s, v, abs(v - ref_val)
+        return (best_s, best_v) if best_s is not None else None
+    if len(int_p) != len(ref_int):
+        return None
+    # Önce komşu önekinden 1..3 hane kopyalamayı dene
+    for k in (1, 2, 3):
+        if k < len(int_p):
+            cand_s = ref_int[:k] + int_p[k:] + dec_p
+            v = _num(cand_s)
+            if v is not None and abs(v - ref_val) < best_d:
+                best_s, best_v, best_d = cand_s, v, abs(v - ref_val)
+    # Tek basamak değişimlerini dene
+    for cand_s, v in _single_digit_variants(s):
+        if abs(v - ref_val) < best_d:
+            best_s, best_v, best_d = cand_s, v, abs(v - ref_val)
+    if best_s is not None:
+        return best_s, best_v
+    return None
+
+
+def _finalize_rows(rows: list[list[dict]], dtl_rows: list[dict] | None = None) -> list[list[dict]]:
     """DTL tablolarında direkler sıralıdır (1'er artar) ve güzergah tekdüze
     ilerler. Adımlar:
       1. Ters okunmuş (X|Y) satırları düzelt (Easting 6 hane / Northing 7 hane)
       2. Aynı koordinatlı tekrar satırları at (bölünen bant / model tekrarı)
-      3. Sayfa medyanından çok uzak koordinatları düşük güvenle işaretle
-      4. Güzergahın baskın eksenini belirle (tablo sırasını koru)
-      5. Direk numarasını çoğunluk (mod) çapasıyla tamamla — tek bir hatalı
-         okuma artık tüm numaraları kaydırmaz; PORTAL vb. adlar korunur."""
+      3. Direk numarasını çoğunluk (mod) çapasıyla tamamla
+      4. Kaba önek (100k/10k) ve tek-basamaklı koordinat hatalarını ara mesafe (span_m)
+         ve güzergah doğrusallığı (kolineerlik) ile matematiksel olarak onar
+      5. Onarılamayan aykırı/zigzag koordinatları düşük güvenle (0.4) işaretle."""
     valid = [r for r in rows if len(r) >= 3 and _num(r[1]["text"]) is not None and _num(r[2]["text"]) is not None]
     weak = [r for r in rows if r not in valid]
     if not valid:
@@ -1231,9 +1544,230 @@ def _finalize_rows(rows: list[list[dict]]) -> list[list[dict]]:
     if len(valid) < 3:
         return valid + weak
 
-    # 3. Aykırı değerler
-    ys = np.array([_num(r[1]["text"]) for r in valid])
-    xs = np.array([_num(r[2]["text"]) for r in valid])
+    # 3. Direk numarası — geçerli ardışık koşuları (>=3) ve ön-ekli adları (D.13, PORTAL) koru;
+    # yalnız koşu içindeki/bitişiğindeki tekil OCR sapmalarını onar
+    offsets: list[int | None] = []
+    for i, r in enumerate(valid):
+        t = r[0]["text"].strip()
+        m = re.fullmatch(r"(\d{1,3})(?:\([A-Z0-9]+\))?", t, flags=re.I)
+        offsets.append(int(m.group(1)) - i if m else None)
+    runs = _find_valid_offset_runs(offsets, min_run=3)
+    if runs:
+        for i, r in enumerate(valid):
+            t = r[0]["text"].strip()
+            want = _infer_pole_from_runs(i, t, runs, locked=bool(r[0].get("locked")))
+            if want is not None and t != want:
+                r[0]["text"] = want
+                r[0]["conf"] = 0.7  # sıradan tamamlandı (belirsiz sayılmaz)
+
+    # 3b. DTL satırlarından direk bazlı ara mesafe (span_m) eşlemesi
+    span_by_pole: dict[str, float] = {}
+    dtl_by_pole: dict[str, dict] = {}
+    if dtl_rows:
+        for d in dtl_rows:
+            pk = re.sub(r"\(.*\)", "", str(d.get("pole") or "")).strip()
+            if pk:
+                dtl_by_pole[pk] = d
+                sp = d.get("span_m")
+                if isinstance(sp, (int, float)) and 5.0 <= float(sp) <= 1500.0:
+                    span_by_pole[pk] = float(sp)
+
+    def _pole_int(idx: int) -> int | None:
+        t = re.sub(r"\(.*\)", "", valid[idx][0]["text"].strip()).strip()
+        return int(t) if t.isdigit() else None
+
+    def _expected_span(idx: int) -> float | None:
+        if idx < 0 or idx + 1 >= len(valid):
+            return None
+        p_cur, p_nxt = _pole_int(idx), _pole_int(idx + 1)
+        if p_cur is not None and p_nxt is not None and p_nxt == p_cur + 1:
+            return span_by_pole.get(str(p_cur))
+        return None
+
+    def _sync_dtl_coord(idx: int, e_val: float, n_val: float) -> None:
+        pk = re.sub(r"\(.*\)", "", valid[idx][0]["text"].strip()).strip()
+        if pk in dtl_by_pole:
+            dtl_by_pole[pk]["easting"] = round(e_val, 2)
+            dtl_by_pole[pk]["northing"] = round(n_val, 2)
+
+    # 4a. Kaba önek (100k / 10k) sapmalarını komşu/medyan referansıyla onar
+    es = np.array([_num(r[1]["text"]) or 0.0 for r in valid])
+    ns = np.array([_num(r[2]["text"]) or 0.0 for r in valid])
+    me, mn = float(np.median(es)), float(np.median(ns))
+    for i, r in enumerate(valid):
+        ei, ni = float(es[i]), float(ns[i])
+        if abs(ei - me) > 8000.0 or abs(ni - mn) > 8000.0:
+            # En yakın güvenilir komşuyu bul
+            ref_e, ref_n = me, mn
+            for j in (i - 1, i + 1, i - 2, i + 2):
+                if 0 <= j < len(valid) and abs(es[j] - me) <= 8000.0 and abs(ns[j] - mn) <= 8000.0:
+                    ref_e, ref_n = float(es[j]), float(ns[j])
+                    break
+            if abs(ei - ref_e) > 8000.0:
+                healed_e = _heal_coarse_prefix(r[1]["text"], ref_e)
+                if healed_e is not None:
+                    r[1]["text"], es[i] = healed_e[0], healed_e[1]
+            if abs(ni - ref_n) > 8000.0:
+                healed_n = _heal_coarse_prefix(r[2]["text"], ref_n)
+                if healed_n is not None:
+                    r[2]["text"], ns[i] = healed_n[0], healed_n[1]
+            _sync_dtl_coord(i, float(es[i]), float(ns[i]))
+
+    # 4b. Tek-basamaklı koordinat hatalarını (1000m / 100m / 10m sıçramaları) ara mesafe (span_m)
+    # ve güzergah doğrusallığıyla matematiksel olarak onar
+    if len(valid) >= 3:
+        pts = [(float(es[k]), float(ns[k])) for k in range(len(valid))]
+        dists = [float(np.hypot(pts[k + 1][0] - pts[k][0], pts[k + 1][1] - pts[k][1])) for k in range(len(pts) - 1)]
+        pos_d = [d for d in dists if 5.0 < d < 1500.0]
+        med_span = float(np.median(pos_d)) if pos_d else 300.0
+
+        for i in range(1, len(pts) - 1):
+            p_prev, p_cur, p_next = pts[i - 1], pts[i], pts[i + 1]
+            d_prev = float(np.hypot(p_cur[0] - p_prev[0], p_cur[1] - p_prev[1]))
+            d_next = float(np.hypot(p_next[0] - p_cur[0], p_next[1] - p_cur[1]))
+            d_bridge = float(np.hypot(p_next[0] - p_prev[0], p_next[1] - p_prev[1]))
+            detour = (d_prev + d_next) - d_bridge
+            dot = (p_cur[0] - p_prev[0]) * (p_next[0] - p_cur[0]) + (p_cur[1] - p_prev[1]) * (p_next[1] - p_cur[1])
+            s_prev = _expected_span(i - 1)
+            s_curr = _expected_span(i)
+
+            bad_span = (s_prev is not None and abs(d_prev - s_prev) > 5.5) or (
+                s_curr is not None and abs(d_next - s_curr) > 5.5
+            )
+            bad_geom = (
+                detour > max(60.0, 0.16 * d_bridge)
+                or (dot < 0 and min(d_prev, d_next) > 55.0)
+                or max(d_prev, d_next) > max(1150.0, med_span * 3.4)
+            )
+            if not (bad_span or bad_geom):
+                continue
+
+            e_str, n_str = valid[i][1]["text"], valid[i][2]["text"]
+            cands: list[tuple[str, str, float, float]] = []
+            for ce_s, ce_v in _single_digit_variants(e_str):
+                cands.append((ce_s, n_str, ce_v, p_cur[1]))
+            for cn_s, cn_v in _single_digit_variants(n_str):
+                cands.append((e_str, cn_s, p_cur[0], cn_v))
+
+            old_sp_err = (abs(d_prev - s_prev) if s_prev is not None else 0.0) + (
+                abs(d_next - s_curr) if s_curr is not None else 0.0
+            )
+            best_cand = None
+            best_score = float("inf")
+            for ce_s, cn_s, ce_v, cn_v in cands:
+                dp = float(np.hypot(ce_v - p_prev[0], cn_v - p_prev[1]))
+                dn = float(np.hypot(p_next[0] - ce_v, p_next[1] - cn_v))
+                det_new = (dp + dn) - d_bridge
+                dot_new = (ce_v - p_prev[0]) * (p_next[0] - ce_v) + (cn_v - p_prev[1]) * (p_next[1] - cn_v)
+
+                # 1. Kriter: Ara mesafe (span_m) uyumu
+                if s_prev is not None or s_curr is not None:
+                    sp_err = (abs(dp - s_prev) if s_prev is not None else 0.0) + (
+                        abs(dn - s_curr) if s_curr is not None else 0.0
+                    )
+                    max_single_err = max(
+                        abs(dp - s_prev) if s_prev is not None else 0.0,
+                        abs(dn - s_curr) if s_curr is not None else 0.0,
+                    )
+                    if (
+                        (max_single_err <= 5.5 and (old_sp_err - sp_err) >= 14.0 and det_new <= max(25.0, detour + 5.0))
+                        or (
+                            s_prev is not None
+                            and s_curr is not None
+                            and max_single_err <= 1.8
+                            and sp_err <= 2.5
+                            and (old_sp_err - sp_err) >= 6.0
+                            and det_new <= max(12.0, detour + 2.0)
+                        )
+                    ):
+                        score = sp_err + 0.15 * max(0.0, det_new)
+                        if score < best_score:
+                            best_score = score
+                            best_cand = (ce_s, cn_s, ce_v, cn_v)
+                            continue
+                    if (
+                        s_prev is not None
+                        and abs(d_prev - s_prev) >= 200.0
+                        and abs(dp - s_prev) <= 3.5
+                        and i >= 2
+                    ):
+                        v_prev = (p_prev[0] - pts[i - 2][0], p_prev[1] - pts[i - 2][1])
+                        v_cur = (ce_v - p_prev[0], cn_v - p_prev[1])
+                        n1 = float(np.hypot(v_prev[0], v_prev[1]))
+                        n2 = float(np.hypot(v_cur[0], v_cur[1]))
+                        cos_a = (v_prev[0] * v_cur[0] + v_prev[1] * v_cur[1]) / (n1 * n2) if (n1 > 10 and n2 > 10) else 0.0
+                        if cos_a >= 0.80:
+                            score = abs(dp - s_prev) + (1.0 - cos_a) * 5.0
+                            if score < best_score:
+                                best_score = score
+                                best_cand = (ce_s, cn_s, ce_v, cn_v)
+                                continue
+
+                # 2. Kriter: Saf geometrik üçgen sapma (zigzag/detour) giderimi (span_m hatalı/eksik olsa bile)
+                if (
+                    d_bridge < max(1400.0, med_span * 4.2)
+                    and min(d_prev, d_next) > max(180.0, d_bridge * 0.62)
+                    and dot_new > 0
+                    and dp <= d_prev - 50.0
+                    and dn <= d_next - 50.0
+                    and det_new <= max(22.0, 0.055 * d_bridge)
+                    and (detour - det_new) >= 140.0
+                    and 0.12 * d_bridge <= dp <= 0.88 * d_bridge
+                ):
+                    score = 10.0 + det_new + 0.08 * abs(dp - 0.5 * d_bridge)
+                    if score < best_score:
+                        best_score = score
+                        best_cand = (ce_s, cn_s, ce_v, cn_v)
+                        continue
+
+            if best_cand is not None:
+                ce_s, cn_s, ce_v, cn_v = best_cand
+                valid[i][1]["text"] = ce_s
+                valid[i][2]["text"] = cn_s
+                valid[i][1]["conf"] = max(float(valid[i][1].get("conf") or 0.0), 0.86)
+                valid[i][2]["conf"] = max(float(valid[i][2].get("conf") or 0.0), 0.86)
+                pts[i] = (ce_v, cn_v)
+                es[i], ns[i] = ce_v, cn_v
+                _sync_dtl_coord(i, ce_v, cn_v)
+
+        # Uç noktalar (i=0 ve i=n-1) için span_m kontrolü
+        for end_i, nbr_i, nxt_i, sp_idx in ((0, 1, 2, 0), (len(pts) - 1, len(pts) - 2, len(pts) - 3, len(pts) - 2)):
+            if not (0 <= nxt_i < len(pts)):
+                continue
+            sp_exp = _expected_span(sp_idx)
+            if sp_exp is None:
+                continue
+            p_end, p_nbr, p_nxt = pts[end_i], pts[nbr_i], pts[nxt_i]
+            d_cur = float(np.hypot(p_end[0] - p_nbr[0], p_end[1] - p_nbr[1]))
+            if abs(d_cur - sp_exp) <= 16.0:
+                continue
+            e_str, n_str = valid[end_i][1]["text"], valid[end_i][2]["text"]
+            cands = [(ce_s, n_str, ce_v, p_end[1]) for ce_s, ce_v in _single_digit_variants(e_str)] + [
+                (e_str, cn_s, p_end[0], cn_v) for cn_s, cn_v in _single_digit_variants(n_str)
+            ]
+            best_cand, best_err = None, 4.5
+            for ce_s, cn_s, ce_v, cn_v in cands:
+                d_new = float(np.hypot(ce_v - p_nbr[0], cn_v - p_nbr[1]))
+                err = abs(d_new - sp_exp)
+                # Komşu vektörle aynı yönde ilerlemeli
+                v1 = (p_nbr[0] - p_nxt[0], p_nbr[1] - p_nxt[1])
+                v2 = (ce_v - p_nbr[0], cn_v - p_nbr[1])
+                if err < best_err and (v1[0] * v2[0] + v1[1] * v2[1]) > 0:
+                    best_err = err
+                    best_cand = (ce_s, cn_s, ce_v, cn_v)
+            if best_cand is not None:
+                ce_s, cn_s, ce_v, cn_v = best_cand
+                valid[end_i][1]["text"] = ce_s
+                valid[end_i][2]["text"] = cn_s
+                valid[end_i][1]["conf"] = max(float(valid[end_i][1].get("conf") or 0.0), 0.86)
+                valid[end_i][2]["conf"] = max(float(valid[end_i][2].get("conf") or 0.0), 0.86)
+                pts[end_i] = (ce_v, cn_v)
+                es[end_i], ns[end_i] = ce_v, cn_v
+                _sync_dtl_coord(end_i, ce_v, cn_v)
+
+    # 5. Aykırı değerler ve kalan zigzag tespiti
+    ys = np.array([_num(r[1]["text"]) or 0.0 for r in valid])
+    xs = np.array([_num(r[2]["text"]) or 0.0 for r in valid])
     my, mx = float(np.median(ys)), float(np.median(xs))
     inlier = []
     for r, y, x in zip(valid, ys, xs):
@@ -1242,52 +1776,19 @@ def _finalize_rows(rows: list[list[dict]]) -> list[list[dict]]:
             r[1]["conf"] = r[2]["conf"] = 0.4
         inlier.append(not bad)
 
-    # 4. Eksen belirleme — satırların sayfadaki yukarıdan aşağıya sırasını koru
-    iy, ix = ys[np.array(inlier)], xs[np.array(inlier)]
-    axis = 2
-    if len(iy) >= 2:
-        axis = 2 if np.ptp(ix) >= np.ptp(iy) else 1
-
-    # 4b. Zigzag tespiti: yalnız BÜYÜK ileri-geri sıçramalar (rakam hatası)
-    # belirsiz işaretlenir; küçük/sürekli yön değişimi = rota dönüşü, dokunma
     if len(valid) >= 4:
-        for a in (1, 2):
-            vals = [_num(r[a]["text"]) for r in valid]
-            if any(v is None for v in vals):
-                continue
-            ds = np.abs(np.diff(vals))
-            nonzero = ds[ds > 0]
-            if not len(nonzero):
-                continue
-            step = float(np.median(nonzero))
-            for i in range(1, len(vals) - 1):
-                d1, d2 = vals[i] - vals[i - 1], vals[i + 1] - vals[i]
-                if d1 * d2 < 0 and abs(d1) > step * 1.5 and abs(d2) > step * 1.5:
-                    valid[i][1]["conf"] = valid[i][2]["conf"] = 0.4
+        pts = [(_num(r[1]["text"]) or 0.0, _num(r[2]["text"]) or 0.0) for r in valid]
+        dists = [float(np.hypot(pts[k + 1][0] - pts[k][0], pts[k + 1][1] - pts[k][1])) for k in range(len(pts) - 1)]
+        pos_d = [d for d in dists if d > 0]
+        med_span = float(np.median(pos_d)) if pos_d else 300.0
+        thr = max(1200.0, med_span * 4.0)
+        for i in range(1, len(pts) - 1):
+            d_prev = dists[i - 1]
+            d_next = dists[i]
+            d_bridge = float(np.hypot(pts[i + 1][0] - pts[i - 1][0], pts[i + 1][1] - pts[i - 1][1]))
+            if min(d_prev, d_next) > thr and d_bridge < 0.7 * min(d_prev, d_next):
+                valid[i][1]["conf"] = valid[i][2]["conf"] = 0.4
 
-    # 5. Direk numarası — en uzun ARDIŞIK ofset dizisi çapayı belirler
-    offsets: list[int | None] = []
-    for i, r in enumerate(valid):
-        t = r[0]["text"].strip()
-        offsets.append(int(t) - i if re.fullmatch(r"\d{1,3}", t) else None)
-    best_anchor, best_run = None, 0
-    cur_anchor, cur_run = None, 0
-    for o in offsets + [None]:
-        if o is not None and o == cur_anchor:
-            cur_run += 1
-        else:
-            if cur_anchor is not None and cur_run > best_run:
-                best_anchor, best_run = cur_anchor, cur_run
-            cur_anchor, cur_run = o, 1 if o is not None else 0
-    if best_anchor is not None and best_run >= 3:
-        for i, r in enumerate(valid):
-            t = r[0]["text"].strip()
-            if t and re.match(r"(?i)^portal\b", t):
-                continue  # Portal işaretleri olduğu gibi kalır
-            want = str(best_anchor + i)
-            if t != want:
-                r[0]["text"] = want
-                r[0]["conf"] = 0.7  # sıradan tamamlandı (belirsiz sayılmaz)
     return valid + weak
 
 
@@ -1304,45 +1805,67 @@ def parse_indra_dtl(joined: str, pole: str, easting: str | None, northing: str |
     """Indra satır metninden KMZ nokta bilgilerini çıkar (hafif, düzen-agnostik).
     parse_dtl_line GLM transkripsiyon düzenine göre ayarlı; Indra'nın sütun
     sıralaması farklı geldiği için bu ayrı çıkarıcı kullanılır."""
-    s = joined
+    s = _normalize_ttype_tokens(joined)
     # İstasyon (km+metre)
     m_st = re.search(r"\b(\d{1,3})\+(\d{3})(?:[.,](\d{1,2}))?\b", s)
-    station_text = m_st.group(0) if m_st else ""
-    # Fonksiyon: T | KD | KT | N | D (istasyondan sonraki ilk uygun kısa token)
+    station_text = m_st.group(0).replace(",", ".") if m_st else ""
+    station_m: float | None = None
+    if m_st:
+        dec = f".{m_st.group(3)}" if m_st.group(3) else ""
+        station_m = round(int(m_st.group(1)) * 1000 + float(f"{m_st.group(2)}{dec}"), 2)
+    # Ara mesafe (span_m): istasyon öncesindeki sol bölgede 15..1100 m aralığındaki ilk ondalıklı sayı
+    span_m: float | None = None
+    left_zone = s[: m_st.start()] if m_st else s[:80]
+    for m_sp in re.finditer(r"\b(\d{2,3}[.,]\d{1,2})\b", left_zone):
+        v = float(m_sp.group(1).replace(",", "."))
+        if 15.0 <= v <= 1100.0:
+            span_m = round(v, 2)
+            break
+    # Fonksiyon: T | KD | KT | BD | N | D (istasyondan sonraki ilk uygun kısa token)
     func = ""
     func_pos = -1
-    if m_st:
-        m_f = re.search(r"\b(KD|KT|[TND])\b", s[m_st.end() :])
-        if m_f:
-            func = m_f.group(1).upper()
-            func_pos = m_st.end() + m_f.end()
-    # Direk tipi: fonksiyondan sonraki P ile başlayan kısa token (PBI→PB1 vb.)
+    search_start = m_st.end() if m_st else 0
+    m_f = re.search(r"\b(KD|KT|BD|[TND])\b", s[search_start:])
+    if m_f:
+        func = m_f.group(1).upper()
+        func_pos = search_start + m_f.end()
+    # Direk tipi: fonksiyondan sonraki direk tipi tokenı (PA1, PB1, 2FN1, 3PB1, CPFH vb.)
     ttype = ""
     if func and func_pos >= 0:
-        m_t = re.search(r"P[A-Za-z0-9\\)]{1,5}", s[func_pos:])
+        m_t = re.search(
+            r"\b(C?P[A-F][0-9Iil\]\):H]*(?:\([A-Za-z0-9]+\))?|[1-4]P[A-F][0-9Iil\]\):]*|2F[SN][0-9Iil\]\):]*)",
+            s[func_pos:],
+        )
         if m_t:
-            ttype = (
-                m_t.group(0)
+            raw_t = (
+                m_t.group(1)
+                .upper()
                 .replace("I", "1")
                 .replace(")", "1")
                 .replace("l", "1")
                 .replace("]", "1")
             )
+            ttype = re.sub(r"\([A-Z0-9]+\)$", "", raw_t)
     # Geçişler (bilinen anahtar sözcükler, tüm satırda aranır)
     CROSS_RE = re.compile(
-        r"(TOPRAK YOL|ASFALT YOL|O\.?\s?G\.?\s?HATTI|О\.?\s?G\.?\s?HATTI|DERE|KANAL|BATAKLIK|"
-        r"MEYVELIK|MEYVELİK|DOĞALGAZ|DSI KANAL|380 ?KV|BORU HATTI|KATOTIK)",
+        r"(TOPRAK YOL|ASFALT YOL|PLANLANAN[^|]+OTOYOLU|PLANLANAN[^|]+OTO YOLU|"
+        r"DEMİRYOLU(?:\s+KATENER)?|DEMIRYOLU(?:\s+KATENER)?|"
+        r"DOĞAL\s*GAZ(?:\s+BORU\s+HATTI)?|DOGAL\s*GAZ(?:\s+BORU\s+HATTI)?|"
+        r"O\.?\s?G\.?\s?HAT(?:TI)?|О\.?\s?G\.?\s?HAT(?:TI)?|A\.?\s?G\.?\s?HAT(?:TI)?|"
+        r"DERE|KANAL|BATAKLIK|MEYVELIK|MEYVELİK|DSI KANAL|(?:400|380|154)\s*KV[^|]*|BORU HATTI)",
         re.I,
     )
     crossings: list[str] = []
     for w in CROSS_RE.findall(s):
-        w = re.sub(r"\s+", " ", w).strip().upper()
+        w = normalize_crossing(w)
         if w and w not in crossings:
             crossings.append(w)
     return {
         "pole": pole,
+        "span_m": span_m,
         "tower_type": ttype,
         "function": func,
+        "station_m": station_m,
         "station_text": station_text,
         "easting": float(easting) if easting else None,
         "northing": float(northing) if northing else None,
@@ -1356,16 +1879,72 @@ def _indra_rows_from_page(
     """Indra sayfa JSON'undan satırları kutu (box) y-koordinatıyla gruplayıp
     soldan sağa birleştirir; metin mevcut parse'tan geçer. Belge sırası korunur.
     Döner: ([(y, cells)], zayıf_bantlar, dtl_satırlar, eksik_dtl_bantlar, zayıf_satırlar)."""
-    lines = [l for l in (page.get("lines") or []) if l.get("text", "").strip()]
+    raw_lines = [l for l in (page.get("lines") or []) if l.get("text", "").strip()]
+    if not raw_lines:
+        return [], [], [], [], []
+    # Tablo üst başlığı, alt imza bloğu ve tam genişlikli bölüm başlıklarını (GİRDİ/ÇIKTI/EİH) ayıkla
+    FOOTER_RE = re.compile(
+        r"(?i)(?:HAZIRLAYAN|KONTROL\s+EDEN|KONTORL\s+EDEN|AD\s+SOYAD|TÜRKIYE\s+ELEKTR|ILETIM\s+HATLAR|"
+        r"HEAD\s+OFFICE|TRANSMISSION\s+LINES|SURVEY\s+OFFICE|DIPLOMA\s+NO|ODA\s+SICIL|ETÜT\s+MÜDÜR)"
+    )
+    lines = [
+        l
+        for l in raw_lines
+        if not DTL_HEADER_PAT.search(l["text"]) and not FOOTER_RE.search(l["text"])
+    ]
     if not lines:
         return [], [], [], [], []
-    # Direk hücresini çapa alarak kümele: DTL'de direk kolonu sayfanın solunda
-    # (x<380) ve her direk yeni satır başlatır. Açıklama/ek satırları komşu
-    # satıra yaklaşsa bile çapalar kesin ayırır. Çapa yoksa boşluk kümelemesi.
+
+    # Çözünürlükten bağımsız (oransal) ölçek katsayısı:
+    # Düşük çözünürlüklü (ör. 1300-1800px genişlik) belgelerde sabit piksel eşikleri
+    # sol direk sütunu ile ARA MESAFE sütununu birbirine zincirlediği için tüm yatay
+    # eşikler sayfa genişliğine (referans 3312px) göre ölçeklenir.
+    page_w = max((float(l["box"][2]) for l in lines), default=3312.0)
+    sx = max(0.35, min(1.5, page_w / 3312.0))
+    left_limit = 380.0 * sx
+
     lines.sort(key=lambda l: float(l["box"][1]))
-    ANCHOR_RE = re.compile(r"^\s*-?\d{1,3}\.?\s*$|[Pp][A-Za-z]*\d*[A-Za-z]*|[Dd][A-Za-z]*[-.]?\d*")
-    anchors = [l for l in lines if float(l["box"][0]) < 380 and ANCHOR_RE.fullmatch(l["text"].strip())]
+    ANCHOR_RE = re.compile(
+        r"(?i)^\s*(?:portal\.?|(?:mev\.?\s*)?(?:pb|dp|dm|d)[.-]?\s*\d{1,3}|-?\d{1,3}(?:\s*\([a-z0-9]+\))?\.?)\s*$"
+    )
+    left_cands = [l for l in lines if float(l["box"][0]) < left_limit and ANCHOR_RE.fullmatch(l["text"].strip())]
+    left_xcl: list[list[dict]] = []
+    for l in sorted(left_cands, key=lambda l: float(l["box"][0])):
+        if (
+            left_xcl
+            and float(l["box"][0]) - float(left_xcl[-1][-1]["box"][0]) <= 18.0 * sx
+            and float(l["box"][0]) - float(left_xcl[-1][0]["box"][0]) <= 32.0 * sx
+        ):
+            left_xcl[-1].append(l)
+        else:
+            left_xcl.append([l])
+    left_col_clusters = [c for c in left_xcl if len(c) >= 2]
+    if left_col_clusters:
+        left_col = left_col_clusters[0]
+        left_max_x = max(float(l["box"][0]) for l in left_col) + 22.0 * sx
+        raw_anchors = [l for l in left_cands if float(l["box"][0]) <= left_max_x]
+    else:
+        left_max_x = left_limit
+        raw_anchors = left_cands
+
+    # Aynı satırda birden fazla sol aday varsa en soldakini tut (dikey eşik kutu yüksekliğine oransal)
+    med_box_h = (
+        float(np.median([float(l["box"][3]) - float(l["box"][1]) for l in raw_anchors]))
+        if raw_anchors
+        else 16.0 * sx
+    )
+    same_row_dy = max(4.5, min(10.0, med_box_h * 0.6))
+    anchors: list[dict] = []
+    for a in sorted(raw_anchors, key=lambda l: (float(l["box"][1]), float(l["box"][0]))):
+        ay = float(a["box"][1])
+        if anchors and abs(ay - float(anchors[-1]["box"][1])) <= same_row_dy:
+            if float(a["box"][0]) < float(anchors[-1]["box"][0]):
+                anchors[-1] = a
+        else:
+            anchors.append(a)
+
     anchor_is_mid: dict[int, bool] = {}
+    anchor_locked: dict[int, bool] = {}
     if len(anchors) >= 2:
         anchors.sort(key=lambda l: float(l["box"][1]))
         tops = [float(a["box"][1]) for a in anchors]
@@ -1374,92 +1953,193 @@ def _indra_rows_from_page(
             # Sol direk hücresi okunamayan satır komşu satıra yapışır (D-8 vakası:
             # easting/northing okunmuş ama sol direk no BOŞ). DTL'de direk no ikinci
             # kez orta D.NO sütununda yazılır; o sütunu SOL DİREK SÜTUNUYLA DEĞER
-            # UYUMUNDAN tanı (x>380'deki en soldaki küme rüzgar/açıklık sütunudur,
-            # yanıltır!) ve boşluklara çapa olarak ekle.
-            cands = [l for l in lines if float(l["box"][0]) >= 380 and ANCHOR_RE.fullmatch(l["text"].strip())]
+            # UYUMUNDAN tanı ve boşluklara çapa olarak ekle.
+            cands = [
+                l
+                for l in lines
+                if float(l["box"][0]) > left_max_x and ANCHOR_RE.fullmatch(l["text"].strip())
+            ]
             xcl: list[list[dict]] = []
             for l in sorted(cands, key=lambda l: float(l["box"][0])):
-                if xcl and float(l["box"][0]) - float(xcl[-1][-1]["box"][0]) <= 80:
+                if (
+                    xcl
+                    and float(l["box"][0]) - float(xcl[-1][-1]["box"][0]) <= 22.0 * sx
+                    and float(l["box"][0]) - float(xcl[-1][0]["box"][0]) <= 40.0 * sx
+                ):
                     xcl[-1].append(l)
                 else:
                     xcl.append([l])
-            left_nums = [(float(a["box"][1]), a["text"].strip()) for a in anchors
-                         if re.fullmatch(r"\d{1,3}", a["text"].strip())]
+            left_nums = [
+                (a, float(a["box"][1]), a["text"].strip().rstrip("."))
+                for a in anchors
+                if not re.match(r"(?i)^portal", a["text"].strip())
+            ]
+            agree_dy = max(5.5, min(12.0, med * 0.34))
             best_mid, best_agree = None, 0
             for c in xcl:
-                if len(c) < 5:
+                if len(c) < 3:
                     continue
                 agree = 0
-                for lt, txt in left_nums:
-                    if any(abs(float(l["box"][1]) - lt) <= 12 and l["text"].strip() == txt for l in c):
+                for _, lt, txt in left_nums:
+                    if any(abs(float(l["box"][1]) - lt) <= agree_dy and l["text"].strip().rstrip(".") == txt for l in c):
                         agree += 1
                 if agree > best_agree:
                     best_mid, best_agree = c, agree
             if best_mid is not None and best_agree >= 3:
+                for a, lt, txt in left_nums:
+                    if any(abs(float(l["box"][1]) - lt) <= agree_dy and l["text"].strip().rstrip(".") == txt for l in best_mid):
+                        anchor_locked[id(a)] = True
                 for m in best_mid:
                     mt = float(m["box"][1])
-                    if re.fullmatch(r"\d{1,3}", m["text"].strip()) and min(abs(mt - t) for t in tops) > med * 0.6:
+                    mtxt = m["text"].strip()
+                    if not re.match(r"(?i)^portal", mtxt) and min(abs(mt - t) for t in tops) > med * 0.58:
                         anchors.append(m)
                         anchor_is_mid[id(m)] = True
                 anchors.sort(key=lambda l: float(l["box"][1]))
                 tops = [float(a["box"][1]) for a in anchors]
-        clusters: list[list[dict]] = []
-        mids: list[bool] = []
-        for i, a in enumerate(tops):
-            b = tops[i + 1] if i + 1 < len(tops) else a + 120
-            clusters.append([l for l in lines if a - 6 <= float(l["box"][1]) < b - 6])
-            mids.append(anchor_is_mid.get(id(anchors[i]), False))
+
+            # Düşük çözünürlükte hem sol hem orta direk numarası silik çıkıp atlanmışsa,
+            # ardışık çapalar arasındaki >1.65*med boşluklarda koordinat/veri kutusu var mı kontrol et
+            # ve sanal çapa ekleyerek satırın komşu satıra yutulmasını önle.
+            med = float(np.median(np.diff(tops))) if len(tops) > 1 else med
+            synth_anchors: list[dict] = []
+            for k in range(len(anchors) - 1):
+                a_cur, a_nxt = anchors[k], anchors[k + 1]
+                t_cur, t_nxt = float(a_cur["box"][1]), float(a_nxt["box"][1])
+                gap = t_nxt - t_cur
+                if not (1.68 * med <= gap <= 4.4 * med):
+                    continue
+                p_cur_m = re.fullmatch(r"(\d{1,3})", a_cur["text"].strip().rstrip("."))
+                p_nxt_m = re.fullmatch(r"(\d{1,3})", a_nxt["text"].strip().rstrip("."))
+                if p_cur_m and p_nxt_m and 1 < int(p_nxt_m.group(1)) - int(p_cur_m.group(1)) <= 4:
+                    n_steps = int(p_nxt_m.group(1)) - int(p_cur_m.group(1))
+                    base_pole = int(p_cur_m.group(1))
+                else:
+                    n_steps = int(round(gap / med))
+                    base_pole = None
+                if n_steps < 2 or n_steps > 4:
+                    continue
+                h_cur = float(a_cur["box"][3]) - float(a_cur["box"][1])
+                for s_idx in range(1, n_steps):
+                    exp_top = t_cur + s_idx * (gap / n_steps)
+                    exp_cy = exp_top + 0.5 * h_cur
+                    band_items = [
+                        l
+                        for l in lines
+                        if abs(0.5 * (float(l["box"][1]) + float(l["box"][3])) - exp_cy) <= 0.36 * med
+                    ]
+                    has_coord_like = any(
+                        float(l["box"][0]) >= 0.55 * page_w
+                        and re.search(r"\d{5,7}", _normalize_coord_str(l["text"]))
+                        for l in band_items
+                    )
+                    if len(band_items) >= 3 and has_coord_like:
+                        y0_s = float(np.median([float(l["box"][1]) for l in band_items]))
+                        y1_s = float(np.median([float(l["box"][3]) for l in band_items]))
+                        pole_txt = str(base_pole + s_idx) if base_pole is not None else ""
+                        va = {
+                            "text": pole_txt,
+                            "box": [float(a_cur["box"][0]), y0_s, float(a_cur["box"][2]), y1_s],
+                            "conf": 0.75,
+                        }
+                        synth_anchors.append(va)
+                        if pole_txt:
+                            anchor_is_mid[id(va)] = True
+            if synth_anchors:
+                anchors.extend(synth_anchors)
+                anchors.sort(key=lambda l: float(l["box"][1]))
+                tops = [float(a["box"][1]) for a in anchors]
+                med = float(np.median(np.diff(tops))) if len(tops) > 1 else med
+
+        # Her metin kutusunu dikey merkezine (cy) en yakın çapa satırına ata;
+        # düşük çözünürlükte sabit 18px komşu satırı yuttuğu için eşik med ile oransaldır.
+        acys = [0.5 * (float(a["box"][1]) + float(a["box"][3])) for a in anchors]
+        max_dy = max(7.0, (med if med > 0 else 28.0 * sx) * 0.54)
+        clusters: list[list[dict]] = [[] for _ in anchors]
+        for l in lines:
+            lcy = 0.5 * (float(l["box"][1]) + float(l["box"][3]))
+            best_i = int(np.argmin([abs(lcy - acy) for acy in acys]))
+            if abs(lcy - acys[best_i]) <= max_dy:
+                clusters[best_i].append(l)
+        mids = [anchor_is_mid.get(id(a), False) for a in anchors]
+        locks = [anchor_locked.get(id(a), False) for a in anchors]
     else:
         clusters = []
+        row_gap_dy = max(7.0, 16.0 * sx)
         for l in lines:
             y = float(l["box"][1])
-            if clusters and y - float(clusters[-1][-1]["box"][1]) <= 16:
+            if clusters and y - float(clusters[-1][-1]["box"][1]) <= row_gap_dy:
                 clusters[-1].append(l)
             else:
                 clusters.append([l])
         mids = [False] * len(clusters)
+        locks = [False] * len(clusters)
     rows: list[tuple[int, list[dict]]] = []
     weak_ranges: list[tuple[int, int]] = []
     dtl_rows: list[dict] = []
     dtl_weak: list[tuple[int, int, str]] = []
     weak_rows: list[tuple[int, list[dict]]] = []
-    for i, (is_mid, items) in enumerate(zip(mids, clusters)):
-        items.sort(key=lambda l: float(l["box"][0]))
+    col_bucket_w = max(15.0, 42.0 * sx)
+    for i, (is_mid, is_locked, items) in enumerate(zip(mids, locks, clusters)):
+        if not items:
+            continue
+        # Aynı sütun içindeki çok satırlı hücreleri yukarıdan aşağıya, farklı sütunları soldan sağa sırala
+        items.sort(key=lambda l: (round(float(l["box"][0]) / col_bucket_w), float(l["box"][1])))
         joined = " | ".join(l["text"].strip() for l in items)
         parsed = parse_glm_line(joined)
         if parsed is None or _is_noise_line(parsed):
             continue
-        # Orta sütun çapası: sol direk hücresi yok — pole'u çapa metninden al
-        if is_mid:
-            parsed["pole"] = anchors[i]["text"].strip()
+        anchor_pole = anchors[i]["text"].strip().rstrip(".") if i < len(anchors) else ""
+        if is_mid or is_locked or (anchor_pole and re.match(r"(?i)^(?:d|dp|pb|dm)[.-]\d+", anchor_pole)):
+            parsed["pole"] = "PORTAL" if anchor_pole.upper() == "PORTAL" else anchor_pole
+        # Düşük çözünürlükte koordinatlardan biri 5 haneye düşmüşse (ör. 593058.47 -> 53058.47)
+        # ve sağ bölgede tek 6-7 haneli koordinat kalmışsa, 5 haneli adayı zayıf koordinat olarak kurtar
+        cds_raw = parsed.get("coords") or []
+        if len(cds_raw) == 1 and page_w > 0:
+            c0_v = _num(cds_raw[0])
+            right_txt = " | ".join(_normalize_coord_str(l["text"]) for l in items if float(l["box"][0]) >= 0.55 * page_w)
+            if c0_v is not None and c0_v >= 3_000_000:
+                m5 = re.search(r"\b(\d{5}\.\d{1,3})\b", right_txt)
+                if m5:
+                    parsed["coords"] = [m5.group(1), cds_raw[0]]
+                    parsed["weak"] = True
+            elif c0_v is not None and 100_000 <= c0_v <= 900_000:
+                m6 = re.search(r"\b([345]\d{5}\.\d{1,3})\b", right_txt)
+                if m6:
+                    parsed["coords"] = [cds_raw[0], m6.group(1)]
+                    parsed["weak"] = True
         cells = cells_from_parsed(parsed)
+        if cells and is_locked:
+            cells[0]["locked"] = True
         y0 = int(min(float(l["box"][1]) for l in items))
         y1 = int(max(float(l["box"][3]) for l in items))
         # İstasyon tuzağı: easting adayı sol bölgeden (istasyon sütunu) geliyorsa VE
         # sağdaki koordinat sütunlarında COORD_RE'nin kaçırdığı rakam benzeri hücre
         # varsa satırı zayıf say → GLM dolgusu gerçek easting'i okusun (D-65 sınıfı).
-        if len(cells) >= 3 and not parsed.get("weak"):
-            w = max((float(l["box"][2]) for l in lines), default=0.0)
-            if w > 0:
-                def _core(t: str) -> str:
-                    norm = _normalize_coord_str(t).strip()
-                    m = COORD_RE.search(norm)
-                    return m.group(0) if m else norm
+        e_core, n_core = "", ""
+        if len(cells) >= 3:
+            def _core(t: str) -> str:
+                norm = _normalize_coord_str(t).strip()
+                m = COORD_RE.search(norm)
+                return m.group(0) if m else norm
 
-                e_core = _core(cells[1]["text"])
-                n_core = _core(cells[2]["text"])
-                src_x = min(
-                    (float(l["box"][0]) for l in items if _core(l["text"]) == e_core),
-                    default=float("inf"),
-                )
-                right_missed = any(
-                    float(l["box"][0]) >= 0.6 * w
-                    and _core(l["text"]) not in (e_core, n_core)
-                    and re.search(r"\d{4,8}(?:[.,]\d{1,4})?", _normalize_coord_str(l["text"]))
-                    for l in items
-                )
-                if src_x < 0.45 * w and right_missed:
-                    parsed["weak"] = True
+            e_core = _core(cells[1]["text"])
+            n_core = _core(cells[2]["text"])
+            if not parsed.get("weak"):
+                w = max((float(l["box"][2]) for l in lines), default=0.0)
+                if w > 0:
+                    src_x = min(
+                        (float(l["box"][0]) for l in items if _core(l["text"]) == e_core),
+                        default=float("inf"),
+                    )
+                    right_missed = any(
+                        float(l["box"][0]) >= 0.6 * w
+                        and _core(l["text"]) not in (e_core, n_core)
+                        and re.search(r"\d{4,8}(?:[.,]\d{1,4})?", _normalize_coord_str(l["text"]))
+                        for l in items
+                    )
+                    if src_x < 0.45 * w and right_missed:
+                        parsed["weak"] = True
         # 27 sütunlu DTL analizi — KMZ nokta bilgileri (tip, fonksiyon, istasyon, geçiş)
         dtl = parse_dtl_line(joined)
         if not (dtl and dtl.get("pole")):
@@ -1471,10 +2151,17 @@ def _indra_rows_from_page(
                 cds[1] if len(cds) > 1 else None,
             )
         if dtl and dtl.get("pole"):
+            if is_locked or is_mid:
+                dtl["pole"] = parsed.get("pole") or dtl["pole"]
+            if is_locked:
+                dtl["pole_locked"] = True
+            dtl_idx = len(dtl_rows)
             dtl_rows.append(dtl)
-            # Direk özellikleri eksikse GLM ikinci geçişine gönder
-            if not (dtl.get("tower_type") and dtl.get("function") and dtl.get("station_text")):
-                dtl_weak.append((max(0, y0 - 4), y1 + 4, str(dtl.get("pole"))))
+            # Direk özellikleri eksikse GLM ikinci geçişine gönder (özel D.13/D.14 gibi istasyonsuz satırlar hariç)
+            has_core = bool(dtl.get("tower_type") and dtl.get("function"))
+            need_st = not re.match(r"(?i)^(?:d|dp|pb|dm)[.-]\d+", str(dtl.get("pole") or ""))
+            if not (has_core and (dtl.get("station_text") or not need_st)):
+                dtl_weak.append((max(0, y0 - 4), y1 + 4, f"{dtl_idx}:{dtl.get('pole')}"))
         if len(cells) < 3 or parsed.get("weak"):
             # Direk benzeri başlangıcı olan eksik/çift-northing satır → GLM dolgusu
             if parsed.get("pole") or re.search(r"^\d{1,3}\b", joined):
@@ -1486,7 +2173,12 @@ def _indra_rows_from_page(
                         c["conf"] = 0.4
                 weak_rows.append((y0, kept))
             continue
-        confs = [float(l.get("conf") or 0.0) for l in items if (l.get("conf") or 0) > 0]
+        coord_confs = [
+            float(l.get("conf") or 0.0)
+            for l in items
+            if (l.get("conf") or 0) > 0 and _core(l["text"]) in (e_core, n_core)
+        ]
+        confs = coord_confs or [float(l.get("conf") or 0.0) for l in items if (l.get("conf") or 0) > 0]
         avg = sum(confs) / len(confs) if confs else 0.0
         for c in cells[1:3]:
             c["conf"] = round(avg, 4) if avg >= 0.85 else 0.4
@@ -1496,26 +2188,29 @@ def _indra_rows_from_page(
 
 async def ocr_page_indra(
     original: np.ndarray,
+    deskew: bool = True,
 ) -> tuple[list[tuple[int, list[dict]]], list[tuple[int, int]], list[dict], list[tuple[int, int, str]], list[tuple[int, list[dict]]], int]:
     """Indra OCR: tam sayfayı CPU'da okur (genelde 2-6 sn).
     Döner: ([(y, cells)], zayıf_bantlar, dtl_satırlar, eksik_dtl_bantlar, zayıf_satırlar, ms)."""
     binp = await asyncio.to_thread(_indra_bin)
     if not binp:
-        log.warning("indra ikili dosyası bulunamadı → GLM yoluna düşülür")
+        log.warning("indra ikili dosyası bulunamadı → VLM yoluna düşülür")
         return [], [], [], [], [], 0
     t0 = time.time()
     tmp = ""
     try:
+        work_img = await asyncio.to_thread(deskew_for_ocr, original) if deskew else original
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
             tmp = f.name
-        bgr = cv2.cvtColor(original, cv2.COLOR_RGB2BGR)
+        bgr = cv2.cvtColor(work_img, cv2.COLOR_RGB2BGR)
         if not await asyncio.to_thread(cv2.imwrite, tmp, bgr):
             return [], [], [], [], [], 0
 
         def _run() -> subprocess.CompletedProcess:
+            env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
             return subprocess.run(
                 [binp, tmp, "--format", "json", "--mode", "ocr", "--cores", str(INDRA_CORES)],
-                capture_output=True, text=True, timeout=600,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, timeout=600,
             )
 
         proc = await asyncio.to_thread(_run)
@@ -1591,12 +2286,12 @@ async def ocr_page_glm(
     dtl_by_idx: dict[int, dict] = {}
     band_reads = 0
 
-    # 1. Geçiş: tam genişlikli şeridi "Text Recognition:" ile oku (hem tüm DTL sütunları hem koordinatlar çıkar)
+    # 1. Geçiş: tam genişlikli şeridi VLM ile oku (hem tüm DTL sütunları hem koordinatlar çıkar)
     for idx, (y0, y1) in enumerate(plan):
         if request is not None and await request.is_disconnected():
             raise RuntimeError("İstemci bağlantıyı kapattı")
         full_band = compose_full_band(prep.gray[y0:y1, :])
-        line = await glm_read([encode_b64(full_band, max_w=3400, fmt=".png")], "Text Recognition:", 160)
+        line = await glm_read([encode_b64(full_band, max_w=3400, fmt=".png")], BAND_TEXT_PROMPT, 160)
         band_reads += 1
         dtl = parse_dtl_line(line or "")
         if dtl is not None:
@@ -1632,7 +2327,7 @@ async def ocr_page_glm(
                 band_reads += 1
                 p2 = parse_glm_line(line2 or "")
                 if p2 is None or p2.get("weak"):
-                    line2b = await glm_read([b64_narrow], "Text Recognition:", 96)
+                    line2b = await glm_read([b64_narrow], BAND_TEXT_PROMPT, 96)
                     band_reads += 1
                     p2b = parse_glm_line(line2b or "")
                     if p2b is not None and not p2b.get("weak"):
@@ -1670,7 +2365,8 @@ async def ocr_page_glm(
     if len(rows) < sum(1 for r in page_rows if len(r) >= 3):
         log.info("bant okuması sayfadan kötü (%d < %d) → sayfa sonucu korundu", len(rows), len(page_rows))
         rows = page_rows
-    return _finalize_rows(rows), finalize_dtl_rows(dtl_rows), header_info, len(bands), band_reads
+    final_page_dtl = finalize_dtl_rows(dtl_rows)
+    return _finalize_rows(rows, final_page_dtl), final_page_dtl, header_info, len(bands), band_reads
 
 
 # ---------- Uç noktalar ----------
@@ -1832,7 +2528,7 @@ async def ocr_document(request: Request, file: UploadFile, rotate: str = "auto")
     if not images:
         log.warning("görüntü bulunamadı: %s", file.filename)
         return JSONResponse(status_code=400, content={"error": "Görüntü bulunamadı"})
-    log.info("sayfalar: %d (%dx%d) — akıllı OCR (glm-ocr)", len(images), images[0].shape[1], images[0].shape[0])
+    log.info("sayfalar: %d (%dx%d) — akıllı OCR (%s)", len(images), images[0].shape[1], images[0].shape[0], VISION_MODEL)
 
     async with _ocr_lock:
         out_pages = []
@@ -1845,16 +2541,17 @@ async def ocr_document(request: Request, file: UploadFile, rotate: str = "auto")
                 return JSONResponse(status_code=499, content={"error": "İstemci bağlantıyı kapattı"})
             try:
                 if rot_arg in ("0", "90", "180", "270"):
-                    original = await asyncio.to_thread(rotate_page_orthogonal, raw_page, int(rot_arg))
+                    oriented = await asyncio.to_thread(rotate_page_orthogonal, raw_page, int(rot_arg))
                 else:
-                    original = await asyncio.to_thread(auto_orient_page, raw_page)
+                    oriented = await asyncio.to_thread(auto_orient_page, raw_page)
+                original = await asyncio.to_thread(deskew_for_ocr, oriented)
                 need_hdr = page_idx == 0 or not dtl_header.get("line_name")
                 indra_rows, indra_weak, indra_dtl, indra_dtl_weak, indra_weak_rows, indra_ms = (
-                    await ocr_page_indra(original)
+                    await ocr_page_indra(original, deskew=False)
                 ) if INDRA_ENABLED else ([], [], [], [], [], 0)
                 indra_valid = sum(1 for _, r in indra_rows if len(r) >= 3)
                 if indra_valid >= INDRA_MIN_ROWS:
-                    # GLM dolgusu: Indra'nın eksik bıraktığı bantları tek tek okut
+                    # VLM dolgusu: Indra'nın eksik bıraktığı bantları tek tek okut
                     filled_y: set[int] = set()
                     for fy0, fy1 in indra_weak[:8]:
                         try:
@@ -1876,14 +2573,22 @@ async def ocr_document(request: Request, file: UploadFile, rotate: str = "auto")
                     for fy0, wr in indra_weak_rows:
                         if fy0 not in filled_y and len(wr) >= 3:
                             indra_rows.append((fy0, wr))
-                    # GLM ikinci geçiş: direk özellikleri eksik satırları tam genişlikte okut
+                    # VLM ikinci geçiş: direk özellikleri eksik satırları tam genişlikte okut
                     for gy0, gy1, gpole in indra_dtl_weak[:12]:
                         try:
                             band_img = cv2.cvtColor(original[gy0:gy1], cv2.COLOR_RGB2GRAY)
                             fullb = await asyncio.to_thread(compose_full_band, band_img)
-                            line = await glm_read([encode_b64(fullb, max_w=3400, fmt=".png")], "Text Recognition:", 160)
+                            line = await glm_read([encode_b64(fullb, max_w=3400, fmt=".png")], BAND_TEXT_PROMPT, 160)
                             gdtl = parse_dtl_line(line or "")
                             if not gdtl:
+                                continue
+                            if ":" in gpole and gpole.split(":", 1)[0].isdigit():
+                                d_idx = int(gpole.split(":", 1)[0])
+                                if 0 <= d_idx < len(indra_dtl):
+                                    d = indra_dtl[d_idx]
+                                    for k in ("tower_type", "function", "station_text", "crossing", "remarks"):
+                                        if not d.get(k) and gdtl.get(k):
+                                            d[k] = gdtl[k]
                                 continue
                             key = re.sub(r"\(.*\)", "", gpole).strip()
                             for d in indra_dtl:
@@ -1895,8 +2600,8 @@ async def ocr_document(request: Request, file: UploadFile, rotate: str = "auto")
                         except Exception:
                             continue
                     indra_rows.sort(key=lambda t: t[0])
-                    rows = _finalize_rows([cells for _, cells in indra_rows])
                     page_dtl_rows = finalize_dtl_rows(indra_dtl)
+                    rows = _finalize_rows([cells for _, cells in indra_rows], page_dtl_rows)
                     hdr = {}
                     band_count, band_reads = 0, 0
                     log.info(

@@ -1,4 +1,38 @@
 const TOKEN_KEY = 'ptyp_token';
+const SERVER_URL_KEY = 'ptyp_server_url';
+
+export function getApiBaseUrl() {
+  try {
+    const saved = (localStorage.getItem(SERVER_URL_KEY) || '').trim().replace(/\/$/, '');
+    if (saved) return saved;
+  } catch {
+    /* yok say */
+  }
+  const envUrl = (import.meta.env?.VITE_API_BASE_URL || '').trim().replace(/\/$/, '');
+  if (envUrl) return envUrl;
+  // Capacitor / Cordova native WebView içinde çalışıyorsa varsayılan canlı sunucu adresi
+  if (typeof window !== 'undefined' && (window.Capacitor || window.location.protocol === 'capacitor:')) {
+    return 'https://turguz.app';
+  }
+  return '';
+}
+
+export function setApiBaseUrl(url) {
+  try {
+    const clean = (url || '').trim().replace(/\/$/, '');
+    if (clean) localStorage.setItem(SERVER_URL_KEY, clean);
+    else localStorage.removeItem(SERVER_URL_KEY);
+  } catch {
+    /* yok say */
+  }
+}
+
+export function apiUrl(path) {
+  if (!path || /^https?:\/\//i.test(path)) return path;
+  const base = getApiBaseUrl();
+  if (!base) return path;
+  return `${base}${path.startsWith('/') ? path : '/' + path}`;
+}
 
 export function getToken() {
   try {
@@ -39,7 +73,7 @@ async function readError(res, fallback) {
 async function request(path, options = {}) {
   const token = getToken();
   const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData;
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     ...options,
     headers: {
       ...(isForm ? {} : { 'Content-Type': 'application/json' }),
@@ -79,7 +113,7 @@ async function triggerBlobDownload(res, filename) {
 // Excel/ikili dosya indirme (GET + Bearer token)
 export async function apiDownload(path, filename) {
   const token = getToken();
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     headers: token ? { Authorization: 'Bearer ' + token } : {},
   });
   await triggerBlobDownload(res, filename);
@@ -88,7 +122,7 @@ export async function apiDownload(path, filename) {
 // Gövdeli ikili dosya indirme (POST JSON + Bearer token)
 export async function apiPostDownload(path, body, filename) {
   const token = getToken();
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

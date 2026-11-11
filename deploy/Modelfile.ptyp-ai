@@ -1,9 +1,18 @@
+# PTYP Vision-Language (VL) OCR Modeli (ollama create ptyp-ai -f Modelfile.ptyp-ai)
+# Not: Qwen/Qwen3.8-Flash-Next dogustan multimodal (VL) mimaridedir (ayri "-VL" repo eki yoktur;
+# GGUF icinde mmproj-F16.gguf ile gorsel okur). Ancak 177B (125B MoE + 51B N-gram) toplam parametresi
+# nedeniyle Q4 GGUF boyutu ~97 GB'dir. 10 vCPU / 10 GB RAM sunucuda RAM'e sigan ayni nesil Qwen VL
+# GGUF + mmproj ikilisi asagida tanimlidir (yuksek RAM'li sunucuda Qwen3.8-Flash-Next GGUF satiri acilabilir):
+# FROM /home/turguz/models/Qwen3.8-Flash-Next-UD-Q4_K_XL.gguf
 FROM /home/turguz/models/Qwen3.5-4B-UD-Q4_K_XL.gguf
 FROM /home/turguz/models/mmproj-F16.gguf
 
 PARAMETER num_ctx 4096
-PARAMETER num_predict 48
-PARAMETER temperature 0.1
+PARAMETER num_predict 512
+PARAMETER num_thread 10
+PARAMETER temperature 0.0
+PARAMETER top_k 1
+PARAMETER repeat_penalty 1.05
 
 TEMPLATE """{{ if .System }}<|im_start|>system
 {{ .System }}<|im_end|>

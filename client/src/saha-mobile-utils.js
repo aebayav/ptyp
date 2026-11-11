@@ -307,7 +307,7 @@ export async function getCachedProjectSahaData(projectId) {
 
 export async function enqueueOfflineSubmission(entry) {
   const db = await openOfflineDb();
-  return new Promise((resolve, reject) => {
+  const id = await new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_QUEUE, 'readwrite');
     const req = tx.objectStore(STORE_QUEUE).add({
       ...entry,
@@ -316,6 +316,18 @@ export async function enqueueOfflineSubmission(entry) {
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+  // Tarayıcı Background Sync API destekliyorsa şebeke geldiğinde arka planda tetikle
+  try {
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg && 'sync' in reg) {
+        await reg.sync.register('ptyp-saha-sync');
+      }
+    }
+  } catch {
+    /* Background Sync desteklenmiyorsa window online dinleyicisi devreye girer */
+  }
+  return id;
 }
 
 export async function listOfflineSubmissions(projectId = null) {

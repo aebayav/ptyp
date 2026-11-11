@@ -1,0 +1,13 @@
+{
+  "appId": "app.turguz.ptyp",
+  "appName": "PTYP Saha",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": [
+      "turguz.app",
+      "*.turguz.app"
+    ]
+  }
+}

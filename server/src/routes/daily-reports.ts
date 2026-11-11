@@ -5,8 +5,8 @@ import { toDateOrNull } from '../dates';
 
 const router = Router();
 
-// Yalnızca iş sahibine açık
-router.use(requireAuth as any, requireRole('owner') as any);
+// İş sahibi ve saha ekibine açık (silme işlemi yalnızca iş sahibine açık)
+router.use(requireAuth as any, requireRole('owner', 'field') as any);
 
 const VALID_WEATHER = ['', 'acik', 'bulutlu', 'yagmurlu', 'firtina', 'kar', 'sisli'];
 const VALID_CREW_ROLES = ['muhendis', 'tekniker', 'usta', 'isci', 'taseron', 'diger'];
@@ -172,8 +172,8 @@ router.put('/:id', async (req: AuthedRequest, res: Response) => {
   }
 });
 
-// Delete report
-router.delete('/:id', async (req: Request, res: Response) => {
+// Delete report (yalnızca iş sahibi silebilir)
+router.delete('/:id', requireRole('owner') as any, async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   const r = await pool.query('DELETE FROM daily_reports WHERE id = $1', [id]);
   if (r.rowCount === 0) return res.status(404).json({ error: 'Rapor bulunamadı.' });

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api';
+import { api, getApiBaseUrl, setApiBaseUrl } from '../api';
 import { useAuth } from '../AuthContext';
 
 export default function Login() {
@@ -10,6 +10,8 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [showServerCfg, setShowServerCfg] = useState(false);
+  const [serverUrl, setServerUrl] = useState(() => getApiBaseUrl());
 
   async function submit(e) {
     e.preventDefault();
@@ -65,7 +67,41 @@ export default function Login() {
             {busy ? 'Giriş yapılıyor…' : 'Giriş Yap'}
           </button>
         </form>
-        <p className="auth-note">İş sahibi ve satıcı hesapları aynı portaldan giriş yapar</p>
+        <p className="auth-note">
+          İş sahibi, saha ekibi ve satıcı hesapları aynı portaldan giriş yapar ·{' '}
+          <button
+            type="button"
+            onClick={() => setShowServerCfg((v) => !v)}
+            style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: 12, textDecoration: 'underline' }}
+          >
+            Sunucu Ayarı
+          </button>
+        </p>
+        {showServerCfg && (
+          <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: 'var(--soft-bg)', border: '1px solid var(--border)' }}>
+            <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, marginBottom: 4 }}>
+              Sunucu Adresi (Mobil APK / Uzak Bağlantı için)
+            </label>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                value={serverUrl}
+                onChange={(e) => setServerUrl(e.target.value)}
+                placeholder="https://turguz.app (boş = aynı sunucu)"
+                style={{ flex: 1, fontSize: 12.5, padding: '6px 8px' }}
+              />
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => {
+                  setApiBaseUrl(serverUrl);
+                  setShowServerCfg(false);
+                }}
+              >
+                Kaydet
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

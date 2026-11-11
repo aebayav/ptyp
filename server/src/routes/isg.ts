@@ -6,7 +6,7 @@ import { requireAuth, requireRole, AuthedRequest } from '../auth';
 import { toDateOrNull } from '../dates';
 
 const router = Router();
-router.use(requireAuth, requireRole('owner'));
+router.use(requireAuth, requireRole('owner', 'field'));
 
 const INCIDENT_TYPES = ['ramak_kala', 'kaza'];
 const SEVERITIES = ['hafif', 'orta', 'agir'];
@@ -60,7 +60,7 @@ router.post('/trainings', async (req: Request, res: Response) => {
   res.status(201).json(rows[0]);
 });
 
-router.delete('/trainings/:id', async (req: Request, res: Response) => {
+router.delete('/trainings/:id', requireRole('owner'), async (req: Request, res: Response) => {
   const r = await pool.query('DELETE FROM safety_trainings WHERE id = $1', [Number(req.params.id)]);
   if ((r.rowCount ?? 0) === 0) return res.status(404).json({ error: 'Kayıt bulunamadı.' });
   res.status(204).end();
@@ -95,7 +95,7 @@ router.post('/incidents', async (req: Request, res: Response) => {
   res.status(201).json(rows[0]);
 });
 
-router.delete('/incidents/:id', async (req: Request, res: Response) => {
+router.delete('/incidents/:id', requireRole('owner'), async (req: Request, res: Response) => {
   const r = await pool.query('DELETE FROM safety_incidents WHERE id = $1', [Number(req.params.id)]);
   if ((r.rowCount ?? 0) === 0) return res.status(404).json({ error: 'Kayıt bulunamadı.' });
   res.status(204).end();
@@ -124,7 +124,7 @@ router.post('/certifications', async (req: Request, res: Response) => {
   res.status(201).json(rows[0]);
 });
 
-router.delete('/certifications/:id', async (req: Request, res: Response) => {
+router.delete('/certifications/:id', requireRole('owner'), async (req: Request, res: Response) => {
   const r = await pool.query('DELETE FROM certifications WHERE id = $1', [Number(req.params.id)]);
   if ((r.rowCount ?? 0) === 0) return res.status(404).json({ error: 'Kayıt bulunamadı.' });
   res.status(204).end();

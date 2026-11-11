@@ -717,10 +717,20 @@ router.post('/from-rows', async (req: Request, res: Response, next: NextFunction
         let changed = false;
         for (const p of poles) {
           if (!p.meta) continue;
-          const key = cleanPoleKey(String(p.name || ''));
-          const row = dtlRows.find((r) => cleanPoleKey(String(r.pole || '')) === key);
-          if (!row) continue;
           const m = p.meta as Record<string, unknown>;
+          const pe = m.easting != null ? Number(m.easting) : null;
+          const pn = m.northing != null ? Number(m.northing) : null;
+          const key = cleanPoleKey(String(p.name || ''));
+          const row =
+            (pe != null && pn != null
+              ? dtlRows.find(
+                  (r) =>
+                    r.easting != null &&
+                    r.northing != null &&
+                    Math.hypot(Number(r.easting) - pe, Number(r.northing) - pn) < 2.5
+                )
+              : undefined) || dtlRows.find((r) => cleanPoleKey(String(r.pole || '')) === key);
+          if (!row) continue;
           if (m.tower_type && String(m.tower_type).trim()) {
             row.tower_type = String(m.tower_type).trim().toUpperCase();
             changed = true;
@@ -782,23 +792,35 @@ router.post('/save-dtl', async (req: Request, res: Response, next: NextFunction)
     // OCR bozulmalarını düzelt (PFT→PF1 gibi)
     normalizeDtlRowTypes(incoming);
 
-    // Direk anahtarına göre birleştir: aynı direk iki dosyada tekrarlanmışsa bir kez sayılır;
-    // sunucuda zenginleştirilmiş satır korunur, eksik alanları gelenle tamamlanır.
+    // Direk anahtarı + koordinat yakınlığına göre birleştir: çok-bölümlü DTL'lerde (ör. GİRDİ/ÇIKTI)
+    // farklı koordinatlardaki aynı numaralı direkler korunur; yalnız aynı konumdaki tekrarlar birleştirilir.
     const stored = await pool.query('SELECT rows FROM project_dtl WHERE project_id = $1', [projectId]);
     const existing: DtlRow[] = Array.isArray(stored.rows[0]?.rows) ? stored.rows[0].rows : [];
+    const rowUniqueKey = (r: DtlRow) => {
+      const k = cleanPoleKey(String((r as any).pole || ''));
+      if (!k) return '';
+      const e = r.easting != null ? Number(r.easting) : NaN;
+      const n = r.northing != null ? Number(r.northing) : NaN;
+      return Number.isFinite(e) && Number.isFinite(n) ? `${k}@${Math.round(e / 5)}:${Math.round(n / 5)}` : k;
+    };
     const byKey = new Map<string, DtlRow>();
-    for (const r of existing) byKey.set(cleanPoleKey(String(r.pole || '')), r);
+    for (const r of existing) {
+      const uk = rowUniqueKey(r);
+      if (uk) byKey.set(uk, r);
+      const pk = cleanPoleKey(String(r.pole || ''));
+      if (pk && !byKey.has(pk)) byKey.set(pk, r);
+    }
     const seen = new Set<string>();
     const merged: DtlRow[] = [];
     for (const r of incoming) {
-      const key = cleanPoleKey(String((r as any).pole || ''));
-      if (!key) {
+      const uk = rowUniqueKey(r);
+      if (!uk) {
         merged.push(r);
         continue;
       }
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const prev = byKey.get(key);
+      if (seen.has(uk)) continue;
+      seen.add(uk);
+      const prev = byKey.get(uk);
       if (prev) {
         if (!prev.tower_type && (r as any).tower_type) prev.tower_type = (r as any).tower_type;
         if (!prev.function && (r as any).function) prev.function = (r as any).function;

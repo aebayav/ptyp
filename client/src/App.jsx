@@ -44,9 +44,10 @@ function useTheme() {
   return [theme, () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))];
 }
 
-function Sidebar() {
+function Sidebar({ menuOpen, setMenuOpen }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const isOwner = user.role === 'owner';
   const isField = user.role === 'field';
   const [theme, toggleTheme] = useTheme();
@@ -55,6 +56,10 @@ function Sidebar() {
   const [newPw, setNewPw] = useState('');
   const [pwMsg, setPwMsg] = useState(null);
   const [pwBusy, setPwBusy] = useState(false);
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname, setMenuOpen]);
 
   async function submitPw(e) {
     e.preventDefault();
@@ -73,167 +78,222 @@ function Sidebar() {
   }
 
   return (
-    <aside className="sidebar">
-      <div className="brand">
-        <div className="brand-text">
-          <h1>PTYP</h1>
-          <p>Proje Yönetim Sistemi</p>
+    <>
+      <header className="mobile-topbar">
+        <button
+          type="button"
+          className="mobile-menu-btn"
+          onClick={() => setMenuOpen((v) => !v)}
+          aria-label="Menüyü Aç/Kapat"
+        >
+          {menuOpen ? '✕' : '☰'}
+        </button>
+        <div className="mobile-topbar-brand">
+          <strong>PTYP</strong>
+          <span>{isOwner ? 'İş Sahibi' : isField ? 'Saha Ekibi' : 'Tedarikçi'}</span>
         </div>
-      </div>
-      <nav>
-        {isOwner ? (
-          <>
-            <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>
-              Genel Bakış
-            </NavLink>
+        <div className="mobile-topbar-actions">
+          <button
+            type="button"
+            className="mobile-icon-btn"
+            onClick={toggleTheme}
+            title={theme === 'dark' ? 'Aydınlık Tema' : 'Karanlık Tema'}
+          >
+            {theme === 'dark' ? '☀️' : '🌙'}
+          </button>
+          <button
+            type="button"
+            className="mobile-icon-btn"
+            onClick={() => {
+              logout();
+              navigate('/login');
+            }}
+            title="Çıkış Yap"
+          >
+            Çıkış
+          </button>
+        </div>
+      </header>
 
-            <div className="nav-group">TEDARİK</div>
-            <NavLink to="/malzemeler" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Malzeme Listesi
-            </NavLink>
-            <NavLink to="/depo" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Depo &amp; Stok
-            </NavLink>
-            <NavLink to="/saticilar" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Satıcılar
-            </NavLink>
-            <NavLink to="/teklifler" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Teklif &amp; Karşılaştırma
-            </NavLink>
+      {menuOpen && <div className="sidebar-backdrop" onClick={() => setMenuOpen(false)} />}
 
-            <div className="nav-group">PROJE</div>
-            <NavLink to="/is-takibi" className={({ isActive }) => (isActive ? 'active' : '')}>
-              İş Takibi &amp; Güzergah
-            </NavLink>
-            <NavLink to="/kamulastirma" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Kamulaştırma
-            </NavLink>
-            <NavLink to="/planlama" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Plan &amp; Gerçekleşme
-            </NavLink>
-            <NavLink to="/hakedisler" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Hakediş Yönetimi
-            </NavLink>
-            <NavLink to="/fiyat-farki" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Fiyat Farkı
-            </NavLink>
-            <NavLink to="/kesif" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Keşif
-            </NavLink>
-            <NavLink to="/saha" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Saha
-            </NavLink>
-            <NavLink to="/gunluk-raporlar" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Günlük Raporlar
-            </NavLink>
-            <NavLink to="/isg" className={({ isActive }) => (isActive ? 'active' : '')}>
-              İSG
-            </NavLink>
-            <NavLink to="/belge-kmz" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Belge → KMZ
-            </NavLink>
-
-            <div className="nav-group">YÖNETİM</div>
-            <NavLink to="/kullanicilar" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Kullanıcılar
-            </NavLink>
-
-            <NavLink to="/dokumanlar" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Dokümanlar
-            </NavLink>
-          </>
-        ) : isField ? (
-          <>
-            <div className="nav-group">SAHA</div>
-            <NavLink to="/saha" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Saha
-            </NavLink>
-          </>
-        ) : (
-          <>
-            <div className="nav-group">TEDARİKÇİ PORTALI</div>
-            <NavLink to="/malzemeler" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Açık Malzemeler
-            </NavLink>
-            <NavLink to="/tekliflerim" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Tekliflerim
-            </NavLink>
-          </>
-        )}
-      </nav>
-      <div className="sidebar-foot">
-        <div className="sidebar-user">
-          <div>
-            <div className="user-name">{user.display_name || user.username}</div>
-            <div className="user-role">{isOwner ? 'İş Sahibi' : isField ? 'Saha Ekibi' : 'Satıcı'}</div>
+      <aside className={`sidebar ${menuOpen ? 'open' : ''}`}>
+        <div className="brand">
+          <div className="brand-text">
+            <h1>PTYP</h1>
+            <p>Proje Yönetim Sistemi</p>
           </div>
+          <button
+            type="button"
+            className="sidebar-close-btn"
+            onClick={() => setMenuOpen(false)}
+            aria-label="Menüyü Kapat"
+          >
+            ✕
+          </button>
         </div>
-        <button className="theme-toggle" onClick={toggleTheme}>
-          {theme === 'dark' ? 'Aydınlık Tema' : 'Karanlık Tema'}
-        </button>
-        <button
-          className="theme-toggle"
-          onClick={() => {
-            setOldPw('');
-            setNewPw('');
-            setPwMsg(null);
-            setPwOpen(true);
-          }}
-        >
-          Şifre Değiştir
-        </button>
-        <button
-          className="logout-btn"
-          onClick={() => {
-            logout();
-            navigate('/login');
-          }}
-        >
-          Çıkış Yap
-        </button>
-      </div>
-      {pwOpen && (
-        <Modal title="Şifre Değiştir" onClose={() => setPwOpen(false)}>
-          <form onSubmit={submitPw}>
-            {pwMsg && <div className="form-error">{pwMsg}</div>}
-            <div className="field">
-              <label>Mevcut Şifre *</label>
-              <input
-                type="password"
-                value={oldPw}
-                onChange={(e) => setOldPw(e.target.value)}
-                required
-                autoFocus
-              />
+        <nav>
+          {isOwner ? (
+            <>
+              <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>
+                Genel Bakış
+              </NavLink>
+
+              <div className="nav-group">TEDARİK</div>
+              <NavLink to="/malzemeler" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Malzeme Listesi
+              </NavLink>
+              <NavLink to="/depo" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Depo &amp; Stok
+              </NavLink>
+              <NavLink to="/saticilar" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Satıcılar
+              </NavLink>
+              <NavLink to="/teklifler" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Teklif &amp; Karşılaştırma
+              </NavLink>
+
+              <div className="nav-group">PROJE</div>
+              <NavLink to="/is-takibi" className={({ isActive }) => (isActive ? 'active' : '')}>
+                İş Takibi &amp; Güzergah
+              </NavLink>
+              <NavLink to="/kamulastirma" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Kamulaştırma
+              </NavLink>
+              <NavLink to="/planlama" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Plan &amp; Gerçekleşme
+              </NavLink>
+              <NavLink to="/hakedisler" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Hakediş Yönetimi
+              </NavLink>
+              <NavLink to="/fiyat-farki" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Fiyat Farkı
+              </NavLink>
+              <NavLink to="/kesif" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Keşif
+              </NavLink>
+              <NavLink to="/saha" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Saha
+              </NavLink>
+              <NavLink to="/gunluk-raporlar" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Günlük Raporlar
+              </NavLink>
+              <NavLink to="/isg" className={({ isActive }) => (isActive ? 'active' : '')}>
+                İSG
+              </NavLink>
+              <NavLink to="/belge-kmz" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Belge → KMZ
+              </NavLink>
+
+              <div className="nav-group">YÖNETİM</div>
+              <NavLink to="/kullanicilar" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Kullanıcılar
+              </NavLink>
+
+              <NavLink to="/dokumanlar" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Dokümanlar
+              </NavLink>
+            </>
+          ) : isField ? (
+            <>
+              <div className="nav-group">SAHA OPERASYON</div>
+              <NavLink to="/saha" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Saha &amp; Direk Takibi
+              </NavLink>
+              <NavLink to="/gunluk-raporlar" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Günlük Raporlar
+              </NavLink>
+              <NavLink to="/isg" className={({ isActive }) => (isActive ? 'active' : '')}>
+                İSG &amp; Toolbox
+              </NavLink>
+            </>
+          ) : (
+            <>
+              <div className="nav-group">TEDARİKÇİ PORTALI</div>
+              <NavLink to="/malzemeler" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Açık Malzemeler
+              </NavLink>
+              <NavLink to="/tekliflerim" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Tekliflerim
+              </NavLink>
+            </>
+          )}
+        </nav>
+        <div className="sidebar-foot">
+          <div className="sidebar-user">
+            <div>
+              <div className="user-name">{user.display_name || user.username}</div>
+              <div className="user-role">{isOwner ? 'İş Sahibi' : isField ? 'Saha Ekibi' : 'Satıcı'}</div>
             </div>
-            <div className="field">
-              <label>Yeni Şifre (en az 6 karakter) *</label>
-              <input
-                type="password"
-                minLength={6}
-                value={newPw}
-                onChange={(e) => setNewPw(e.target.value)}
-                required
-              />
-            </div>
-            <div className="modal-actions">
-              <button type="button" className="btn" onClick={() => setPwOpen(false)}>
-                Vazgeç
-              </button>
-              <button type="submit" className="btn btn-primary" disabled={pwBusy}>
-                {pwBusy ? 'Kaydediliyor…' : 'Güncelle'}
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
-    </aside>
+          </div>
+          <button className="theme-toggle" onClick={toggleTheme}>
+            {theme === 'dark' ? 'Aydınlık Tema' : 'Karanlık Tema'}
+          </button>
+          <button
+            className="theme-toggle"
+            onClick={() => {
+              setOldPw('');
+              setNewPw('');
+              setPwMsg(null);
+              setPwOpen(true);
+            }}
+          >
+            Şifre Değiştir
+          </button>
+          <button
+            className="logout-btn"
+            onClick={() => {
+              logout();
+              navigate('/login');
+            }}
+          >
+            Çıkış Yap
+          </button>
+        </div>
+        {pwOpen && (
+          <Modal title="Şifre Değiştir" onClose={() => setPwOpen(false)}>
+            <form onSubmit={submitPw}>
+              {pwMsg && <div className="form-error">{pwMsg}</div>}
+              <div className="field">
+                <label>Mevcut Şifre *</label>
+                <input
+                  type="password"
+                  value={oldPw}
+                  onChange={(e) => setOldPw(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="field">
+                <label>Yeni Şifre (en az 6 karakter) *</label>
+                <input
+                  type="password"
+                  minLength={6}
+                  value={newPw}
+                  onChange={(e) => setNewPw(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn" onClick={() => setPwOpen(false)}>
+                  Vazgeç
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={pwBusy}>
+                  {pwBusy ? 'Kaydediliyor…' : 'Güncelle'}
+                </button>
+              </div>
+            </form>
+          </Modal>
+        )}
+      </aside>
+    </>
   );
 }
 
 function Shell() {
   const { user, ready } = useAuth();
   const location = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   if (!ready) return <div className="loading-screen">Yükleniyor…</div>;
 
@@ -269,7 +329,7 @@ function Shell() {
 
   return (
     <div className={isLogin || isPublic ? 'layout-login' : 'layout'}>
-      {!isLogin && !isPublic && <Sidebar />}
+      {!isLogin && !isPublic && <Sidebar menuOpen={menuOpen} setMenuOpen={setMenuOpen} />}
       <main className={isLogin || isPublic ? 'main-login' : 'main'}>
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -301,6 +361,8 @@ function Shell() {
             <>
               <Route path="/saha" element={<Saha />} />
               <Route path="/saha/direk/:proje/:direk" element={<Saha />} />
+              <Route path="/gunluk-raporlar" element={<DailyReports />} />
+              <Route path="/isg" element={<Isg />} />
               <Route path="*" element={<Navigate to="/saha" replace />} />
             </>
           ) : (
@@ -313,6 +375,43 @@ function Shell() {
           )}
         </Routes>
       </main>
+      {!isLogin && !isPublic && user && (user.role === 'field' || user.role === 'owner') && (
+        <nav className="mobile-bottom-nav" aria-label="Mobil Hızlı Menü">
+          {user.role === 'owner' && (
+            <NavLink to="/" end className={({ isActive }) => (isActive ? 'mb-item active' : 'mb-item')}>
+              <span className="mb-icon">📊</span>
+              <span>Özet</span>
+            </NavLink>
+          )}
+          <NavLink to="/saha" className={({ isActive }) => (isActive ? 'mb-item active' : 'mb-item')}>
+            <span className="mb-icon">📍</span>
+            <span>Saha</span>
+          </NavLink>
+          <NavLink to="/gunluk-raporlar" className={({ isActive }) => (isActive ? 'mb-item active' : 'mb-item')}>
+            <span className="mb-icon">📋</span>
+            <span>Günlük</span>
+          </NavLink>
+          <NavLink to="/isg" className={({ isActive }) => (isActive ? 'mb-item active' : 'mb-item')}>
+            <span className="mb-icon">🦺</span>
+            <span>İSG</span>
+          </NavLink>
+          {user.role === 'owner' && (
+            <NavLink to="/hakedisler" className={({ isActive }) => (isActive ? 'mb-item active' : 'mb-item')}>
+              <span className="mb-icon">📑</span>
+              <span>Hakediş</span>
+            </NavLink>
+          )}
+          <button
+            type="button"
+            className={`mb-item ${menuOpen ? 'active' : ''}`}
+            onClick={() => setMenuOpen((v) => !v)}
+            style={{ background: 'none', border: 'none' }}
+          >
+            <span className="mb-icon">☰</span>
+            <span>Menü</span>
+          </button>
+        </nav>
+      )}
     </div>
   );
 }

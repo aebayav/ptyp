@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
+import { useAuth } from '../AuthContext';
 import { fmtDate, today, useProjects } from '../utils';
 import Modal from '../components/Modal';
 
@@ -43,6 +44,8 @@ const EMPTY_REPORT = {
 };
 
 export default function DailyReports() {
+  const { user } = useAuth();
+  const isOwner = user?.role === 'owner';
   const { projects, projectId, setProjectId } = useProjects();
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -255,7 +258,9 @@ export default function DailyReports() {
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     <button className="btn btn-sm" title="Düzenle" onClick={(e) => openEdit(r, e)}>Düzenle</button>
-                    <button className="btn btn-sm btn-danger" title="Sil" onClick={(e) => remove(r, e)}>Sil</button>
+                    {isOwner && (
+                      <button className="btn btn-sm btn-danger" title="Sil" onClick={(e) => remove(r, e)}>Sil</button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -303,11 +308,11 @@ export default function DailyReports() {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
                   {form.crew.map((c, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <select style={{ flex: 1 }} value={c.role} onChange={e => handleCrewChange(i, 'role', e.target.value)}>
+                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <select style={{ flex: '1 1 130px' }} value={c.role} onChange={e => handleCrewChange(i, 'role', e.target.value)}>
                         {Object.entries(CREW_ROLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                       </select>
-                      <input style={{ flex: 1 }} placeholder="Firma (Taşeron ise)" value={c.company} onChange={e => handleCrewChange(i, 'company', e.target.value)} disabled={c.role !== 'taseron'} />
+                      <input style={{ flex: '1 1 130px' }} placeholder="Firma (Taşeron ise)" value={c.company} onChange={e => handleCrewChange(i, 'company', e.target.value)} disabled={c.role !== 'taseron'} />
                       <input style={{ width: 80 }} type="number" min="1" value={c.count} onChange={e => handleCrewChange(i, 'count', e.target.value)} placeholder="Sayı" />
                       <button type="button" className="btn btn-sm btn-danger" onClick={() => setF('crew', form.crew.filter((_, idx) => idx !== i))}>Sil</button>
                     </div>
@@ -328,11 +333,11 @@ export default function DailyReports() {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
                   {form.equipment.map((eq, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <select style={{ flex: 1 }} value={eq.equipment_type} onChange={e => handleEqChange(i, 'equipment_type', e.target.value)}>
+                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <select style={{ flex: '1 1 130px' }} value={eq.equipment_type} onChange={e => handleEqChange(i, 'equipment_type', e.target.value)}>
                         {Object.entries(EQUIPMENT_TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                       </select>
-                      <input style={{ flex: 1 }} placeholder="Açıklama (Örn: Plaka)" value={eq.description} onChange={e => handleEqChange(i, 'description', e.target.value)} />
+                      <input style={{ flex: '1 1 130px' }} placeholder="Açıklama (Örn: Plaka)" value={eq.description} onChange={e => handleEqChange(i, 'description', e.target.value)} />
                       <input style={{ width: 80 }} type="number" min="1" value={eq.count} onChange={e => handleEqChange(i, 'count', e.target.value)} placeholder="Sayı" />
                       <button type="button" className="btn btn-sm btn-danger" onClick={() => setF('equipment', form.equipment.filter((_, idx) => idx !== i))}>Sil</button>
                     </div>
