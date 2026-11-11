@@ -78,6 +78,7 @@ jobs:
           git log --oneline -1
           npm run build
           sudo -n systemctl restart ptyp
+          sudo -n systemctl restart ocr || true
           sleep 12
           systemctl is-active ptyp'
 
