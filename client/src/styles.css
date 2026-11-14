@@ -1243,9 +1243,8 @@ tr.late-row td {
 
 .pole-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 8px;
   padding: 10px 0;
   border-bottom: 1px solid var(--row-border);
 }
@@ -1254,28 +1253,37 @@ tr.late-row td {
   border-bottom: none;
 }
 
+.pole-row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .pole-info {
-  min-width: 150px;
+  min-width: 120px;
+  flex: 1 1 160px;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
   font-size: 13px;
 }
 
 .pole-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
-  flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .pole-actions select {
   padding: 6px 10px;
   border-radius: 8px;
-  border: 2px solid var(--border);
+  border: 1.5px solid var(--border);
   background: var(--input-bg);
   color: var(--text);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
 }
 
@@ -1475,47 +1483,35 @@ tr.late-row td {
     z-index: 950;
     background: var(--card);
     border-top: 1px solid var(--border);
-    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
     justify-content: space-around;
     align-items: center;
     box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.12);
   }
   .mb-item {
-    display: flex;
-    flex-direction: column;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 2px;
-    padding: 4px 8px;
+    padding: 8px 12px;
     border-radius: 8px;
     text-decoration: none;
     color: var(--muted);
-    font-size: 11px;
-    font-weight: 600;
-    min-width: 54px;
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    min-width: 52px;
     transition: color 0.15s ease, background 0.15s ease;
-  }
-  .mb-item .mb-icon {
-    font-size: 17px;
-    line-height: 1.1;
   }
   .mb-item.active {
     color: var(--accent);
     background: var(--accent-soft);
   }
   .pole-row {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-    padding: 12px 10px;
-  }
-  .pole-actions {
-    width: 100%;
-    justify-content: space-between;
+    padding: 10px 4px;
   }
   .pole-actions select {
-    flex: 1;
-    padding: 9px 10px;
+    padding: 7px 8px;
+    font-size: 12.5px;
   }
 }
 

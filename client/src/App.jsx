@@ -99,7 +99,7 @@ function Sidebar({ menuOpen, setMenuOpen }) {
             onClick={toggleTheme}
             title={theme === 'dark' ? 'Aydınlık Tema' : 'Karanlık Tema'}
           >
-            {theme === 'dark' ? '☀️' : '🌙'}
+            {theme === 'dark' ? 'Açık' : 'Koyu'}
           </button>
           <button
             type="button"
@@ -379,25 +379,20 @@ function Shell() {
         <nav className="mobile-bottom-nav" aria-label="Mobil Hızlı Menü">
           {user.role === 'owner' && (
             <NavLink to="/" end className={({ isActive }) => (isActive ? 'mb-item active' : 'mb-item')}>
-              <span className="mb-icon">📊</span>
               <span>Özet</span>
             </NavLink>
           )}
           <NavLink to="/saha" className={({ isActive }) => (isActive ? 'mb-item active' : 'mb-item')}>
-            <span className="mb-icon">📍</span>
             <span>Saha</span>
           </NavLink>
           <NavLink to="/gunluk-raporlar" className={({ isActive }) => (isActive ? 'mb-item active' : 'mb-item')}>
-            <span className="mb-icon">📋</span>
             <span>Günlük</span>
           </NavLink>
           <NavLink to="/isg" className={({ isActive }) => (isActive ? 'mb-item active' : 'mb-item')}>
-            <span className="mb-icon">🦺</span>
             <span>İSG</span>
           </NavLink>
           {user.role === 'owner' && (
             <NavLink to="/hakedisler" className={({ isActive }) => (isActive ? 'mb-item active' : 'mb-item')}>
-              <span className="mb-icon">📑</span>
               <span>Hakediş</span>
             </NavLink>
           )}
@@ -407,7 +402,6 @@ function Shell() {
             onClick={() => setMenuOpen((v) => !v)}
             style={{ background: 'none', border: 'none' }}
           >
-            <span className="mb-icon">☰</span>
             <span>Menü</span>
           </button>
         </nav>

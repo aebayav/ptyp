@@ -44,11 +44,11 @@ function PhotoImg({ url, className = 'photo-thumb', onClick }) {
 }
 
 const DECISION_BADGE = {
-  auto_approved: { label: '🟢 Otomatik Onay', cls: 'badge-green', color: '#16a34a' },
-  manual_approved: { label: '🟢 Teknik Ofis Onaylı', cls: 'badge-green', color: '#15803d' },
-  needs_review: { label: '🟡 İnceleme Bekliyor', cls: 'badge-amber', color: '#d97706' },
-  rejected: { label: '🔴 Reddedildi', cls: 'badge-red', color: '#dc2626' },
-  manual_rejected: { label: '🔴 Teknik Ofis Reddi', cls: 'badge-red', color: '#b91c1c' },
+  auto_approved: { label: 'Otomatik Onay', cls: 'badge-green', color: '#16a34a' },
+  manual_approved: { label: 'Onaylı', cls: 'badge-green', color: '#15803d' },
+  needs_review: { label: 'İncelemede', cls: 'badge-amber', color: '#d97706' },
+  rejected: { label: 'Reddedildi', cls: 'badge-red', color: '#dc2626' },
+  manual_rejected: { label: 'Reddedildi', cls: 'badge-red', color: '#b91c1c' },
 };
 
 export default function Saha() {
@@ -425,7 +425,17 @@ export default function Saha() {
 
   async function submitGuidedCapture(e) {
     e.preventDefault();
-    if (!capturePole || processedPhotos.length === 0) return;
+    if (!capturePole) return;
+    if (processedPhotos.length === 0) {
+      setSubmittingCapture(true);
+      try {
+        await saveStatus(capturePole.idx, captureStage, captureNote);
+        setCapturePole(null);
+      } finally {
+        setSubmittingCapture(false);
+      }
+      return;
+    }
     setSubmittingCapture(true);
     setLastDecisionResult(null);
 
@@ -492,7 +502,7 @@ export default function Saha() {
         setCapturePole(null);
         setMsg({
           type: 'ok',
-          text: `⚡ Şebeke yok: ${capturePole.name} kanıtlı fotoğrafı Çevrimdışı Kuyruğa kaydedildi. İnternet geldiğinde otomatik gönderilecek.`,
+          text: `Çevrimdışı: ${capturePole.name} fotoğrafı kuyruğa kaydedildi. İnternet geldiğinde otomatik gönderilecek.`,
         });
       } else {
         setMsg({ type: 'err', text: 'Gönderim başarısız: ' + (err.message || 'hata') });
@@ -806,7 +816,7 @@ export default function Saha() {
               className={`badge ${isOnline ? 'badge-green' : 'badge-amber'}`}
               style={{ fontSize: 11 }}
             >
-              {isOnline ? '● Çevrimiçi' : '⚡ Çevrimdışı'}
+              {isOnline ? 'Çevrimiçi' : 'Çevrimdışı'}
             </span>
           </div>
           <p className="sub">Direk ilerleme ve saha takibi</p>
@@ -817,7 +827,7 @@ export default function Saha() {
             onClick={() => locateNearestPole(false)}
             disabled={projectId == null || gpsState.loading}
           >
-            {gpsState.loading ? '📍 Aranıyor…' : '📍 Yakın Direk'}
+            {gpsState.loading ? 'Aranıyor…' : 'En Yakın Direk'}
           </button>
           <button className="btn" onClick={openQr} disabled={projectId == null} title="Direk QR kartlarını yazdırmak için">
             QR Çıktısı
@@ -825,13 +835,13 @@ export default function Saha() {
         </div>
       </div>
 
-      {/* Mobil GPS Radar Kartı — En Yakın Direk Kilidi */}
+      {/* Mobil GPS Kartı — En Yakın Direk */}
       {(nearestMatch?.nearestPole || gpsState.error) && (
         <div
           className="card"
           style={{
             marginBottom: 14,
-            padding: '12px 16px',
+            padding: '10px 14px',
             borderLeft: nearestMatch?.nearestDistanceM <= 60 ? '4px solid #16a34a' : '4px solid #f5a623',
             background: 'var(--bg-soft, #f8fafc)',
           }}
@@ -841,18 +851,18 @@ export default function Saha() {
           ) : (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
               <div>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                  📍 En Yakın Direk
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                  En Yakın Direk
                 </div>
-                <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 700, marginTop: 2 }}>
                   {nearestMatch.nearestPole.name}{' '}
-                  <span className="muted" style={{ fontWeight: 500, fontSize: 13 }}>
+                  <span className="muted" style={{ fontWeight: 500, fontSize: 12.5 }}>
                     ({nearestMatch.nearestPole.tower_type || 'Standart'}
                     {nearestMatch.nearestPole.pole_function ? ` · ${nearestMatch.nearestPole.pole_function}` : ''})
                   </span>
                   {' — '}
                   <span style={{ color: nearestMatch.nearestDistanceM <= 55 ? '#16a34a' : '#d97706' }}>
-                    Δ {nearestMatch.nearestDistanceM} m
+                    {nearestMatch.nearestDistanceM} m
                   </span>
                 </div>
               </div>
@@ -871,7 +881,7 @@ export default function Saha() {
                   className="btn btn-sm btn-accent"
                   onClick={() => openCaptureModal(nearestMatch.nearestPole)}
                 >
-                  📸 Fotoğraf Ekle
+                  Fotoğraf / Durum
                 </button>
               </div>
             </div>
@@ -893,21 +903,7 @@ export default function Saha() {
           }}
         >
           <div>
-            <b>⚡ Bekleyen {offlineQueue.length} çevrimdışı saha kaydı</b>
-            <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
-              (
-              {[
-                offlineQueue.filter((x) => (x.kind || 'photo') === 'photo').length > 0 &&
-                  `${offlineQueue.filter((x) => (x.kind || 'photo') === 'photo').length} fotoğraf`,
-                offlineQueue.filter((x) => x.kind === 'status').length > 0 &&
-                  `${offlineQueue.filter((x) => x.kind === 'status').length} durum/not`,
-                offlineQueue.filter((x) => x.kind === 'request').length > 0 &&
-                  `${offlineQueue.filter((x) => x.kind === 'request').length} talep`,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-              )
-            </span>
+            <b>Bekleyen {offlineQueue.length} çevrimdışı kayıt</b>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button
@@ -915,7 +911,7 @@ export default function Saha() {
               type="button"
               onClick={() => setShowOfflineModal(true)}
             >
-              📋 Kuyruğu Yönet ({offlineQueue.length})
+              Kuyruk ({offlineQueue.length})
             </button>
             <button
               className="btn btn-sm btn-primary"
@@ -923,14 +919,13 @@ export default function Saha() {
               onClick={() => syncOfflineQueueNow(false)}
               disabled={!isOnline || syncingOffline}
             >
-              {syncingOffline ? 'Gönderiliyor…' : '🔄 Şimdi Gönder'}
+              {syncingOffline ? 'Gönderiliyor…' : 'Şimdi Gönder'}
             </button>
           </div>
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
-        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>PROJE:</span>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
         <select value={projectId ?? ''} onChange={(e) => setProjectId(Number(e.target.value))}>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
@@ -939,18 +934,15 @@ export default function Saha() {
           ))}
         </select>
         {summary && (
-          <>
-            <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>
-              SAHA İLERLEME:
-            </span>
-            <div className="progress-track mini" style={{ width: 150 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+            <div className="progress-track mini" style={{ width: 110 }}>
               <div className="progress-fill" style={{ width: `${summary.progress}%` }} />
             </div>
-            <span style={{ fontWeight: 700, fontSize: 13 }}>%{summary.progress}</span>
+            <span style={{ fontWeight: 700, fontSize: 12.5 }}>%{summary.progress}</span>
             <span className="muted" style={{ fontSize: 12 }}>
               ({summary.pole_count} direk)
             </span>
-          </>
+          </div>
         )}
       </div>
 
@@ -962,73 +954,62 @@ export default function Saha() {
 
       {data && (
         <>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
             <button className={`tab-chip ${tab === 'poles' ? 'on' : ''}`} onClick={() => setTab('poles')}>
-              🗼 Direkler ({data.poles.length})
+              Direkler ({data.poles.length})
             </button>
             <button className={`tab-chip ${tab === 'pool' ? 'on' : ''}`} onClick={() => setTab('pool')}>
-              🛡️ Hakediş Havuzu
+              Hakediş Havuzu
               {poolCounts.ready + poolCounts.pending_review > 0
                 ? ` (${poolCounts.ready + poolCounts.pending_review})`
                 : ''}
             </button>
             <button className={`tab-chip ${tab === 'requests' ? 'on' : ''}`} onClick={() => setTab('requests')}>
-              📦 Malzeme Talepleri{openCount > 0 ? ` (${openCount})` : ''}
+              Malzeme Talebi{openCount > 0 ? ` (${openCount})` : ''}
             </button>
           </div>
 
           {tab === 'poles' && (
             <>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
-                <button
-                  className={`tab-chip ${filter === 'all' ? 'on' : ''}`}
-                  onClick={() => setFilter('all')}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+                <select
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  style={{ minWidth: 160 }}
                 >
-                  Tümü
-                </button>
-                {summary.status_counts.map((s) => (
-                  <button
-                    key={s.status}
-                    className={`tab-chip ${filter === s.status ? 'on' : ''}`}
-                    style={{ borderColor: s.color, color: filter === s.status ? '#fff' : s.color }}
-                    onClick={() => setFilter(filter === s.status ? 'all' : s.status)}
-                  >
-                    {s.label} ({s.count})
-                  </button>
-                ))}
+                  <option value="all">Tüm Durumlar ({data.poles.length})</option>
+                  {summary.status_counts.map((s) => (
+                    <option key={s.status} value={s.status}>
+                      {s.label} ({s.count})
+                    </option>
+                  ))}
+                </select>
                 <input
                   type="search"
                   placeholder="Direk ara (örn: D-47, PE1)…"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  style={{ marginLeft: 'auto', minWidth: 190, padding: '5px 10px', fontSize: 12.5 }}
+                  style={{ flex: '1 1 180px', padding: '7px 10px', fontSize: 13 }}
                 />
               </div>
 
-              {/* Kanton Bazlı Çalışılabilir Cephe & Kamulaştırma Kilidi Özeti */}
+              {/* Kanton Bazlı Çalışılabilir Cephe Özeti — Daraltılabilir */}
               {data.canton_readiness?.cantons?.length > 0 && (
-                <div className="card" style={{ marginBottom: 12, padding: '10px 14px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700 }}>
-                      🚧 Kanton Çalışılabilir Cephe &amp; Kamulaştırma Durumu
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, fontSize: 11.5, flexWrap: 'wrap' }}>
+                <details className="card" style={{ marginBottom: 12, padding: '8px 12px' }}>
+                  <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                    <span>Kanton &amp; Kamulaştırma Durumu</span>
+                    <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
                       <span className="badge badge-green">
-                        🟢 Açık Cephe: {data.canton_readiness.summary.open_canton_count}/{data.canton_readiness.summary.total_cantons}
+                        Açık Cephe: {data.canton_readiness.summary.open_canton_count}/{data.canton_readiness.summary.total_cantons}
                       </span>
-                      {data.canton_readiness.summary.ready_for_stringing_count > 0 && (
-                        <span className="badge badge-blue">
-                          ⚡ Tel Çekimine Hazır: {data.canton_readiness.summary.ready_for_stringing_count}
-                        </span>
-                      )}
                       {data.canton_readiness.summary.blocked_canton_count > 0 && (
                         <span className="badge badge-red">
-                          🔴 Kamulaştırma Blokeli: {data.canton_readiness.summary.blocked_canton_count}
+                          Blokeli: {data.canton_readiness.summary.blocked_canton_count}
                         </span>
                       )}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    </span>
+                  </summary>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
                     {data.canton_readiness.cantons.map((c) => {
                       const borderCol =
                         c.readiness_status === 'blocked'
@@ -1049,11 +1030,6 @@ export default function Saha() {
                             padding: '4px 8px',
                             textAlign: 'left',
                           }}
-                          title={
-                            c.blocking_parcels?.length
-                              ? c.blocking_parcels.map((bp) => `${bp.span_label}: ${bp.parcel_no || 'Parsel'} (${bp.owner_name || '—'})`).join('\n')
-                              : `${c.fromLabel} → ${c.toLabel} (${c.poleCount} direk)`
-                          }
                           onClick={() => {
                             if (c.fromIdx != null) {
                               setFilter('all');
@@ -1070,91 +1046,71 @@ export default function Saha() {
                       );
                     })}
                   </div>
-                </div>
+                </details>
               )}
 
-              <div className="card" style={{ marginBottom: 14, padding: 10 }}>
+              <div className="card" style={{ marginBottom: 12, padding: 8 }}>
                 <div ref={mapDivRef} className="saha-map" />
               </div>
 
-              <div className="card">
-                <h3 style={{ margin: '0 0 8px' }}>Direk Listesi</h3>
-
+              <div className="card" style={{ padding: '10px 14px' }}>
                 {filteredPoles.map((p) => {
                   const st = statuses[p.status] || statuses.none;
+                  const metaParts = [
+                    p.tower_type,
+                    p.pole_function,
+                    p.station_text ? `${p.station_text}` : null,
+                  ].filter(Boolean);
                   return (
                     <div key={p.idx} id={`pole-row-${p.idx}`} className={`pole-row ${flashIdx === p.idx ? 'flash' : ''}`}>
-                      <div className="pole-info">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                          <b>{p.name}</b>
-                          {p.tower_type && (
-                            <span className="badge badge-gray" style={{ fontSize: 10.5 }}>
-                              {p.tower_type}
-                              {p.pole_function ? ` · ${p.pole_function}` : ''}
-                            </span>
-                          )}
-                          {p.parcel_blocker && (
-                            <span
-                              className={`badge ${p.parcel_blocker.severity === 'izinsiz' ? 'badge-red' : 'badge-amber'}`}
-                              style={{ fontSize: 10.5 }}
-                              title={p.parcel_blocker.parcels
-                                ?.map((bp) => `${bp.span_label} · Parsel: ${bp.parcel_no || '—'} · Malik: ${bp.owner_name || '—'}`)
-                                .join('\n')}
-                            >
-                              {p.parcel_blocker.severity === 'izinsiz' ? '⛔ ' : '⚠️ '}
-                              {p.parcel_blocker.summary_text}
-                            </span>
+                      <div className="pole-row-main">
+                        <div className="pole-info">
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <b style={{ fontSize: 14 }}>{p.name}</b>
+                            {metaParts.length > 0 && (
+                              <span className="muted" style={{ fontSize: 12 }}>
+                                {metaParts.join(' · ')}
+                              </span>
+                            )}
+                            {p.parcel_blocker && (
+                              <span
+                                className={`badge ${p.parcel_blocker.severity === 'izinsiz' ? 'badge-red' : 'badge-amber'}`}
+                                style={{ fontSize: 10.5 }}
+                              >
+                                {p.parcel_blocker.summary_text}
+                              </span>
+                            )}
+                          </div>
+                          {p.note && (
+                            <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                              {p.note}
+                            </div>
                           )}
                         </div>
-                        <span className="muted">
-                          {p.station_text ? `İst: ${p.station_text}` : ''}
-                          {p.span_m ? ` · Ara: ${p.span_m}m` : ''}
-                        </span>
-                        {p.updated_by && (
-                          <span className="muted" style={{ fontSize: 10.5 }}>
-                            Son: {p.updated_by}
-                          </span>
-                        )}
-                      </div>
 
-                      <div className="pole-actions" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        <select
-                          value={p.status}
-                          onChange={(e) => saveStatus(p.idx, e.target.value, p.note)}
-                          style={{ borderColor: st.color, color: st.color, fontWeight: 600 }}
-                        >
-                          {Object.entries(statuses).map(([k, v]) => (
-                            <option key={k} value={k}>
-                              {v.label}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          className="btn btn-sm btn-primary"
-                          onClick={() => openCaptureModal(p)}
-                        >
-                          📸 Fotoğraf ({p.photos.length})
-                        </button>
-                      </div>
-
-                      <div className="pole-note">
-                        <input
-                          value={p.note}
-                          placeholder="Saha notu ekle…"
-                          onBlur={(e) => {
-                            if (e.target.value !== p.note) saveStatus(p.idx, p.status, e.target.value);
-                          }}
-                          onChange={(e) =>
-                            setData((prev) => ({
-                              ...prev,
-                              poles: prev.poles.map((x) => (x.idx === p.idx ? { ...x, note: e.target.value } : x)),
-                            }))
-                          }
-                        />
+                        <div className="pole-actions">
+                          <select
+                            value={p.status}
+                            onChange={(e) => saveStatus(p.idx, e.target.value, p.note)}
+                            style={{ borderColor: st.color, color: st.color, fontWeight: 600 }}
+                          >
+                            {Object.entries(statuses).map(([k, v]) => (
+                              <option key={k} value={k}>
+                                {v.label}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            className="btn btn-sm"
+                            onClick={() => openCaptureModal(p)}
+                          >
+                            {p.photos.length > 0 ? `Fotoğraf (${p.photos.length})` : 'Fotoğraf'}
+                          </button>
+                        </div>
                       </div>
 
                       {p.photos.length > 0 && (
-                        <div className="pole-photos" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <div className="pole-photos">
                           {p.photos.map((ph) => {
                             const dbadge = DECISION_BADGE[ph.decision_status] || DECISION_BADGE.auto_approved;
                             return (
@@ -1162,12 +1118,10 @@ export default function Saha() {
                                 key={ph.id}
                                 className="photo-wrap"
                                 style={{
-                                  position: 'relative',
                                   border: `2px solid ${dbadge.color}`,
                                   borderRadius: 6,
                                   overflow: 'hidden',
                                 }}
-                                title={`${ph.caption || 'Fotoğraf'} · Skor: ${ph.decision_score}/100${ph.gps_distance_m != null ? ` · Δ ${ph.gps_distance_m}m` : ''}`}
                               >
                                 <PhotoImg
                                   url={ph.url}
@@ -1176,27 +1130,6 @@ export default function Saha() {
                                     setReviewNoteInput(ph.review_note || '');
                                   }}
                                 />
-                                <span
-                                  onClick={() => {
-                                    setInspectPhoto({ photo: ph, pole: p });
-                                    setReviewNoteInput(ph.review_note || '');
-                                  }}
-                                  style={{
-                                    position: 'absolute',
-                                    bottom: 0,
-                                    left: 0,
-                                    right: 0,
-                                    background: 'rgba(13,31,60,0.85)',
-                                    color: '#fff',
-                                    fontSize: 9.5,
-                                    fontWeight: 700,
-                                    textAlign: 'center',
-                                    padding: '1px 3px',
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  {ph.decision_score}p{ph.gps_distance_m != null ? ` · ${Math.round(ph.gps_distance_m)}m` : ''}
-                                </span>
                                 <button
                                   className="photo-del"
                                   title="Sil"
@@ -1228,31 +1161,28 @@ export default function Saha() {
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                    gap: 12,
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                    gap: 10,
                     marginBottom: 14,
                   }}
                 >
-                  <div className="card" style={{ padding: '12px 16px', borderLeft: '4px solid #16a34a' }}>
-                    <div className="muted" style={{ fontSize: 11.5, fontWeight: 700 }}>🟢 ONAYLI</div>
-                    <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4 }}>{poolData.summary.ready_count}</div>
+                  <div className="card" style={{ padding: '10px 14px', borderLeft: '4px solid #16a34a' }}>
+                    <div className="muted" style={{ fontSize: 11, fontWeight: 700 }}>ONAYLI</div>
+                    <div style={{ fontSize: 19, fontWeight: 800, marginTop: 2 }}>{poolData.summary.ready_count}</div>
                   </div>
-                  <div className="card" style={{ padding: '12px 16px', borderLeft: '4px solid #d97706' }}>
-                    <div className="muted" style={{ fontSize: 11.5, fontWeight: 700 }}>🟡 İNCELEMEDE</div>
-                    <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4 }}>{poolData.summary.pending_review_count}</div>
+                  <div className="card" style={{ padding: '10px 14px', borderLeft: '4px solid #d97706' }}>
+                    <div className="muted" style={{ fontSize: 11, fontWeight: 700 }}>İNCELEMEDE</div>
+                    <div style={{ fontSize: 19, fontWeight: 800, marginTop: 2 }}>{poolData.summary.pending_review_count}</div>
                   </div>
-                  <div className="card" style={{ padding: '12px 16px', borderLeft: '4px solid #2563eb' }}>
-                    <div className="muted" style={{ fontSize: 11.5, fontWeight: 700 }}>🏗️ HAZIR METRAJ</div>
-                    <div style={{ fontSize: 16, fontWeight: 800, marginTop: 4 }}>
+                  <div className="card" style={{ padding: '10px 14px', borderLeft: '4px solid #2563eb' }}>
+                    <div className="muted" style={{ fontSize: 11, fontWeight: 700 }}>HAZIR METRAJ</div>
+                    <div style={{ fontSize: 15, fontWeight: 800, marginTop: 2 }}>
                       {poolData.summary.ready_steel_kg.toLocaleString('tr-TR')} kg
                     </div>
-                    <div className="muted" style={{ fontSize: 11.5 }}>
-                      Beton: {poolData.summary.ready_concrete_m3} m³ · Kazı: {poolData.summary.ready_excavation_m3} m³
-                    </div>
                   </div>
-                  <div className="card" style={{ padding: '12px 16px', borderLeft: '4px solid #64748b' }}>
-                    <div className="muted" style={{ fontSize: 11.5, fontWeight: 700 }}>📄 AKTARILAN</div>
-                    <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4 }}>{poolData.summary.transferred_count}</div>
+                  <div className="card" style={{ padding: '10px 14px', borderLeft: '4px solid #64748b' }}>
+                    <div className="muted" style={{ fontSize: 11, fontWeight: 700 }}>AKTARILAN</div>
+                    <div style={{ fontSize: 19, fontWeight: 800, marginTop: 2 }}>{poolData.summary.transferred_count}</div>
                   </div>
                 </div>
               )}
@@ -1275,7 +1205,7 @@ export default function Saha() {
                       >
                         {transferBusy
                           ? 'Aktarılıyor…'
-                          : `📄 Hakedişe Aktar (${poolData.summary?.ready_count || 0})`}
+                          : `Hakedişe Aktar (${poolData.summary?.ready_count || 0})`}
                       </button>
                     </div>
                   )}
@@ -1284,10 +1214,10 @@ export default function Saha() {
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
                   {[
                     { key: 'all', label: `Tümü (${poolData.items.length})` },
-                    { key: 'pending_review', label: `🟡 İnceleme (${poolData.summary?.pending_review_count || 0})` },
-                    { key: 'ready', label: `🟢 Hazır (${poolData.summary?.ready_count || 0})` },
-                    { key: 'transferred', label: `📄 Aktarılan (${poolData.summary?.transferred_count || 0})` },
-                    { key: 'rejected', label: `🔴 Red (${poolData.summary?.rejected_count || 0})` },
+                    { key: 'pending_review', label: `İnceleme (${poolData.summary?.pending_review_count || 0})` },
+                    { key: 'ready', label: `Hazır (${poolData.summary?.ready_count || 0})` },
+                    { key: 'transferred', label: `Aktarılan (${poolData.summary?.transferred_count || 0})` },
+                    { key: 'rejected', label: `Red (${poolData.summary?.rejected_count || 0})` },
                   ].map((f) => (
                     <button
                       key={f.key}
@@ -1372,11 +1302,6 @@ export default function Saha() {
                                 </td>
                                 <td>
                                   <div>{it.item_name}</div>
-                                  {it.work_group_code && (
-                                    <div className="muted" style={{ fontSize: 11 }}>
-                                      İş Grubu: {it.work_group_code} — {it.work_group_name}
-                                    </div>
-                                  )}
                                 </td>
                                 <td className="num" style={{ fontWeight: 700 }}>
                                   {Number(it.qty).toLocaleString('tr-TR')} {it.unit}
@@ -1390,10 +1315,10 @@ export default function Saha() {
                                         fontSize: 12.5,
                                       }}
                                     >
-                                      Δ {it.gps_distance_m} m
+                                      {it.gps_distance_m} m
                                     </span>
                                   ) : (
-                                    <span className="muted" style={{ fontSize: 11.5 }}>Manuel/Ofis</span>
+                                    <span className="muted" style={{ fontSize: 11.5 }}>Ofis</span>
                                   )}
                                 </td>
                                 <td>
@@ -1419,18 +1344,18 @@ export default function Saha() {
                                     }
                                     style={{ fontWeight: 700 }}
                                   >
-                                    📋 {it.decision_score}/100
+                                    {it.decision_score}/100
                                   </button>
                                 </td>
                                 <td>
-                                  {it.status === 'ready' && <span className="badge badge-green">🟢 Hakedişe Hazır</span>}
-                                  {it.status === 'pending_review' && <span className="badge badge-amber">🟡 İncelemede</span>}
+                                  {it.status === 'ready' && <span className="badge badge-green">Hazır</span>}
+                                  {it.status === 'pending_review' && <span className="badge badge-amber">İncelemede</span>}
                                   {it.status === 'transferred' && (
                                     <span className="badge badge-blue">
-                                      📄 Aktarıldı ({it.payment_period_label || `#${it.payment_period_no}`})
+                                      Aktarıldı ({it.payment_period_label || `#${it.payment_period_no}`})
                                     </span>
                                   )}
-                                  {it.status === 'rejected' && <span className="badge badge-red">🔴 Reddedildi</span>}
+                                  {it.status === 'rejected' && <span className="badge badge-red">Reddedildi</span>}
                                 </td>
                                 {isOwner && (
                                   <td style={{ whiteSpace: 'nowrap' }}>
@@ -1440,18 +1365,16 @@ export default function Saha() {
                                           <button
                                             className="btn btn-sm btn-success"
                                             onClick={() => handlePoolStatusChange(it.id, 'ready')}
-                                            title="Onayla ve Hakediş Havuzuna Al"
                                           >
-                                            ✓ Onayla
+                                            Onayla
                                           </button>
                                         )}
                                         {it.status !== 'rejected' && (
                                           <button
                                             className="btn btn-sm btn-danger"
                                             onClick={() => handlePoolStatusChange(it.id, 'rejected')}
-                                            title="Reddet"
                                           >
-                                            ✕ Red
+                                            Red
                                           </button>
                                         )}
                                       </div>
@@ -1587,10 +1510,10 @@ export default function Saha() {
         </>
       )}
 
-      {/* MODAL 1: KANITLI SAHA FOTOĞRAFI & AŞAMA DOĞRULAMA */}
+      {/* MODAL 1: SAHA FOTOĞRAFI & DURUM GÜNCELLEME */}
       {capturePole && (
         <Modal
-          title={`📸 Fotoğraf Yükle — ${capturePole.name}`}
+          title={`${capturePole.name} — Durum & Fotoğraf`}
           onClose={() => setCapturePole(null)}
         >
           <form onSubmit={submitGuidedCapture}>
@@ -1599,65 +1522,53 @@ export default function Saha() {
                 className={capturePole.parcel_blocker.severity === 'izinsiz' ? 'form-error' : 'notice-banner'}
                 style={{ marginBottom: 10, fontSize: 12.5 }}
               >
-                <b>
-                  {capturePole.parcel_blocker.severity === 'izinsiz'
-                    ? '⛔ KAMULAŞTIRMA / İZİNSİZ PARSEL UYARISI:'
-                    : '⚠️ İZİN BAŞVURUDA UYARISI:'}
-                </b>{' '}
-                {capturePole.parcel_blocker.summary_text}. Kazı veya tel çekimi öncesi muvafakat/izin durumunu kontrol edin.
+                <b>Kamulaştırma Uyarısı:</b> {capturePole.parcel_blocker.summary_text}
               </div>
             )}
             <div
               style={{
                 background: 'var(--bg-soft, #f1f5f9)',
-                padding: '10px 12px',
+                padding: '8px 12px',
                 borderRadius: 8,
                 marginBottom: 12,
                 fontSize: 12.5,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 6,
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                <span>
-                  <b>{capturePole.name}</b> · Tip: <b>{capturePole.tower_type || 'Standart'}</b>
-                  {capturePole.pole_function ? ` (${capturePole.pole_function})` : ''}
+              <span>
+                <b>{capturePole.name}</b> ({capturePole.tower_type || 'Standart'})
+              </span>
+              {nearestMatch?.selectedDistanceM != null ? (
+                <span
+                  style={{
+                    color: nearestMatch.wrongPoleWarning
+                      ? '#dc2626'
+                      : nearestMatch.selectedDistanceM <= 60
+                        ? '#16a34a'
+                        : '#d97706',
+                    fontWeight: 700,
+                  }}
+                >
+                  Mesafe: {nearestMatch.selectedDistanceM} m
                 </span>
-                <span>
-                  Durum: <b>{statuses[capturePole.status]?.label || 'Başlamadı'}</b>
-                </span>
-              </div>
-              <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                {nearestMatch?.selectedDistanceM != null ? (
-                  <span
-                    style={{
-                      color: nearestMatch.wrongPoleWarning
-                        ? '#dc2626'
-                        : nearestMatch.selectedDistanceM <= 60
-                          ? '#16a34a'
-                          : '#d97706',
-                      fontWeight: 700,
-                    }}
-                  >
-                    📍 Mesafe: Δ {nearestMatch.selectedDistanceM} m
-                    {nearestMatch.wrongPoleWarning
-                      ? ` (⚠️ En yakın: ${nearestMatch.nearestPole.name})`
-                      : ''}
-                  </span>
-                ) : (
-                  <span className="muted">📍 GPS doğrulanmadı</span>
-                )}
+              ) : (
                 <button
                   type="button"
                   className="btn btn-sm"
                   onClick={() => locateNearestPole(false)}
                   disabled={gpsState.loading}
                 >
-                  {gpsState.loading ? 'Alınıyor…' : '📍 Konum Al'}
+                  {gpsState.loading ? 'Alınıyor…' : 'Konum Al'}
                 </button>
-              </div>
+              )}
             </div>
 
             <div className="field">
-              <label>İmalat Aşaması *</label>
+              <label>İmalat Aşaması</label>
               <select
                 value={captureStage}
                 onChange={(e) => {
@@ -1665,57 +1576,16 @@ export default function Saha() {
                   setCaptureChecklist([]);
                 }}
               >
-                {Object.entries(statuses)
-                  .filter(([k]) => k !== 'none')
-                  .map(([k, v]) => (
-                    <option key={k} value={k}>
-                      {v.label} (%{v.progress})
-                    </option>
-                  ))}
+                {Object.entries(statuses).map(([k, v]) => (
+                  <option key={k} value={k}>
+                    {v.label} (%{v.progress})
+                  </option>
+                ))}
               </select>
             </div>
 
-            <div
-              style={{
-                border: '1px solid var(--border, #dbe2ea)',
-                borderRadius: 8,
-                padding: '10px 12px',
-                marginBottom: 12,
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                Kontrol Listesi
-              </div>
-              {checklistConfig.items.map((item) => {
-                const checked = captureChecklist.includes(item);
-                return (
-                  <label
-                    key={item}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      fontSize: 12.5,
-                      padding: '3px 0',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => {
-                        if (e.target.checked) setCaptureChecklist((prev) => [...prev, item]);
-                        else setCaptureChecklist((prev) => prev.filter((x) => x !== item));
-                      }}
-                    />
-                    <span>{item}</span>
-                  </label>
-                );
-              })}
-            </div>
-
             <div className="field">
-              <label>Fotoğraf *</label>
+              <label>Fotoğraf (Opsiyonel)</label>
               <input
                 ref={cameraInputRef}
                 type="file"
@@ -1725,24 +1595,22 @@ export default function Saha() {
                 style={{ display: 'none' }}
                 onChange={handleCameraFilesSelected}
               />
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <button
-                  type="button"
-                  className="btn btn-accent"
-                  onClick={() => cameraInputRef.current?.click()}
-                  disabled={processingPhoto}
-                >
-                  {processingPhoto ? 'İşleniyor…' : '📷 Fotoğraf Çek / Seç'}
-                </button>
-              </div>
+              <button
+                type="button"
+                className="btn btn-accent"
+                onClick={() => cameraInputRef.current?.click()}
+                disabled={processingPhoto}
+              >
+                {processingPhoto ? 'İşleniyor…' : 'Fotoğraf Çek / Seç'}
+              </button>
 
               {processedPhotos.length > 0 && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, marginTop: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8, marginTop: 10 }}>
                   {processedPhotos.map((pp, idx) => (
                     <div
                       key={idx}
                       style={{
-                        border: pp.blurScore < 25 ? '2px solid #dc2626' : '1px solid #cbd5e1',
+                        border: '1px solid #cbd5e1',
                         borderRadius: 8,
                         overflow: 'hidden',
                         background: '#0f172a',
@@ -1753,14 +1621,8 @@ export default function Saha() {
                       <img
                         src={pp.previewUrl}
                         alt=""
-                        style={{ width: '100%', height: 110, objectFit: 'cover', display: 'block' }}
+                        style={{ width: '100%', height: 90, objectFit: 'cover', display: 'block' }}
                       />
-                      <div style={{ padding: '4px 8px', fontSize: 11, display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: pp.blurScore < 25 ? '#fca5a5' : '#86efac' }}>
-                          Netlik: {pp.blurScore}/100
-                        </span>
-                        <span>{pp.sizeKb} KB</span>
-                      </div>
                       <button
                         type="button"
                         onClick={() => setProcessedPhotos((prev) => prev.filter((_, i) => i !== idx))}
@@ -1785,7 +1647,6 @@ export default function Saha() {
               )}
             </div>
 
-            {/* Sesli / Yazılı Saha Notu */}
             <div className="field">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <label style={{ marginBottom: 0 }}>Saha Notu</label>
@@ -1795,56 +1656,35 @@ export default function Saha() {
                   onClick={startVoiceNote}
                   disabled={listeningVoice}
                 >
-                  {listeningVoice ? '🎙️ Dinleniyor…' : '🎙️ Sesle Yazdır'}
+                  {listeningVoice ? 'Dinleniyor…' : 'Sesle Yaz'}
                 </button>
               </div>
               <input
                 value={captureNote}
                 onChange={(e) => setCaptureNote(e.target.value)}
-                placeholder="Örn: Ankraj beton dökümü tamamlandı, 4 adet numune alındı…"
+                placeholder="Örn: Beton dökümü tamamlandı…"
                 style={{ marginTop: 4 }}
               />
             </div>
 
-            {/* Gönderim sonrası anlık Karar Karnesi (Scorecard) sonucu */}
             {lastDecisionResult?.decision && (
               <div
                 style={{
                   border: `2px solid ${DECISION_BADGE[lastDecisionResult.decision.decision_status]?.color || '#16a34a'}`,
                   borderRadius: 8,
-                  padding: 12,
+                  padding: 10,
                   marginBottom: 12,
                   background: 'var(--bg-soft, #f8fafc)',
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <b style={{ fontSize: 14 }}>
+                  <b style={{ fontSize: 13.5 }}>
                     {DECISION_BADGE[lastDecisionResult.decision.decision_status]?.label}
                   </b>
-                  <span style={{ fontWeight: 800, fontSize: 15 }}>
-                    Kanıt Puanı: {lastDecisionResult.decision.decision_score} / 100
+                  <span style={{ fontWeight: 700, fontSize: 13.5 }}>
+                    Puan: {lastDecisionResult.decision.decision_score} / 100
                   </span>
                 </div>
-                {lastDecisionResult.hakedis_pool_entry && (
-                  <div style={{ fontSize: 12.5, marginTop: 6, color: '#0f172a', fontWeight: 600 }}>
-                    ✓ Hakediş Havuzu Kaydı: {lastDecisionResult.hakedis_pool_entry.item_name} ({lastDecisionResult.hakedis_pool_entry.qty}{' '}
-                    {lastDecisionResult.hakedis_pool_entry.unit})
-                  </div>
-                )}
-                {lastDecisionResult.decision.scorecard?.flags?.length > 0 && (
-                  <ul style={{ margin: '6px 0 0', paddingLeft: 18, color: '#b91c1c', fontSize: 12 }}>
-                    {lastDecisionResult.decision.scorecard.flags.map((fl, i) => (
-                      <li key={i}>{fl}</li>
-                    ))}
-                  </ul>
-                )}
-                {lastDecisionResult.decision.scorecard?.reasons?.length > 0 && (
-                  <ul style={{ margin: '6px 0 0', paddingLeft: 18, color: '#15803d', fontSize: 12 }}>
-                    {lastDecisionResult.decision.scorecard.reasons.map((rs, i) => (
-                      <li key={i}>{rs}</li>
-                    ))}
-                  </ul>
-                )}
               </div>
             )}
 
@@ -1855,21 +1695,23 @@ export default function Saha() {
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={processedPhotos.length === 0 || submittingCapture}
+                disabled={submittingCapture}
               >
                 {submittingCapture
                   ? 'Kaydediliyor…'
-                  : `Kaydet (${processedPhotos.length})`}
+                  : processedPhotos.length > 0
+                    ? `Fotoğraflı Kaydet (${processedPhotos.length})`
+                    : 'Durumu Kaydet'}
               </button>
             </div>
           </form>
         </Modal>
       )}
 
-      {/* MODAL 2: FOTOĞRAF & KANIT KARNESİ DETAY İNCELEME */}
+      {/* MODAL 2: FOTOĞRAF DETAY İNCELEME */}
       {inspectPhoto && (
         <Modal
-          title={`📋 Kanıt Karnesi — ${inspectPhoto.pole?.name || ''} (${inspectPhoto.photo?.stage_label || 'Saha Fotoğrafı'})`}
+          title={`${inspectPhoto.pole?.name || ''} — ${inspectPhoto.photo?.stage_label || 'Saha Fotoğrafı'}`}
           onClose={() => setInspectPhoto(null)}
         >
           <div>
@@ -1881,64 +1723,17 @@ export default function Saha() {
               <span className={`badge ${DECISION_BADGE[inspectPhoto.photo.decision_status]?.cls || 'badge-green'}`}>
                 {DECISION_BADGE[inspectPhoto.photo.decision_status]?.label || inspectPhoto.photo.decision_status}
               </span>
-              <span style={{ fontWeight: 800, fontSize: 16 }}>
-                Toplam Puan: {inspectPhoto.photo.decision_score} / 100
+              <span style={{ fontWeight: 700, fontSize: 14 }}>
+                Puan: {inspectPhoto.photo.decision_score} / 100
+                {inspectPhoto.photo.gps_distance_m != null ? ` · ${inspectPhoto.photo.gps_distance_m} m` : ''}
               </span>
             </div>
 
-            {inspectPhoto.photo.scorecard && (
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(115px, 1fr))',
-                  gap: 8,
-                  marginBottom: 12,
-                  fontSize: 12,
-                }}
-              >
-                <div className="card" style={{ padding: 8 }}>
-                  <div className="muted">📍 Konum Kilidi</div>
-                  <b>{inspectPhoto.photo.scorecard.gps_score ?? '—'} / 30</b>
-                  {inspectPhoto.photo.gps_distance_m != null && (
-                    <div className="muted">Δ {inspectPhoto.photo.gps_distance_m} m</div>
-                  )}
-                </div>
-                <div className="card" style={{ padding: 8 }}>
-                  <div className="muted">🔍 Tekillik (pHash)</div>
-                  <b>{inspectPhoto.photo.scorecard.phash_score ?? '—'} / 25</b>
-                </div>
-                <div className="card" style={{ padding: 8 }}>
-                  <div className="muted">📷 Netlik &amp; Kalite</div>
-                  <b>{inspectPhoto.photo.scorecard.quality_score ?? '—'} / 15</b>
-                </div>
-                <div className="card" style={{ padding: 8 }}>
-                  <div className="muted">🏗️ Görsel Uyum</div>
-                  <b>{inspectPhoto.photo.scorecard.visual_score ?? '—'} / 15</b>
-                </div>
-                <div className="card" style={{ padding: 8 }}>
-                  <div className="muted">📐 DTL &amp; Sıra</div>
-                  <b>{inspectPhoto.photo.scorecard.dtl_score ?? '—'} / 15</b>
-                </div>
-              </div>
-            )}
-
             {inspectPhoto.photo.scorecard?.flags?.length > 0 && (
               <div className="form-error" style={{ marginBottom: 10, fontSize: 12 }}>
-                <b>Tespit Edilen Uyarı / İhlaller:</b>
-                <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
                   {inspectPhoto.photo.scorecard.flags.map((f, i) => (
                     <li key={i}>{f}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {inspectPhoto.photo.scorecard?.reasons?.length > 0 && (
-              <div className="notice-banner" style={{ marginBottom: 10, fontSize: 12 }}>
-                <b>Doğrulanan Kanıtlar:</b>
-                <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-                  {inspectPhoto.photo.scorecard.reasons.map((r, i) => (
-                    <li key={i}>{r}</li>
                   ))}
                 </ul>
               </div>
@@ -1947,7 +1742,7 @@ export default function Saha() {
             {isOwner && (
               <div style={{ borderTop: '1px solid var(--border, #dbe2ea)', paddingTop: 10, marginTop: 10 }}>
                 <div className="field">
-                  <label>Teknik Ofis İnceleme Notu</label>
+                  <label>İnceleme Notu</label>
                   <input
                     value={reviewNoteInput}
                     onChange={(e) => setReviewNoteInput(e.target.value)}
@@ -1961,7 +1756,7 @@ export default function Saha() {
                     disabled={reviewBusy}
                     onClick={() => handleReviewPhoto(inspectPhoto.photo.id, 'reject')}
                   >
-                    ✕ Reddet
+                    Reddet
                   </button>
                   <button
                     type="button"
@@ -1969,7 +1764,7 @@ export default function Saha() {
                     disabled={reviewBusy}
                     onClick={() => handleReviewPhoto(inspectPhoto.photo.id, 'approve')}
                   >
-                    ✓ Onayla ve Hakediş Havuzuna Al
+                    Onayla
                   </button>
                 </div>
               </div>
@@ -1981,13 +1776,10 @@ export default function Saha() {
       {/* MODAL 3: ÇEVRİMDIŞI KUYRUK YÖNETİMİ */}
       {showOfflineModal && (
         <Modal
-          title={`⚡ Çevrimdışı Kuyruk (${offlineQueue.length} kayıt)`}
+          title={`Çevrimdışı Kuyruk (${offlineQueue.length})`}
           onClose={() => setShowOfflineModal(false)}
         >
           <div>
-            <p className="muted" style={{ marginTop: 0, fontSize: 12.5 }}>
-              Şebeke çekmeyen noktalarda yapılan fotoğraflı imalat bildirimleri, direk durum/not güncellemeleri ve malzeme talepleri cihazın yerel <b>IndexedDB</b> hafızasında saklanır. İnternet bağlantısı geldiğinde otomatik veya tek tuşla sunucuya aktarılır.
-            </p>
             {offlineQueue.length === 0 ? (
               <div className="empty">Bekleyen çevrimdışı kayıt yok.</div>
             ) : (
@@ -1996,10 +1788,10 @@ export default function Saha() {
                   const kind = item.kind || 'photo';
                   const kindBadge =
                     kind === 'status'
-                      ? { label: '🔄 Durum / Not', cls: 'badge-blue' }
+                      ? { label: 'Durum', cls: 'badge-blue' }
                       : kind === 'request'
-                        ? { label: '📦 Malzeme Talebi', cls: 'badge-amber' }
-                        : { label: `📸 Kanıtlı Fotoğraf (${item.files?.length || 1})`, cls: 'badge-green' };
+                        ? { label: 'Talep', cls: 'badge-amber' }
+                        : { label: `Fotoğraf (${item.files?.length || 1})`, cls: 'badge-green' };
                   return (
                     <div
                       key={item.id}
@@ -2027,18 +1819,9 @@ export default function Saha() {
                             </span>
                           )}
                         </div>
-                        {item.note && (
-                          <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                            Not: {item.note}
-                          </div>
-                        )}
-                        <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                          Kaydedilme: {item.createdAt ? new Date(item.createdAt).toLocaleString('tr-TR') : '—'}
-                          {item.gpsDistanceM != null ? ` · Δ ${Math.round(item.gpsDistanceM)} m` : ''}
-                        </div>
                         {item.lastError && (
                           <div style={{ color: '#dc2626', fontSize: 11.5, marginTop: 2, fontWeight: 600 }}>
-                            ⚠️ Son deneme hatası: {item.lastError}
+                            Hata: {item.lastError}
                           </div>
                         )}
                       </div>
@@ -2068,7 +1851,7 @@ export default function Saha() {
                   disabled={!isOnline || syncingOffline}
                   onClick={() => syncOfflineQueueNow(false)}
                 >
-                  {syncingOffline ? 'Gönderiliyor…' : isOnline ? '🔄 Tümünü Şimdi Gönder' : '⚡ Çevrimdışı (Şebeke Bekleniyor)'}
+                  {syncingOffline ? 'Gönderiliyor…' : isOnline ? 'Tümünü Gönder' : 'Şebeke Bekleniyor'}
                 </button>
               )}
             </div>
