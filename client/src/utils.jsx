@@ -91,16 +91,37 @@ export function loadLeaflet() {
 }
 
 const PROJECT_KEY = 'ptyp_project_id';
+const PROJECTS_CACHE_KEY = 'ptyp_projects_cache';
 
-// Tüm proje bazlı sayfalar arasında seçili projeyi korur (localStorage + ortak yükleme)
+function loadCachedProjects() {
+  try {
+    const raw = localStorage.getItem(PROJECTS_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCachedProjects(list) {
+  try {
+    if (Array.isArray(list)) localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify(list));
+  } catch {
+    /* localStorage kapalıysa sessiz geç */
+  }
+}
+
+// Tüm proje bazlı sayfalar arasında seçili projeyi korur (localStorage + ortak yükleme + çevrimdışı önbellek)
 export function useProjects(preferredId = null) {
-  const [projects, setProjects] = useState([]);
+  const [projects, setProjects] = useState(() => loadCachedProjects());
   const [projectId, setProjectIdState] = useState(() => {
     const pref = preferredId != null ? Number(preferredId) : NaN;
     if (Number.isInteger(pref) && pref > 0) return pref;
     try {
       const saved = Number(localStorage.getItem(PROJECT_KEY));
-      return Number.isInteger(saved) && saved > 0 ? saved : null;
+      if (Number.isInteger(saved) && saved > 0) return saved;
+      const cached = loadCachedProjects();
+      return cached[0]?.id ?? null;
     } catch {
       return null;
     }
@@ -121,15 +142,31 @@ export function useProjects(preferredId = null) {
   }
 
   async function reloadProjects() {
-    const p = await api.get('/api/projects');
-    setProjects(p);
-    setProjectId((prev) => {
-      const pref = preferredId != null ? Number(preferredId) : null;
-      if (pref && p.some((x) => x.id === pref)) return pref;
-      if (prev && p.some((x) => x.id === prev)) return prev;
-      return p[0]?.id ?? null;
-    });
-    return p;
+    try {
+      const p = await api.get('/api/projects');
+      setProjects(p);
+      saveCachedProjects(p);
+      setProjectId((prev) => {
+        const pref = preferredId != null ? Number(preferredId) : null;
+        if (pref && p.some((x) => x.id === pref)) return pref;
+        if (prev && p.some((x) => x.id === prev)) return prev;
+        return p[0]?.id ?? null;
+      });
+      return p;
+    } catch (err) {
+      const cached = loadCachedProjects();
+      if (cached.length > 0) {
+        setProjects(cached);
+        setProjectId((prev) => {
+          const pref = preferredId != null ? Number(preferredId) : null;
+          if (pref && cached.some((x) => x.id === pref)) return pref;
+          if (prev && cached.some((x) => x.id === prev)) return prev;
+          return cached[0]?.id ?? null;
+        });
+        return cached;
+      }
+      throw err;
+    }
   }
 
   useEffect(() => {

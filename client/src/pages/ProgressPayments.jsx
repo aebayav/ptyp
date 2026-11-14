@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '../api';
+import { api, apiDownload, apiUrl, getToken } from '../api';
 import { fmtDate, fmtMoney, useProjects } from '../utils';
 import Modal from '../components/Modal';
 
@@ -245,6 +245,30 @@ export default function ProgressPayments() {
     }
   }
 
+  async function exportHakedisExcel(p) {
+    try {
+      await apiDownload(
+        `/api/progress-payments/${p.id}/export`,
+        `ptyp-hakedis-${p.period_no}-yesil-defter.xlsx`
+      );
+    } catch (e) {
+      alert('Excel indirilemedi: ' + e.message);
+    }
+  }
+
+  async function openHakedisReport(p) {
+    try {
+      const res = await fetch(apiUrl(`/api/progress-payments/${p.id}/report`), {
+        headers: { Authorization: 'Bearer ' + getToken() },
+      });
+      if (!res.ok) throw new Error('Rapor üretilemedi.');
+      const blob = await res.blob();
+      window.open(URL.createObjectURL(blob), '_blank');
+    } catch (e) {
+      alert('Rapor açılamadı: ' + e.message);
+    }
+  }
+
   return (
     <div>
       <div className="page-head">
@@ -336,10 +360,26 @@ export default function ProgressPayments() {
                     <span className={`badge ${STATUS_META[p.status]?.cls}`}>{STATUS_META[p.status]?.label}</span>
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
-                    <button className="btn btn-sm" title="Düzenle" onClick={() => openEditModal(p)}>Düzenle</button>
-                    {p.status === 'draft' && (
-                      <button className="btn btn-sm btn-danger" title="Sil" onClick={() => removePayment(p)}>Sil</button>
-                    )}
+                    <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                      <button
+                        className="btn btn-sm"
+                        title="Yeşil Defter + İcmal + Fiyat Farkı Excel Çıktısı"
+                        onClick={() => exportHakedisExcel(p)}
+                      >
+                        📗 Yeşil Defter (Excel)
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        title="Fotoğraflı Kanıt Albümü ve Resmi Hakediş Raporu (Yazdır / PDF)"
+                        onClick={() => openHakedisReport(p)}
+                      >
+                        🖨️ Rapor
+                      </button>
+                      <button className="btn btn-sm" title="Düzenle" onClick={() => openEditModal(p)}>Düzenle</button>
+                      {p.status === 'draft' && (
+                        <button className="btn btn-sm btn-danger" title="Sil" onClick={() => removePayment(p)}>Sil</button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -357,7 +397,21 @@ export default function ProgressPayments() {
               </h3>
               {selPayment.notes && <div className="muted" style={{ fontSize: 12.5 }}>{selPayment.notes}</div>}
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                className="btn btn-sm"
+                onClick={() => exportHakedisExcel(selPayment)}
+                title="3 Sayfalı Excel: Hakediş İcmali + Yeşil Defter (Direk Bazlı Metraj) + Fiyat Farkı Pn"
+              >
+                📗 Yeşil Defter &amp; İcmal (Excel)
+              </button>
+              <button
+                className="btn btn-sm"
+                onClick={() => openHakedisReport(selPayment)}
+                title="Onaylı saha fotoğrafları ve imza bloklarıyla resmi hakediş raporu"
+              >
+                🖨️ Kanıtlı Rapor (PDF/Yazdır)
+              </button>
               {selPayment.status === 'draft' && (
                 <button className="btn btn-sm" onClick={() => changeStatus(selPayment, 'submitted')}>Sun (Onaya Gönder)</button>
               )}

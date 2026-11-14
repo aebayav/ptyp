@@ -1,4 +1,5 @@
 const TOKEN_KEY = 'ptyp_token';
+const USER_CACHE_KEY = 'ptyp_cached_user';
 const SERVER_URL_KEY = 'ptyp_server_url';
 
 export function getApiBaseUrl() {
@@ -45,10 +46,39 @@ export function getToken() {
 export function setToken(t) {
   try {
     if (t) localStorage.setItem(TOKEN_KEY, t);
-    else localStorage.removeItem(TOKEN_KEY);
+    else {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_CACHE_KEY);
+    }
   } catch {
     /* localStorage kapalıysa sessiz geç */
   }
+}
+
+export function getCachedUser() {
+  try {
+    const raw = localStorage.getItem(USER_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setCachedUser(u) {
+  try {
+    if (u) localStorage.setItem(USER_CACHE_KEY, JSON.stringify(u));
+    else localStorage.removeItem(USER_CACHE_KEY);
+  } catch {
+    /* localStorage kapalıysa sessiz geç */
+  }
+}
+
+export function isNetworkOrOfflineError(err) {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+  if (!err) return false;
+  if (err.status && Number.isInteger(err.status)) return false;
+  const msg = String(err.message || '');
+  return msg === 'OFFLINE_MODE' || /failed to fetch|networkerror|load failed|network request failed|fetch/i.test(msg);
 }
 
 function handleUnauthorized(status) {
@@ -82,7 +112,9 @@ async function request(path, options = {}) {
     },
   });
   if (!res.ok) {
-    throw new Error(await readError(res, `İstek başarısız oldu (HTTP ${res.status}).`));
+    const err = new Error(await readError(res, `İstek başarısız oldu (HTTP ${res.status}).`));
+    err.status = res.status;
+    throw err;
   }
   if (res.status === 204) return null;
   return res.json();

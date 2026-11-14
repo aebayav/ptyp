@@ -11,7 +11,11 @@ import { pool } from '../db';
 import { requireAuth, requireRole, AuthedRequest } from '../auth';
 import { POLE_STATUSES, poleNumberFromName, poleProgress } from '../pole-statuses';
 import { toDateOrNull } from '../dates';
-import { syncWorkGroupsFromSaha } from '../work-plan-generator';
+import {
+  computeCantonReadiness,
+  computePoleParcelBlockers,
+  syncWorkGroupsFromSaha,
+} from '../work-plan-generator';
 import {
   analyzePhotoLocal,
   evaluateDecisionScorecard,
@@ -55,48 +59,63 @@ router.get('/:id', async (req: Request, res: Response) => {
   const proj = await pool.query('SELECT name FROM projects WHERE id = $1', [projectId]);
   if (proj.rowCount === 0) return res.status(404).json({ error: 'Proje bulunamadı.' });
 
-  const poles = await pool.query(
-    `SELECT p.idx, p.name, p.lat, p.lon,
-            p.meta->>'tower_type' AS tower_type,
-            p.meta->>'function' AS pole_function,
-            p.meta->>'station_text' AS station_text,
-            p.meta->>'span_m' AS span_m,
-            p.meta->>'body_ext_m' AS body_ext_m,
-            COALESCE(s.status, 'none') AS status,
-            s.note, s.updated_at, s.updated_by,
-            u.display_name AS updated_by_name
-     FROM poles p
-     LEFT JOIN pole_status s ON s.project_id = p.project_id AND s.pole_idx = p.idx
-     LEFT JOIN users u ON u.id = s.updated_by
-     WHERE p.project_id = $1
-     ORDER BY p.idx`,
-    [projectId]
-  );
-  const photos = await pool.query(
-    `SELECT ph.id, ph.pole_idx, ph.caption, ph.stage, ph.gps_distance_m,
-            ph.nearest_pole_idx, ph.nearest_pole_name, ph.nearest_distance_m,
-            ph.decision_status, ph.decision_score, ph.scorecard,
-            ph.review_note, ph.reviewed_at, ph.created_at, ph.uploaded_by,
-            u.display_name AS uploaded_by_name,
-            ru.display_name AS reviewed_by_name
-     FROM pole_photos ph
-     LEFT JOIN users u ON u.id = ph.uploaded_by
-     LEFT JOIN users ru ON ru.id = ph.reviewed_by
-     WHERE ph.project_id = $1
-     ORDER BY ph.created_at DESC`,
-    [projectId]
-  );
-  const poolAgg = await pool.query(
-    `SELECT status, COUNT(*)::int AS cnt
-     FROM hakedis_pool
-     WHERE project_id = $1
-     GROUP BY status`,
-    [projectId]
-  );
+  const [poles, photos, poolAgg, parcelsRes, dtlRes] = await Promise.all([
+    pool.query(
+      `SELECT p.idx, p.name, p.lat, p.lon, p.meta,
+              p.meta->>'tower_type' AS tower_type,
+              p.meta->>'function' AS pole_function,
+              p.meta->>'station_text' AS station_text,
+              p.meta->>'span_m' AS span_m,
+              p.meta->>'body_ext_m' AS body_ext_m,
+              COALESCE(s.status, 'none') AS status,
+              s.note, s.updated_at, s.updated_by,
+              u.display_name AS updated_by_name
+       FROM poles p
+       LEFT JOIN pole_status s ON s.project_id = p.project_id AND s.pole_idx = p.idx
+       LEFT JOIN users u ON u.id = s.updated_by
+       WHERE p.project_id = $1
+       ORDER BY p.idx`,
+      [projectId]
+    ),
+    pool.query(
+      `SELECT ph.id, ph.pole_idx, ph.caption, ph.stage, ph.gps_distance_m,
+              ph.nearest_pole_idx, ph.nearest_pole_name, ph.nearest_distance_m,
+              ph.decision_status, ph.decision_score, ph.scorecard,
+              ph.review_note, ph.reviewed_at, ph.created_at, ph.uploaded_by,
+              u.display_name AS uploaded_by_name,
+              ru.display_name AS reviewed_by_name
+       FROM pole_photos ph
+       LEFT JOIN users u ON u.id = ph.uploaded_by
+       LEFT JOIN users ru ON ru.id = ph.reviewed_by
+       WHERE ph.project_id = $1
+       ORDER BY ph.created_at DESC`,
+      [projectId]
+    ),
+    pool.query(
+      `SELECT status, COUNT(*)::int AS cnt
+       FROM hakedis_pool
+       WHERE project_id = $1
+       GROUP BY status`,
+      [projectId]
+    ),
+    pool.query(
+      `SELECT id, pole_from_idx, pole_to_idx, parcel_no, owner_name, easement_status, legal_status
+       FROM parcels
+       WHERE project_id = $1
+       ORDER BY pole_from_idx, pole_to_idx`,
+      [projectId]
+    ),
+    pool.query('SELECT rows FROM project_dtl WHERE project_id = $1', [projectId]),
+  ]);
+
   const poolCounts: Record<string, number> = { ready: 0, pending_review: 0, transferred: 0, rejected: 0 };
   for (const r of poolAgg.rows) {
     poolCounts[r.status] = Number(r.cnt) || 0;
   }
+
+  const dtlRows: any[] = Array.isArray(dtlRes.rows[0]?.rows) ? dtlRes.rows[0].rows : [];
+  const parcelBlockers = computePoleParcelBlockers(poles.rows, parcelsRes.rows);
+  const cantonReadiness = computeCantonReadiness(poles.rows, dtlRows, parcelsRes.rows);
 
   const photoByPole = new Map<number, any[]>();
   for (const ph of photos.rows) {
@@ -143,6 +162,7 @@ router.get('/:id', async (req: Request, res: Response) => {
       note: p.note || '',
       updated_at: p.updated_at,
       updated_by: p.updated_by_name || '',
+      parcel_blocker: parcelBlockers[p.idx] || null,
       photos: photoByPole.get(p.idx) || [],
     };
   });
@@ -150,6 +170,8 @@ router.get('/:id', async (req: Request, res: Response) => {
   res.json({
     project_name: proj.rows[0].name,
     poles: out,
+    parcels: parcelsRes.rows,
+    canton_readiness: cantonReadiness,
     statuses: POLE_STATUSES,
     pool_summary: poolCounts,
     summary: {

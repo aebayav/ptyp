@@ -32,6 +32,7 @@ export default function Kamulastirma() {
   const { projects, projectId, setProjectId } = useProjects();
   const [poles, setPoles] = useState([]);
   const [parcels, setParcels] = useState([]);
+  const [readiness, setReadiness] = useState(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [filter, setFilter] = useState('all');
@@ -45,12 +46,14 @@ export default function Kamulastirma() {
     if (projectId == null) return;
     setBusy(true);
     try {
-      const [p, q] = await Promise.all([
+      const [p, q, r] = await Promise.all([
         api.get(`/api/parcels/poles?project_id=${projectId}`),
         api.get(`/api/parcels?project_id=${projectId}`),
+        api.get(`/api/parcels/readiness?project_id=${projectId}`).catch(() => null),
       ]);
       setPoles(p);
       setParcels(q);
+      setReadiness(r);
     } catch (e) {
       setMsg({ type: 'err', text: e.message });
     } finally {
@@ -220,6 +223,70 @@ export default function Kamulastirma() {
               </button>
             ))}
           </div>
+
+          {readiness?.cantons?.length > 0 && (
+            <div className="card" style={{ marginBottom: 14, padding: '12px 16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>
+                  🚧 Gergi Kantonları Çalışılabilir Cephe Analizi
+                </div>
+                <div style={{ display: 'flex', gap: 8, fontSize: 11.5, flexWrap: 'wrap' }}>
+                  <span className="badge badge-green">
+                    🟢 Açık Cephe: {readiness.summary.open_canton_count}/{readiness.summary.total_cantons}
+                  </span>
+                  {readiness.summary.ready_for_stringing_count > 0 && (
+                    <span className="badge badge-blue">
+                      ⚡ Tel Çekimine Hazır: {readiness.summary.ready_for_stringing_count}
+                    </span>
+                  )}
+                  {readiness.summary.blocked_canton_count > 0 && (
+                    <span className="badge badge-red">
+                      🔴 Kamulaştırma Engelli: {readiness.summary.blocked_canton_count}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 8 }}>
+                {readiness.cantons.map((c) => {
+                  const borderCol =
+                    c.readiness_status === 'blocked'
+                      ? '#dc2626'
+                      : c.readiness_status === 'pending_permit'
+                        ? '#d97706'
+                        : '#16a34a';
+                  return (
+                    <div
+                      key={c.index}
+                      style={{
+                        border: '1px solid var(--border, #dbe2ea)',
+                        borderLeft: `4px solid ${borderCol}`,
+                        borderRadius: 6,
+                        padding: '6px 10px',
+                        fontSize: 12,
+                      }}
+                    >
+                      <div style={{ fontWeight: 700 }}>
+                        Kanton {c.index}: {c.fromLabel} → {c.toLabel}{' '}
+                        <span className="muted" style={{ fontWeight: 400 }}>
+                          ({c.poleCount} direk)
+                        </span>
+                      </div>
+                      <div style={{ marginTop: 2 }}>{c.readiness_label}</div>
+                      {c.blocking_parcels?.length > 0 && (
+                        <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>
+                          Engel:{' '}
+                          {c.blocking_parcels
+                            .slice(0, 2)
+                            .map((bp) => `${bp.parcel_no || bp.span_label}${bp.owner_name ? ` (${bp.owner_name})` : ''}`)
+                            .join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="card" style={{ marginBottom: 14, padding: 10 }}>
             <div ref={mapDivRef} className="saha-map" />

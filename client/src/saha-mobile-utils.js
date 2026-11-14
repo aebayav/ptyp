@@ -276,9 +276,16 @@ function openOfflineDb() {
 export async function cacheProjectSahaData(projectId, data) {
   try {
     const db = await openOfflineDb();
+    const existing = await new Promise((resolve) => {
+      const tx = db.transaction(STORE_CACHE, 'readonly');
+      const req = tx.objectStore(STORE_CACHE).get(Number(projectId));
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
     await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_CACHE, 'readwrite');
       tx.objectStore(STORE_CACHE).put({
+        ...(existing || {}),
         projectId: Number(projectId),
         data,
         cachedAt: new Date().toISOString(),
@@ -288,6 +295,63 @@ export async function cacheProjectSahaData(projectId, data) {
     });
   } catch {
     /* sessiz */
+  }
+}
+
+export async function patchCachedPoleStatus(projectId, poleIdx, status, statusLabel, note) {
+  try {
+    const cached = await getCachedProjectSahaData(projectId);
+    if (!cached?.data?.poles) return;
+    const nextData = {
+      ...cached.data,
+      poles: cached.data.poles.map((p) =>
+        Number(p.idx) === Number(poleIdx)
+          ? {
+              ...p,
+              status: status ?? p.status,
+              status_label: statusLabel ?? p.status_label,
+              note: note !== undefined ? note : p.note,
+            }
+          : p
+      ),
+    };
+    await cacheProjectSahaData(projectId, nextData);
+  } catch {
+    /* sessiz */
+  }
+}
+
+export async function cacheProjectRequests(projectId, requests) {
+  try {
+    const db = await openOfflineDb();
+    const existing = await new Promise((resolve) => {
+      const tx = db.transaction(STORE_CACHE, 'readonly');
+      const req = tx.objectStore(STORE_CACHE).get(Number(projectId));
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_CACHE, 'readwrite');
+      tx.objectStore(STORE_CACHE).put({
+        ...(existing || {}),
+        projectId: Number(projectId),
+        requests: Array.isArray(requests) ? requests : [],
+        requestsCachedAt: new Date().toISOString(),
+      });
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    /* sessiz */
+  }
+}
+
+export async function getCachedProjectRequests(projectId) {
+  try {
+    const cached = await getCachedProjectSahaData(projectId);
+    return Array.isArray(cached?.requests) ? cached.requests : null;
+  } catch {
+    return null;
   }
 }
 
@@ -307,15 +371,49 @@ export async function getCachedProjectSahaData(projectId) {
 
 export async function enqueueOfflineSubmission(entry) {
   const db = await openOfflineDb();
+  const kind = entry.kind || 'photo';
+
+  // Aynı direk için bekleyen fotoğrafsız durum/not güncellemesi varsa üstüne yaz (tekilleştir)
   const id = await new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_QUEUE, 'readwrite');
-    const req = tx.objectStore(STORE_QUEUE).add({
-      ...entry,
-      createdAt: new Date().toISOString(),
-    });
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    const store = tx.objectStore(STORE_QUEUE);
+
+    if (kind === 'status' && entry.projectId != null && entry.poleIdx != null) {
+      const allReq = store.getAll();
+      allReq.onsuccess = () => {
+        const list = allReq.result || [];
+        const dup = list.find(
+          (x) =>
+            (x.kind || 'photo') === 'status' &&
+            Number(x.projectId) === Number(entry.projectId) &&
+            Number(x.poleIdx) === Number(entry.poleIdx)
+        );
+        const record = {
+          ...(dup || {}),
+          ...entry,
+          kind: 'status',
+          attempts: 0,
+          lastError: null,
+          createdAt: new Date().toISOString(),
+        };
+        const writeReq = dup ? store.put(record) : store.add(record);
+        writeReq.onsuccess = () => resolve(writeReq.result);
+        writeReq.onerror = () => reject(writeReq.error);
+      };
+      allReq.onerror = () => reject(allReq.error);
+    } else {
+      const req = store.add({
+        ...entry,
+        kind,
+        attempts: 0,
+        lastError: null,
+        createdAt: new Date().toISOString(),
+      });
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    }
   });
+
   // Tarayıcı Background Sync API destekliyorsa şebeke geldiğinde arka planda tetikle
   try {
     if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
@@ -328,6 +426,31 @@ export async function enqueueOfflineSubmission(entry) {
     /* Background Sync desteklenmiyorsa window online dinleyicisi devreye girer */
   }
   return id;
+}
+
+export async function markOfflineSubmissionError(id, errorMessage) {
+  try {
+    const db = await openOfflineDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_QUEUE, 'readwrite');
+      const store = tx.objectStore(STORE_QUEUE);
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const cur = getReq.result;
+        if (!cur) return resolve();
+        store.put({
+          ...cur,
+          attempts: (Number(cur.attempts) || 0) + 1,
+          lastError: String(errorMessage || 'Hata'),
+          lastTriedAt: new Date().toISOString(),
+        });
+      };
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    /* sessiz */
+  }
 }
 
 export async function listOfflineSubmissions(projectId = null) {

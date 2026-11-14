@@ -477,6 +477,259 @@ export function detectCantons(
   return cantons;
 }
 
+export interface PoleParcelBlockerItem {
+  id?: number;
+  parcel_no: string;
+  owner_name: string;
+  easement_status: string;
+  legal_status: string;
+  span_label: string;
+  pole_from_idx: number;
+  pole_to_idx: number;
+}
+
+export interface PoleParcelBlocker {
+  severity: 'izinsiz' | 'basvuruda';
+  parcel_count: number;
+  summary_text: string;
+  parcels: PoleParcelBlockerItem[];
+}
+
+export interface CantonReadinessItem {
+  index: number;
+  fromNum: number;
+  toNum: number;
+  fromLabel: string;
+  toLabel: string;
+  fromIdx: number | null;
+  toIdx: number | null;
+  poleCount: number;
+  erected_pole_count: number;
+  completed_pole_count: number;
+  izinsiz_count: number;
+  basvuruda_count: number;
+  izinli_count: number;
+  readiness_status: 'blocked' | 'pending_permit' | 'ready_for_stringing' | 'ready_for_civil' | 'completed';
+  readiness_label: string;
+  blocking_parcels: PoleParcelBlockerItem[];
+}
+
+/**
+ * Her direk idx'i için o direğin dahil olduğu açıklıklarda 'izinsiz' veya 'basvuruda'
+ * kamulaştırma/parsel kaydı varsa uyarı nesnesi üretir.
+ */
+export function computePoleParcelBlockers(
+  poles: { idx: number; name: string; meta?: any; status?: string }[],
+  parcels: {
+    id?: number;
+    pole_from_idx: number;
+    pole_to_idx: number;
+    parcel_no?: string;
+    owner_name?: string;
+    easement_status: string;
+    legal_status?: string;
+  }[]
+): Record<number, PoleParcelBlocker> {
+  const nameByIdx = new Map<number, string>();
+  for (const p of poles || []) {
+    nameByIdx.set(Number(p.idx), p.name || `D-${p.idx}`);
+  }
+
+  const byPole = new Map<number, PoleParcelBlockerItem[]>();
+  for (const par of parcels || []) {
+    const st = String(par.easement_status || '').toLowerCase();
+    if (st !== 'izinsiz' && st !== 'basvuruda') continue;
+    const fromIdx = Math.min(Number(par.pole_from_idx), Number(par.pole_to_idx));
+    const toIdx = Math.max(Number(par.pole_from_idx), Number(par.pole_to_idx));
+    if (!Number.isFinite(fromIdx) || !Number.isFinite(toIdx)) continue;
+
+    const fromName = nameByIdx.get(fromIdx) || `D-${fromIdx}`;
+    const toName = nameByIdx.get(toIdx) || `D-${toIdx}`;
+    const item: PoleParcelBlockerItem = {
+      id: par.id,
+      parcel_no: String(par.parcel_no || '').trim(),
+      owner_name: String(par.owner_name || '').trim(),
+      easement_status: st,
+      legal_status: String(par.legal_status || 'yok'),
+      span_label: `${fromName} → ${toName}`,
+      pole_from_idx: fromIdx,
+      pole_to_idx: toIdx,
+    };
+
+    for (const p of poles || []) {
+      const idx = Number(p.idx);
+      if (idx >= fromIdx && idx <= toIdx) {
+        if (!byPole.has(idx)) byPole.set(idx, []);
+        byPole.get(idx)!.push(item);
+      }
+    }
+  }
+
+  const out: Record<number, PoleParcelBlocker> = {};
+  for (const [idx, list] of byPole.entries()) {
+    const hasIzinsiz = list.some((x) => x.easement_status === 'izinsiz');
+    const severity: 'izinsiz' | 'basvuruda' = hasIzinsiz ? 'izinsiz' : 'basvuruda';
+    const top = list.find((x) => x.easement_status === severity) || list[0];
+    const prefix = severity === 'izinsiz' ? 'İzinsiz Parsel' : 'İzin Başvuruda';
+    const detail = [
+      top.parcel_no ? `No: ${top.parcel_no}` : '',
+      top.owner_name ? `(${top.owner_name})` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    out[idx] = {
+      severity,
+      parcel_count: list.length,
+      summary_text: `${prefix}${detail ? `: ${detail}` : ` (${top.span_label})`}${list.length > 1 ? ` +${list.length - 1}` : ''}`,
+      parcels: list,
+    };
+  }
+  return out;
+}
+
+/**
+ * Gergi kantonlarının (veya direk kesimlerinin) kamulaştırma izin durumunu ve
+ * direk dikim/montaj durumunu birleştirerek "Çalışılabilir Cephe (Kanton Hazırlık)" analizi üretir.
+ */
+export function computeCantonReadiness(
+  poles: { idx: number; name: string; meta?: any; status?: string }[],
+  dtlRows: any[],
+  parcels: {
+    id?: number;
+    pole_from_idx: number;
+    pole_to_idx: number;
+    parcel_no?: string;
+    owner_name?: string;
+    easement_status: string;
+    legal_status?: string;
+  }[]
+): {
+  cantons: CantonReadinessItem[];
+  summary: {
+    total_cantons: number;
+    open_canton_count: number;
+    ready_for_stringing_count: number;
+    blocked_canton_count: number;
+    pending_permit_canton_count: number;
+  };
+} {
+  let rawCantons = detectCantons(poles as any, dtlRows || []);
+  const poleWithNum = (poles || []).map((p) => ({
+    ...p,
+    num: poleNumberFromName(p.name),
+  }));
+
+  if (rawCantons.length === 0 && poleWithNum.length >= 2) {
+    const nums = poleWithNum.map((p) => p.num).filter((n): n is number => n != null);
+    if (nums.length >= 2) {
+      const minN = Math.min(...nums);
+      const maxN = Math.max(...nums);
+      rawCantons = buildEqualSegments(minN, maxN, 20);
+    }
+  }
+
+  const nameByIdx = new Map<number, string>();
+  for (const p of poles || []) nameByIdx.set(Number(p.idx), p.name || `D-${p.idx}`);
+
+  const ERECTED_SET = new Set(['erection', 'fittings', 'stringing', 'completed']);
+  const COMPLETED_SET = new Set(['stringing', 'completed']);
+
+  const cantonItems: CantonReadinessItem[] = rawCantons.map((c) => {
+    const cPoles = poleWithNum.filter((p) => p.num != null && p.num >= c.fromNum && p.num <= c.toNum);
+    const idxs = cPoles.map((p) => Number(p.idx));
+    const minIdx = idxs.length > 0 ? Math.min(...idxs) : null;
+    const maxIdx = idxs.length > 0 ? Math.max(...idxs) : null;
+
+    const erectedCount = cPoles.filter((p) => ERECTED_SET.has(String(p.status || 'none'))).length;
+    const completedCount = cPoles.filter((p) => COMPLETED_SET.has(String(p.status || 'none'))).length;
+
+    let izinsizCount = 0;
+    let basvurudaCount = 0;
+    let izinliCount = 0;
+    const blockingParcels: PoleParcelBlockerItem[] = [];
+
+    if (minIdx != null && maxIdx != null) {
+      for (const par of parcels || []) {
+        const pFrom = Math.min(Number(par.pole_from_idx), Number(par.pole_to_idx));
+        const pTo = Math.max(Number(par.pole_from_idx), Number(par.pole_to_idx));
+        // Açıklık bu kantonun direk aralığıyla kesişiyor mu?
+        if (pTo >= minIdx && pFrom <= maxIdx && !(pFrom === maxIdx && pTo > maxIdx) && !(pTo === minIdx && pFrom < minIdx)) {
+          const st = String(par.easement_status || '').toLowerCase();
+          if (st === 'izinsiz') izinsizCount++;
+          else if (st === 'basvuruda') basvurudaCount++;
+          else if (st === 'izinli') izinliCount++;
+
+          if (st === 'izinsiz' || st === 'basvuruda') {
+            blockingParcels.push({
+              id: par.id,
+              parcel_no: String(par.parcel_no || '').trim(),
+              owner_name: String(par.owner_name || '').trim(),
+              easement_status: st,
+              legal_status: String(par.legal_status || 'yok'),
+              span_label: `${nameByIdx.get(pFrom) || `D-${pFrom}`} → ${nameByIdx.get(pTo) || `D-${pTo}`}`,
+              pole_from_idx: pFrom,
+              pole_to_idx: pTo,
+            });
+          }
+        }
+      }
+    }
+
+    let readiness_status: CantonReadinessItem['readiness_status'];
+    let readiness_label: string;
+    const totalP = cPoles.length || c.poleCount;
+
+    if (izinsizCount > 0) {
+      readiness_status = 'blocked';
+      readiness_label = `🔴 Kamulaştırma Engelli (${izinsizCount} izinsiz)`;
+    } else if (basvurudaCount > 0) {
+      readiness_status = 'pending_permit';
+      readiness_label = `🟡 İzin Başvuruda (${basvurudaCount} parsel)`;
+    } else if (totalP > 0 && completedCount >= totalP) {
+      readiness_status = 'completed';
+      readiness_label = '✅ Tel Çekimi / İmalat Tamam';
+    } else if (totalP > 0 && erectedCount >= totalP) {
+      readiness_status = 'ready_for_stringing';
+      readiness_label = '🟢 Tel Çekimine Hazır (Açık Cephe)';
+    } else {
+      readiness_status = 'ready_for_civil';
+      readiness_label = `🟢 Açık Cephe (Dikim: ${erectedCount}/${totalP})`;
+    }
+
+    return {
+      index: c.index,
+      fromNum: c.fromNum,
+      toNum: c.toNum,
+      fromLabel: c.fromLabel,
+      toLabel: c.toLabel,
+      fromIdx: minIdx,
+      toIdx: maxIdx,
+      poleCount: totalP,
+      erected_pole_count: erectedCount,
+      completed_pole_count: completedCount,
+      izinsiz_count: izinsizCount,
+      basvuruda_count: basvurudaCount,
+      izinli_count: izinliCount,
+      readiness_status,
+      readiness_label,
+      blocking_parcels: blockingParcels,
+    };
+  });
+
+  return {
+    cantons: cantonItems,
+    summary: {
+      total_cantons: cantonItems.length,
+      open_canton_count: cantonItems.filter((x) =>
+        ['ready_for_stringing', 'ready_for_civil', 'completed'].includes(x.readiness_status)
+      ).length,
+      ready_for_stringing_count: cantonItems.filter((x) => x.readiness_status === 'ready_for_stringing').length,
+      blocked_canton_count: cantonItems.filter((x) => x.readiness_status === 'blocked').length,
+      pending_permit_canton_count: cantonItems.filter((x) => x.readiness_status === 'pending_permit').length,
+    },
+  };
+}
+
 /** Eşit büyüklükte direk kesimleri üretir (ör. 20'şer direk). */
 function buildEqualSegments(minNum: number, maxNum: number, segmentSize: number): CantonSpan[] {
   const size = Math.max(5, Math.min(200, Math.round(segmentSize) || 20));

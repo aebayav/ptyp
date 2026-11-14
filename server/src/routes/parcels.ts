@@ -3,6 +3,7 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
+import { computeCantonReadiness } from '../work-plan-generator';
 
 const router = Router();
 
@@ -51,6 +52,26 @@ router.get('/poles', async (req: Request, res: Response) => {
     [pid]
   );
   res.json(rows);
+});
+
+// Kanton bazlı çalışılabilir cephe & kamulaştırma blokaj analizi
+router.get('/readiness', async (req: Request, res: Response) => {
+  const pid = Number(req.query.project_id);
+  if (!Number.isInteger(pid) || pid <= 0) return res.status(400).json({ error: 'Geçerli bir proje seçin.' });
+  const [polesRes, parcelsRes, dtlRes] = await Promise.all([
+    pool.query(
+      `SELECT p.idx, p.name, p.meta, COALESCE(s.status, 'none') AS status
+       FROM poles p
+       LEFT JOIN pole_status s ON s.project_id = p.project_id AND s.pole_idx = p.idx
+       WHERE p.project_id = $1
+       ORDER BY p.idx`,
+      [pid]
+    ),
+    pool.query('SELECT * FROM parcels WHERE project_id = $1 ORDER BY pole_from_idx', [pid]),
+    pool.query('SELECT rows FROM project_dtl WHERE project_id = $1', [pid]),
+  ]);
+  const dtlRows: any[] = Array.isArray(dtlRes.rows[0]?.rows) ? dtlRes.rows[0].rows : [];
+  res.json(computeCantonReadiness(polesRes.rows, dtlRows, parcelsRes.rows));
 });
 
 const EASEMENT_VALUES = Object.keys(EASEMENT_STATUSES);

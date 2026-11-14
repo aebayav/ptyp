@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { api, apiUrl, getToken } from '../api';
+import { api, apiUrl, getToken, isNetworkOrOfflineError } from '../api';
 import { useAuth } from '../AuthContext';
 import Modal from '../components/Modal';
 import { loadLeaflet, useProjects } from '../utils';
 import {
   STAGE_CHECKLISTS,
+  cacheProjectRequests,
   cacheProjectSahaData,
   enqueueOfflineSubmission,
   findNearestPole,
+  getCachedProjectRequests,
   getCachedProjectSahaData,
   listOfflineSubmissions,
+  markOfflineSubmissionError,
+  patchCachedPoleStatus,
   processFieldPhotoClient,
   removeOfflineSubmission,
 } from '../saha-mobile-utils';
@@ -79,6 +83,7 @@ export default function Saha() {
   const [isOnline, setIsOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
   const [offlineQueue, setOfflineQueue] = useState([]);
   const [syncingOffline, setSyncingOffline] = useState(false);
+  const [showOfflineModal, setShowOfflineModal] = useState(false);
 
   // Kanıtlı Fotoğraf & Aşama Gönderim Modalı
   const [capturePole, setCapturePole] = useState(null);
@@ -237,20 +242,49 @@ export default function Saha() {
       if (pts.length > 1) {
         L.polyline(pts, { color: '#64748b', weight: 2.5, dashArray: '4 5' }).addTo(layer);
       }
+      // Kamulaştırma / izinsiz veya başvuruda olan açıklıkları haritada kırmızı/turuncu vurgula
+      const poleByIdx = new Map(data.poles.map((p) => [Number(p.idx), p]));
+      for (const par of data.parcels || []) {
+        const st = String(par.easement_status || '').toLowerCase();
+        if (st !== 'izinsiz' && st !== 'basvuruda') continue;
+        const a = poleByIdx.get(Number(par.pole_from_idx));
+        const b = poleByIdx.get(Number(par.pole_to_idx));
+        if (!a || !b) continue;
+        const line = L.polyline(
+          [
+            [a.lat, a.lon],
+            [b.lat, b.lon],
+          ],
+          {
+            color: st === 'izinsiz' ? '#dc2626' : '#d97706',
+            weight: 5,
+            opacity: 0.9,
+            dashArray: st === 'izinsiz' ? '6 4' : '4 4',
+          }
+        ).addTo(layer);
+        line.bindPopup(
+          `<b>${st === 'izinsiz' ? '⛔ İzinsiz Parsel Engeli' : '⚠️ İzin Başvuruda'}</b>` +
+            `<br>${a.name} → ${b.name}` +
+            (par.parcel_no ? `<br>Parsel: <b>${par.parcel_no}</b>` : '') +
+            (par.owner_name ? `<br>Malik: ${par.owner_name}` : '')
+        );
+      }
       for (const p of data.poles) {
         if (filter !== 'all' && p.status !== filter) continue;
         const st = data.statuses[p.status] || data.statuses.none;
+        const blk = p.parcel_blocker;
         const m = L.circleMarker([p.lat, p.lon], {
-          radius: 8,
-          color: '#ffffff',
-          weight: 1.5,
+          radius: blk ? 9.5 : 8,
+          color: blk ? (blk.severity === 'izinsiz' ? '#dc2626' : '#d97706') : '#ffffff',
+          weight: blk ? 2.5 : 1.5,
           fillColor: st.color,
           fillOpacity: 0.95,
         }).addTo(layer);
         m.bindPopup(
           `<b>${p.name}</b><br>${p.tower_type || '—'}` +
             (p.station_text ? ` · ${p.station_text}` : '') +
-            `<br>Durum: ${st.label}`
+            `<br>Durum: ${st.label}` +
+            (blk ? `<br><span style="color:${blk.severity === 'izinsiz' ? '#dc2626' : '#d97706'};font-weight:700">⛔ ${blk.summary_text}</span>` : '')
         );
       }
       if (pts.length > 0) map.fitBounds(L.latLngBounds(pts.map((x) => [x[0], x[1]])).pad(0.15));
@@ -427,13 +461,15 @@ export default function Saha() {
       if (tab === 'pool') await loadPool();
     } catch (err) {
       // Şebeke hatası veya çevrimdışı durumdaysa IndexedDB kuyruğuna kaydet
-      if (!navigator.onLine || err.message === 'OFFLINE_MODE' || /fetch|network|failed/i.test(err.message || '')) {
+      if (isNetworkOrOfflineError(err)) {
+        const stLabel = data?.statuses?.[captureStage]?.label || captureStage;
         await enqueueOfflineSubmission({
+          kind: 'photo',
           projectId,
           poleIdx: capturePole.idx,
           poleName: capturePole.name,
           stage: captureStage,
-          stageLabel: data?.statuses?.[captureStage]?.label || captureStage,
+          stageLabel: stLabel,
           note: captureNote,
           checklist: captureChecklist,
           captureLat: gpsState.lat,
@@ -441,11 +477,22 @@ export default function Saha() {
           gpsDistanceM: distM,
           files: processedPhotos.map((p) => p.file),
         });
+        await patchCachedPoleStatus(projectId, capturePole.idx, captureStage, stLabel, captureNote);
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                poles: prev.poles.map((p) =>
+                  p.idx === capturePole.idx ? { ...p, status: captureStage, status_label: stLabel, note: captureNote } : p
+                ),
+              }
+            : prev
+        );
         await refreshOfflineQueue();
         setCapturePole(null);
         setMsg({
           type: 'ok',
-          text: `⚡ Şebeke yok: ${capturePole.name} kanıtlı fotoğrafı Çevrimdışı Kuyruğa kaydedildi. İnternet geldiğinde tek tuşla gönderilecek.`,
+          text: `⚡ Şebeke yok: ${capturePole.name} kanıtlı fotoğrafı Çevrimdışı Kuyruğa kaydedildi. İnternet geldiğinde otomatik gönderilecek.`,
         });
       } else {
         setMsg({ type: 'err', text: 'Gönderim başarısız: ' + (err.message || 'hata') });
@@ -459,37 +506,65 @@ export default function Saha() {
     if (offlineQueue.length === 0 || syncingOffline) return;
     setSyncingOffline(true);
     let okCount = 0;
+    let failCount = 0;
+    let lastErrText = '';
     try {
       for (const item of offlineQueue) {
-        const fd = new FormData();
-        fd.append('pole_idx', String(item.poleIdx));
-        fd.append('stage', item.stage || '');
-        fd.append('note', item.note || '');
-        fd.append('caption', `${item.poleName} — ${item.stageLabel || ''}`);
-        fd.append('checklist', JSON.stringify(item.checklist || []));
-        if (item.captureLat != null && item.captureLon != null) {
-          fd.append('capture_lat', String(item.captureLat));
-          fd.append('capture_lon', String(item.captureLon));
+        try {
+          const kind = item.kind || 'photo';
+          if (kind === 'status') {
+            await api.put(`/api/saha/${item.projectId}/status`, {
+              pole_idx: item.poleIdx,
+              status: item.status || 'none',
+              note: item.note ?? '',
+            });
+          } else if (kind === 'request') {
+            await api.post(`/api/saha/${item.projectId}/requests`, item.requestPayload || {});
+          } else {
+            const fd = new FormData();
+            fd.append('pole_idx', String(item.poleIdx));
+            fd.append('stage', item.stage || '');
+            fd.append('note', item.note || '');
+            fd.append('caption', `${item.poleName} — ${item.stageLabel || ''}`);
+            fd.append('checklist', JSON.stringify(item.checklist || []));
+            if (item.captureLat != null && item.captureLon != null) {
+              fd.append('capture_lat', String(item.captureLat));
+              fd.append('capture_lon', String(item.captureLon));
+            }
+            if (item.gpsDistanceM != null) {
+              fd.append('gps_distance_m', String(item.gpsDistanceM));
+            }
+            for (const f of item.files || []) {
+              fd.append('photos', f);
+            }
+            await api.upload(`/api/saha/${item.projectId}/photos`, fd);
+          }
+          await removeOfflineSubmission(item.id);
+          okCount++;
+        } catch (itemErr) {
+          failCount++;
+          lastErrText = itemErr.message || 'Gönderim hatası';
+          await markOfflineSubmissionError(item.id, lastErrText);
+          if (isNetworkOrOfflineError(itemErr)) break;
         }
-        if (item.gpsDistanceM != null) {
-          fd.append('gps_distance_m', String(item.gpsDistanceM));
-        }
-        for (const f of item.files || []) {
-          fd.append('photos', f);
-        }
-        await api.upload(`/api/saha/${item.projectId}/photos`, fd);
-        await removeOfflineSubmission(item.id);
-        okCount++;
       }
       await refreshOfflineQueue();
-      await load();
-      setMsg({
-        type: 'ok',
-        text: `✓ ${isAuto ? 'Otomatik senkronizasyon: ' : ''}Çevrimdışı kuyruktaki ${okCount} kayıt başarıyla doğrulandı ve hakediş havuzuna aktarıldı.`,
-      });
-    } catch (e) {
-      if (!isAuto || okCount > 0) {
-        setMsg({ type: 'err', text: `Senkronizasyon sırasında hata (${okCount} tamamlandı): ${e.message}` });
+      if (okCount > 0) {
+        await load();
+        if (tab === 'pool') await loadPool();
+        if (tab === 'requests') await loadRequests();
+      }
+      if (failCount === 0 && okCount > 0) {
+        setShowOfflineModal(false);
+        setMsg({
+          type: 'ok',
+          text: `✓ ${isAuto ? 'Otomatik senkronizasyon: ' : ''}Çevrimdışı kuyruktaki ${okCount} kayıt başarıyla sunucuya aktarıldı.`,
+        });
+      } else if (failCount > 0 && (!isAuto || okCount > 0)) {
+        setMsg({
+          type: 'err',
+          text: `Senkronizasyon: ${okCount} tamamlandı, ${failCount} kayıt hata verdi (${lastErrText}).`,
+        });
       }
     } finally {
       setSyncingOffline(false);
@@ -497,7 +572,10 @@ export default function Saha() {
   }
 
   async function saveStatus(idx, status, note) {
+    const poleLabel = pName(idx);
+    const stLabel = statuses[status]?.label || status;
     try {
+      if (!navigator.onLine) throw new Error('OFFLINE_MODE');
       const d = await api.put(`/api/saha/${projectId}/status`, {
         pole_idx: idx,
         status,
@@ -510,9 +588,35 @@ export default function Saha() {
           poles: prev.poles.map((p) => (p.idx === idx ? { ...p, status: d.status, status_label: d.status_label, note: d.note } : p)),
         };
       });
-      setMsg({ type: 'ok', text: `${pName(idx)} güncellendi.` });
+      await patchCachedPoleStatus(projectId, idx, d.status, d.status_label, d.note);
+      setMsg({ type: 'ok', text: `${poleLabel} güncellendi.` });
     } catch (e) {
-      setMsg({ type: 'err', text: e.message });
+      if (isNetworkOrOfflineError(e)) {
+        await enqueueOfflineSubmission({
+          kind: 'status',
+          projectId,
+          poleIdx: idx,
+          poleName: poleLabel,
+          status,
+          stageLabel: stLabel,
+          note: note ?? '',
+        });
+        setData((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            poles: prev.poles.map((p) => (p.idx === idx ? { ...p, status, status_label: stLabel, note: note ?? '' } : p)),
+          };
+        });
+        await patchCachedPoleStatus(projectId, idx, status, stLabel, note ?? '');
+        await refreshOfflineQueue();
+        setMsg({
+          type: 'ok',
+          text: `⚡ Çevrimdışı: ${poleLabel} durumu (${stLabel}) kuyruğa kaydedildi; şebeke geldiğinde gönderilecek.`,
+        });
+      } else {
+        setMsg({ type: 'err', text: e.message });
+      }
     }
   }
 
@@ -601,9 +705,16 @@ export default function Saha() {
   async function loadRequests() {
     if (projectId == null) return;
     try {
-      setRequests(await api.get(`/api/saha/${projectId}/requests`));
+      const list = await api.get(`/api/saha/${projectId}/requests`);
+      setRequests(list);
+      await cacheProjectRequests(projectId, list);
     } catch (e) {
-      setMsg({ type: 'err', text: e.message });
+      const cached = await getCachedProjectRequests(projectId);
+      if (cached) {
+        setRequests(cached);
+      } else {
+        setMsg({ type: 'err', text: e.message });
+      }
     }
   }
 
@@ -614,12 +725,45 @@ export default function Saha() {
       return;
     }
     try {
+      if (!navigator.onLine) throw new Error('OFFLINE_MODE');
       await api.post(`/api/saha/${projectId}/requests`, reqForm);
       setReqForm({ item_name: '', qty: '1', unit: 'adet', pole_ref: '', needed_by: '', note: '' });
       await loadRequests();
       setMsg({ type: 'ok', text: 'Talep iletildi.' });
     } catch (err) {
-      setMsg({ type: 'err', text: err.message });
+      if (isNetworkOrOfflineError(err)) {
+        await enqueueOfflineSubmission({
+          kind: 'request',
+          projectId,
+          poleName: reqForm.pole_ref || 'Saha',
+          itemName: reqForm.item_name.trim(),
+          qty: reqForm.qty,
+          unit: reqForm.unit,
+          requestPayload: { ...reqForm },
+        });
+        const optimisticReq = {
+          id: `offline-${Date.now()}`,
+          item_name: reqForm.item_name.trim(),
+          qty: reqForm.qty,
+          unit: reqForm.unit,
+          pole_ref: reqForm.pole_ref,
+          needed_by: reqForm.needed_by,
+          note: reqForm.note,
+          status: 'open',
+          requested_by_name: (user?.display_name || user?.username || 'Saha') + ' (Çevrimdışı)',
+        };
+        const nextReqs = [optimisticReq, ...requests];
+        setRequests(nextReqs);
+        await cacheProjectRequests(projectId, nextReqs);
+        setReqForm({ item_name: '', qty: '1', unit: 'adet', pole_ref: '', needed_by: '', note: '' });
+        await refreshOfflineQueue();
+        setMsg({
+          type: 'ok',
+          text: `⚡ Çevrimdışı: "${optimisticReq.item_name}" malzeme talebi kuyruğa alındı; internet geldiğinde iletilecek.`,
+        });
+      } else {
+        setMsg({ type: 'err', text: err.message });
+      }
     }
   }
 
@@ -748,14 +892,40 @@ export default function Saha() {
             gap: 10,
           }}
         >
-          <b>⚡ Bekleyen {offlineQueue.length} çevrimdışı kayıt</b>
-          <button
-            className="btn btn-sm btn-primary"
-            onClick={syncOfflineQueueNow}
-            disabled={!isOnline || syncingOffline}
-          >
-            {syncingOffline ? 'Gönderiliyor…' : '🔄 Gönder'}
-          </button>
+          <div>
+            <b>⚡ Bekleyen {offlineQueue.length} çevrimdışı saha kaydı</b>
+            <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
+              (
+              {[
+                offlineQueue.filter((x) => (x.kind || 'photo') === 'photo').length > 0 &&
+                  `${offlineQueue.filter((x) => (x.kind || 'photo') === 'photo').length} fotoğraf`,
+                offlineQueue.filter((x) => x.kind === 'status').length > 0 &&
+                  `${offlineQueue.filter((x) => x.kind === 'status').length} durum/not`,
+                offlineQueue.filter((x) => x.kind === 'request').length > 0 &&
+                  `${offlineQueue.filter((x) => x.kind === 'request').length} talep`,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+              )
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              className="btn btn-sm"
+              type="button"
+              onClick={() => setShowOfflineModal(true)}
+            >
+              📋 Kuyruğu Yönet ({offlineQueue.length})
+            </button>
+            <button
+              className="btn btn-sm btn-primary"
+              type="button"
+              onClick={() => syncOfflineQueueNow(false)}
+              disabled={!isOnline || syncingOffline}
+            >
+              {syncingOffline ? 'Gönderiliyor…' : '🔄 Şimdi Gönder'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -835,6 +1005,74 @@ export default function Saha() {
                 />
               </div>
 
+              {/* Kanton Bazlı Çalışılabilir Cephe & Kamulaştırma Kilidi Özeti */}
+              {data.canton_readiness?.cantons?.length > 0 && (
+                <div className="card" style={{ marginBottom: 12, padding: '10px 14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700 }}>
+                      🚧 Kanton Çalışılabilir Cephe &amp; Kamulaştırma Durumu
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, fontSize: 11.5, flexWrap: 'wrap' }}>
+                      <span className="badge badge-green">
+                        🟢 Açık Cephe: {data.canton_readiness.summary.open_canton_count}/{data.canton_readiness.summary.total_cantons}
+                      </span>
+                      {data.canton_readiness.summary.ready_for_stringing_count > 0 && (
+                        <span className="badge badge-blue">
+                          ⚡ Tel Çekimine Hazır: {data.canton_readiness.summary.ready_for_stringing_count}
+                        </span>
+                      )}
+                      {data.canton_readiness.summary.blocked_canton_count > 0 && (
+                        <span className="badge badge-red">
+                          🔴 Kamulaştırma Blokeli: {data.canton_readiness.summary.blocked_canton_count}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {data.canton_readiness.cantons.map((c) => {
+                      const borderCol =
+                        c.readiness_status === 'blocked'
+                          ? '#dc2626'
+                          : c.readiness_status === 'pending_permit'
+                            ? '#d97706'
+                            : c.readiness_status === 'ready_for_stringing' || c.readiness_status === 'completed'
+                              ? '#16a34a'
+                              : '#2563eb';
+                      return (
+                        <button
+                          key={c.index}
+                          type="button"
+                          className="btn btn-sm"
+                          style={{
+                            borderLeft: `4px solid ${borderCol}`,
+                            fontSize: 11.5,
+                            padding: '4px 8px',
+                            textAlign: 'left',
+                          }}
+                          title={
+                            c.blocking_parcels?.length
+                              ? c.blocking_parcels.map((bp) => `${bp.span_label}: ${bp.parcel_no || 'Parsel'} (${bp.owner_name || '—'})`).join('\n')
+                              : `${c.fromLabel} → ${c.toLabel} (${c.poleCount} direk)`
+                          }
+                          onClick={() => {
+                            if (c.fromIdx != null) {
+                              setFilter('all');
+                              setTimeout(() => {
+                                const el = document.getElementById(`pole-row-${c.fromIdx}`);
+                                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                setFlashIdx(c.fromIdx);
+                              }, 60);
+                            }
+                          }}
+                        >
+                          <b>K{c.index}</b> ({c.fromLabel}→{c.toLabel}) · {c.readiness_label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="card" style={{ marginBottom: 14, padding: 10 }}>
                 <div ref={mapDivRef} className="saha-map" />
               </div>
@@ -853,6 +1091,18 @@ export default function Saha() {
                             <span className="badge badge-gray" style={{ fontSize: 10.5 }}>
                               {p.tower_type}
                               {p.pole_function ? ` · ${p.pole_function}` : ''}
+                            </span>
+                          )}
+                          {p.parcel_blocker && (
+                            <span
+                              className={`badge ${p.parcel_blocker.severity === 'izinsiz' ? 'badge-red' : 'badge-amber'}`}
+                              style={{ fontSize: 10.5 }}
+                              title={p.parcel_blocker.parcels
+                                ?.map((bp) => `${bp.span_label} · Parsel: ${bp.parcel_no || '—'} · Malik: ${bp.owner_name || '—'}`)
+                                .join('\n')}
+                            >
+                              {p.parcel_blocker.severity === 'izinsiz' ? '⛔ ' : '⚠️ '}
+                              {p.parcel_blocker.summary_text}
                             </span>
                           )}
                         </div>
@@ -1344,6 +1594,19 @@ export default function Saha() {
           onClose={() => setCapturePole(null)}
         >
           <form onSubmit={submitGuidedCapture}>
+            {capturePole.parcel_blocker && (
+              <div
+                className={capturePole.parcel_blocker.severity === 'izinsiz' ? 'form-error' : 'notice-banner'}
+                style={{ marginBottom: 10, fontSize: 12.5 }}
+              >
+                <b>
+                  {capturePole.parcel_blocker.severity === 'izinsiz'
+                    ? '⛔ KAMULAŞTIRMA / İZİNSİZ PARSEL UYARISI:'
+                    : '⚠️ İZİN BAŞVURUDA UYARISI:'}
+                </b>{' '}
+                {capturePole.parcel_blocker.summary_text}. Kazı veya tel çekimi öncesi muvafakat/izin durumunu kontrol edin.
+              </div>
+            )}
             <div
               style={{
                 background: 'var(--bg-soft, #f1f5f9)',
@@ -1711,6 +1974,104 @@ export default function Saha() {
                 </div>
               </div>
             )}
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL 3: ÇEVRİMDIŞI KUYRUK YÖNETİMİ */}
+      {showOfflineModal && (
+        <Modal
+          title={`⚡ Çevrimdışı Kuyruk (${offlineQueue.length} kayıt)`}
+          onClose={() => setShowOfflineModal(false)}
+        >
+          <div>
+            <p className="muted" style={{ marginTop: 0, fontSize: 12.5 }}>
+              Şebeke çekmeyen noktalarda yapılan fotoğraflı imalat bildirimleri, direk durum/not güncellemeleri ve malzeme talepleri cihazın yerel <b>IndexedDB</b> hafızasında saklanır. İnternet bağlantısı geldiğinde otomatik veya tek tuşla sunucuya aktarılır.
+            </p>
+            {offlineQueue.length === 0 ? (
+              <div className="empty">Bekleyen çevrimdışı kayıt yok.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 360, overflowY: 'auto', marginBottom: 12 }}>
+                {offlineQueue.map((item) => {
+                  const kind = item.kind || 'photo';
+                  const kindBadge =
+                    kind === 'status'
+                      ? { label: '🔄 Durum / Not', cls: 'badge-blue' }
+                      : kind === 'request'
+                        ? { label: '📦 Malzeme Talebi', cls: 'badge-amber' }
+                        : { label: `📸 Kanıtlı Fotoğraf (${item.files?.length || 1})`, cls: 'badge-green' };
+                  return (
+                    <div
+                      key={item.id}
+                      style={{
+                        border: item.lastError ? '1px solid #dc2626' : '1px solid var(--border, #dbe2ea)',
+                        borderRadius: 8,
+                        padding: '8px 12px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 8,
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span className={`badge ${kindBadge.cls}`} style={{ fontSize: 11 }}>
+                            {kindBadge.label}
+                          </span>
+                          <b>{item.poleName || `D-${item.poleIdx}`}</b>
+                          {item.stageLabel && <span className="muted">· {item.stageLabel}</span>}
+                          {kind === 'request' && (
+                            <span>
+                              · <b>{item.itemName}</b> ({item.qty} {item.unit})
+                            </span>
+                          )}
+                        </div>
+                        {item.note && (
+                          <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                            Not: {item.note}
+                          </div>
+                        )}
+                        <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                          Kaydedilme: {item.createdAt ? new Date(item.createdAt).toLocaleString('tr-TR') : '—'}
+                          {item.gpsDistanceM != null ? ` · Δ ${Math.round(item.gpsDistanceM)} m` : ''}
+                        </div>
+                        {item.lastError && (
+                          <div style={{ color: '#dc2626', fontSize: 11.5, marginTop: 2, fontWeight: 600 }}>
+                            ⚠️ Son deneme hatası: {item.lastError}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-danger"
+                        onClick={async () => {
+                          await removeOfflineSubmission(item.id);
+                          await refreshOfflineQueue();
+                        }}
+                      >
+                        Sil
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className="modal-actions">
+              <button type="button" className="btn" onClick={() => setShowOfflineModal(false)}>
+                Kapat
+              </button>
+              {offlineQueue.length > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={!isOnline || syncingOffline}
+                  onClick={() => syncOfflineQueueNow(false)}
+                >
+                  {syncingOffline ? 'Gönderiliyor…' : isOnline ? '🔄 Tümünü Şimdi Gönder' : '⚡ Çevrimdışı (Şebeke Bekleniyor)'}
+                </button>
+              )}
+            </div>
           </div>
         </Modal>
       )}

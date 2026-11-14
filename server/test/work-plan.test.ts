@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { poleNumberFromName, poleStageProgress } from '../src/pole-statuses';
-import { PHASE_TEMPLATES, detectCantons } from '../src/work-plan-generator';
+import {
+  PHASE_TEMPLATES,
+  computeCantonReadiness,
+  computePoleParcelBlockers,
+  detectCantons,
+} from '../src/work-plan-generator';
 
 describe('poleNumberFromName', () => {
   it('parses standard and annotated pole labels', () => {
@@ -68,4 +73,59 @@ describe('detectCantons', () => {
     expect(cantons[1]).toMatchObject({ fromNum: 4, toNum: 6, poleCount: 3 });
   });
 });
+
+describe('computePoleParcelBlockers & computeCantonReadiness', () => {
+  const poles = [
+    { idx: 0, name: 'D-1', status: 'erection', meta: { function: 'N', tower_type: 'PF', style: 'dead' } },
+    { idx: 1, name: 'D-2', status: 'erection', meta: { function: 'T', tower_type: 'PB1', style: 'tower' } },
+    { idx: 2, name: 'D-3', status: 'foundation', meta: { function: 'KT', tower_type: 'PB2', style: 'tower' } },
+    { idx: 3, name: 'D-4', status: 'erection', meta: { function: 'KD', tower_type: 'PE1', style: 'dead' } },
+    { idx: 4, name: 'D-5', status: 'erection', meta: { function: 'T', tower_type: 'PB1', style: 'tower' } },
+    { idx: 5, name: 'D-6', status: 'fittings', meta: { function: 'N', tower_type: 'PF', style: 'dead' } },
+  ];
+
+  const parcels = [
+    {
+      id: 10,
+      pole_from_idx: 1,
+      pole_to_idx: 2,
+      parcel_no: '105/4',
+      owner_name: 'Mehmet Demir',
+      easement_status: 'izinsiz',
+      legal_status: 'dava',
+    },
+    {
+      id: 11,
+      pole_from_idx: 4,
+      pole_to_idx: 5,
+      parcel_no: '208/1',
+      owner_name: 'Ayşe Kaya',
+      easement_status: 'izinli',
+      legal_status: 'anlasma',
+    },
+  ];
+
+  it('flags poles inside unpermitted parcel spans with severity and summary', () => {
+    const blockers = computePoleParcelBlockers(poles, parcels);
+    expect(blockers[0]).toBeUndefined();
+    expect(blockers[1]).toBeDefined();
+    expect(blockers[1].severity).toBe('izinsiz');
+    expect(blockers[1].summary_text).toContain('105/4');
+    expect(blockers[2]).toBeDefined();
+    expect(blockers[2].severity).toBe('izinsiz');
+    expect(blockers[4]).toBeUndefined();
+  });
+
+  it('marks canton 1 as blocked due to izinsiz parcel and canton 2 as ready_for_stringing when all poles are erected and permitted', () => {
+    const readiness = computeCantonReadiness(poles, [], parcels);
+    expect(readiness.cantons).toHaveLength(2);
+    expect(readiness.cantons[0].readiness_status).toBe('blocked');
+    expect(readiness.cantons[0].izinsiz_count).toBe(1);
+    expect(readiness.cantons[1].readiness_status).toBe('ready_for_stringing');
+    expect(readiness.cantons[1].izinsiz_count).toBe(0);
+    expect(readiness.summary.open_canton_count).toBe(1);
+    expect(readiness.summary.blocked_canton_count).toBe(1);
+  });
+});
+
 

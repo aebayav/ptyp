@@ -1,13 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { api, getToken, setToken } from './api';
+import { api, getCachedUser, getToken, isNetworkOrOfflineError, setCachedUser, setToken } from './api';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => (getToken() ? getCachedUser() : null));
   const [ready, setReady] = useState(false);
 
-  // Sayfa açılışında kayıtlı token varsa oturumu doğrula
+  // Sayfa açılışında kayıtlı token varsa oturumu doğrula; çevrimdışıysa yerel profili koru
   useEffect(() => {
     (async () => {
       if (!getToken()) {
@@ -15,9 +15,17 @@ export function AuthProvider({ children }) {
         return;
       }
       try {
-        setUser(await api.get('/api/auth/me'));
-      } catch {
-        setToken(null);
+        const me = await api.get('/api/auth/me');
+        setUser(me);
+        setCachedUser(me);
+      } catch (err) {
+        const cached = getCachedUser();
+        if (isNetworkOrOfflineError(err) && cached) {
+          setUser(cached);
+        } else {
+          setToken(null);
+          setUser(null);
+        }
       } finally {
         setReady(true);
       }
@@ -26,11 +34,13 @@ export function AuthProvider({ children }) {
 
   const login = useCallback((token, u) => {
     setToken(token);
+    setCachedUser(u);
     setUser(u);
   }, []);
 
   const logout = useCallback(() => {
     setToken(null);
+    setCachedUser(null);
     setUser(null);
   }, []);
 
