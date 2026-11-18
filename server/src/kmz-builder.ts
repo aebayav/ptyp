@@ -6,6 +6,11 @@ function xmlEsc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/** CDATA içine güvenli metin: "]]>" dizisi CDATA'yı erken kapatıp KML'i bozabilir — bölünmüş yazılır. */
+function cdata(s: string): string {
+  return String(s || '').replace(/]]>/g, ']]]]><![CDATA[>');
+}
+
 export function isPortalPoint(p: PolePoint): boolean {
   return (
     /^portal/i.test((p.name || '').trim()) ||
@@ -70,7 +75,7 @@ export function buildKmz(poles: PolePoint[], docName: string): Buffer {
     if (!portal) towerSeq += 1;
     const displayName = formatPoleDisplayName(p, idx, poles.length, towerSeq);
     const desc = formatPoleDescription(p);
-    const descXml = desc ? `<description><![CDATA[${desc}]]></description>` : '';
+    const descXml = desc ? `<description><![CDATA[${cdata(desc)}]]></description>` : '';
     const coord = `${p.lon.toFixed(7)},${p.lat.toFixed(7)},0`;
 
     if (portal) {

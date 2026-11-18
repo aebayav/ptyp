@@ -106,8 +106,9 @@ app.use(
     if (err && err.status && err.status >= 400 && err.status < 500) {
       return res.status(err.status).json({ error: err.message });
     }
-    console.error('[PTYP hata]', err.message);
-    res.status(500).json({ error: 'Sunucuda beklenmeyen bir hata oluştu: ' + err.message });
+    // 500 detayları istemciye sızmasın (DB hataları, dosya yolları vb. hassas bilgi)
+    console.error('[PTYP hata]', err.message, err.stack);
+    res.status(500).json({ error: 'Sunucuda beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.' });
   }
 );
 

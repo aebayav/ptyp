@@ -41,6 +41,8 @@ async function nextCode(): Promise<string> {
 
 function normalize(body: any) {
   const qty = Number(body.quantity);
+  // Hedef fiyat: boş → null; sayı değilse NaN yerine hata verilsin diye raw korunur (aşağıda kontrol edilir)
+  const rawTarget = body.target_price === '' || body.target_price == null ? null : Number(body.target_price);
   return {
     code: String(body.code || '').trim(),
     name: String(body.name || '').trim(),
@@ -48,11 +50,21 @@ function normalize(body: any) {
     spec: String(body.spec || '').trim(),
     unit: String(body.unit || 'adet').trim() || 'adet',
     quantity: Number.isFinite(qty) && qty > 0 ? qty : 1,
-    target_price:
-      body.target_price === '' || body.target_price == null ? null : Number(body.target_price),
+    target_price: rawTarget,
     status: String(body.status || 'open').trim() || 'open',
     notes: String(body.notes || '').trim(),
   };
+}
+
+/** target_price sayısal değilse açıklayıcı 400 döndürür (NaN DB'ye inip 500 olmasın) */
+function invalidTargetPrice(m: { target_price: number | null }): string | null {
+  if (m.target_price != null && !Number.isFinite(m.target_price)) {
+    return 'Hedef fiyat geçerli bir sayı olmalıdır.';
+  }
+  if (m.target_price != null && m.target_price < 0) {
+    return 'Hedef fiyat negatif olamaz.';
+  }
+  return null;
 }
 
 async function codeTaken(code: string, excludeId?: number): Promise<boolean> {
@@ -66,6 +78,8 @@ async function codeTaken(code: string, excludeId?: number): Promise<boolean> {
 router.post('/', requireAuth, requireRole('owner'), async (req: Request, res: Response) => {
   const m = normalize(req.body || {});
   if (!m.name) return res.status(400).json({ error: 'Malzeme adı zorunludur.' });
+  const tpErr = invalidTargetPrice(m);
+  if (tpErr) return res.status(400).json({ error: tpErr });
 
   const code = m.code || (await nextCode());
   if (await codeTaken(code)) {
@@ -88,6 +102,8 @@ router.put('/:id', requireAuth, requireRole('owner'), async (req: Request, res: 
 
   const m = normalize(req.body || {});
   if (!m.name) return res.status(400).json({ error: 'Malzeme adı zorunludur.' });
+  const tpErr = invalidTargetPrice(m);
+  if (tpErr) return res.status(400).json({ error: tpErr });
 
   const current = await pool.query('SELECT code FROM materials WHERE id = $1', [id]);
   const finalCode = m.code || current.rows[0].code;
