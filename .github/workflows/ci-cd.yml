@@ -78,9 +78,15 @@ jobs:
           git log --oneline -1
           npm run build
           sudo -n systemctl restart ptyp
-          sudo -n systemctl restart ocr || true
-          sleep 12
-          systemctl is-active ptyp'
+          sudo -n systemctl restart ocr
+          # Sağlık kontrolü: sabit bekleme yerine 60 sn boyunca yokla
+          for i in $(seq 1 30); do
+            if systemctl is-active --quiet ptyp; then echo "ptyp: aktif"; break; fi
+            sleep 2
+          done
+          systemctl is-active ptyp
+          # OCR servisi ayakta mı? (failures 3 değilse uyar ama dağıtımı kırmayıp log bas)
+          systemctl is-active ocr || (echo "::warning::OCR servisi yeniden başladıktan sonra aktif değil — sunucuda systemctl status ocr ile kontrol edin"; journalctl -u ocr -n 30 --no-pager || true)'
 
       - name: Anahtar yok — dağıtım atlandı
         if: steps.check.outputs.ready == 'false'
