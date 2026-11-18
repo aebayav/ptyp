@@ -1,6 +1,7 @@
 [Unit]
 Description=PTYP OCR Servisi (Indra OCR + Ollama ptyp-ai Qwen-VL fallback)
-After=network.target
+After=network.target ollama.service
+Wants=ollama.service
 
 [Service]
 User=turguz

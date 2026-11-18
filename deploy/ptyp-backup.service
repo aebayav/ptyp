@@ -1,0 +1,11 @@
+[Unit]
+Description=PTYP yedekleme servisi (pg_dump + uploads arşivi)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=turguz
+ExecStart=/bin/bash /home/turguz/ptyp/deploy/ptyp-backup.sh
+# Yedek 30 dakikadan uzun sürerse uyar; kill etme (dump yarıda kalmasın)
+TimeoutStartSec=1800

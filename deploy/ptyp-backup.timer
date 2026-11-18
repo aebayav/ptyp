@@ -1,0 +1,10 @@
+[Unit]
+Description=PTYP günlük yedek zamanlayıcısı (03:00)
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
