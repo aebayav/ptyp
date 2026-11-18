@@ -1,6 +1,14 @@
-// PTYP — firma sunumu için gerçekçi örnek veri seti
-// Kullanım: node scripts/seed-demo.mjs
-const BASE = process.env.PTYP_URL || 'http://202.92.21.116:3000';
+// PTYP — firma sunucusu için gerçekçi örnek veri seti
+// Kullanım:
+//   PTYP_URL=http://localhost:3000 PTYP_USER=admin PTYP_PASS=... node scripts/seed-demo.mjs
+// Ortam değişkenleri zorunludur — betik içine kimlik bilgisi yazılmaz.
+const BASE = process.env.PTYP_URL || 'http://localhost:3000';
+const ADMIN_USER = process.env.PTYP_USER;
+const ADMIN_PASS = process.env.PTYP_PASS;
+if (!ADMIN_USER || !ADMIN_PASS) {
+  console.error('PTYP_USER ve PTYP_PASS ortam değişkenlerini tanımlayın (örn. PTYP_USER=admin PTYP_PASS=...).');
+  process.exit(1);
+}
 
 let token = '';
 const ids = { materials: {}, suppliers: {}, groups: {}, users: {} };
@@ -439,9 +447,9 @@ async function seedDailyReports() {
 (async () => {
   console.log('PTYP DEMO VERİ SETİ — başlıyor\n');
   try {
-    const login = await api('/api/auth/login', { method: 'POST', body: { username: 'admin', password: 'admin' } });
+    const login = await api('/api/auth/login', { method: 'POST', body: { username: ADMIN_USER, password: ADMIN_PASS } });
     token = login.token;
-    log(true, 'giriş: admin ✓');
+    log(true, `giriş: ${ADMIN_USER} ✓`);
 
     await cleanup();
     await seedProjects();

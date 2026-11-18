@@ -1,38 +1,60 @@
-const AdmZip = require('/home/turguz/ptyp/server/node_modules/adm-zip/adm-zip.js');
+// Kalibrasyon diagnostiği: referans KMZ koordinatlarını sunucudaki direklerle karşılaştırır.
+// Yalnızca VPS üzerinde çalıştırılır; tüm ayarlar ortam değişkeni/argümanla verilir:
+//   node scripts/kalibrasyon-diagnostik.js [kmz-dosyası] [proje-id]
+// Gerekli ortam değişkenleri: PTYP_USER, PTYP_PASS (ve isteğe bağlı PTYP_HOST/PTYP_PORT).
+const AdmZip = require(require.resolve('adm-zip', { paths: [`${__dirname}/../server`] }));
 const fs = require('fs');
 const http = require('http');
 
-function get(path) {
+const HOST = process.env.PTYP_HOST || '127.0.0.1';
+const PORT = Number(process.env.PTYP_PORT || 3000);
+const KMZ = process.argv[2] || process.env.PTYP_KMZ || '/tmp/orijinal.kmz';
+const PROJECT_ID = Number(process.argv[3] || process.env.PTYP_PROJECT_ID || 1);
+const USER = process.env.PTYP_USER;
+const PASS = process.env.PTYP_PASS;
+
+if (!USER || !PASS) {
+  console.error('PTYP_USER ve PTYP_PASS ortam değişkenlerini tanımlayın.');
+  process.exit(1);
+}
+
+function post(path, body) {
   return new Promise((resolve, reject) => {
-    http.get({ host: '127.0.0.1', port: 3000, path }, (r) => {
+    const req = http.request(
+      { host: HOST, port: PORT, path, method: 'POST', headers: { 'Content-Type': 'application/json' } },
+      (r) => { let d = ''; r.on('data', (c) => (d += c)); r.on('end', () => resolve(JSON.parse(d))); }
+    );
+    req.on('error', reject);
+    req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+function get(path, token) {
+  return new Promise((resolve, reject) => {
+    http.get({ host: HOST, port: PORT, path, headers: { Authorization: 'Bearer ' + token } }, (r) => {
       let d = '';
       r.on('data', (c) => (d += c));
-      r.on('end', () => resolve(d));
+      r.on('end', () => resolve(JSON.parse(d)));
     }).on('error', reject);
   });
 }
 
 async function main() {
-  const login = JSON.parse(await get('/api/auth/login'));
-  // login POST gerekli — önce token al
-  const tokenRes = await new Promise((resolve, reject) => {
-    const req = http.request(
-      { host: '127.0.0.1', port: 3000, path: '/api/auth/login', method: 'POST', headers: { 'Content-Type': 'application/json' } },
-      (r) => { let d = ''; r.on('data', (c) => (d += c)); r.on('end', () => resolve(JSON.parse(d))); }
-    );
-    req.on('error', reject);
-    req.write(JSON.stringify({ username: 'admin', password: 'admin' }));
-    req.end();
-  });
+  if (!fs.existsSync(KMZ)) {
+    console.error(`KMZ dosyası bulunamadı: ${KMZ}`);
+    process.exit(1);
+  }
+  const tokenRes = await post('/api/auth/login', { username: USER, password: PASS });
+  if (!tokenRes.token) {
+    console.error('Giriş başarısız:', tokenRes.error || tokenRes);
+    process.exit(1);
+  }
   const token = tokenRes.token;
-  const polesRaw = await new Promise((resolve, reject) => {
-    http.get({ host: '127.0.0.1', port: 3000, path: '/api/poles?project_id=1', headers: { Authorization: 'Bearer ' + token } }, (r) => {
-      let d = ''; r.on('data', (c) => (d += c)); r.on('end', () => resolve(JSON.parse(d)));
-    }).on('error', reject);
-  });
+  const polesRaw = await get(`/api/poles?project_id=${PROJECT_ID}`, token);
   const list = Array.isArray(polesRaw) ? polesRaw : polesRaw.poles;
 
-  const zip = new AdmZip('/tmp/orijinal.kmz');
+  const zip = new AdmZip(KMZ);
   const e = zip.getEntries().find((x) => x.entryName.toLowerCase().endsWith('.kml'));
   const kml = e.getData().toString('utf8');
   const ref = [];
