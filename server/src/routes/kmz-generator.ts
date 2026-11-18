@@ -234,7 +234,9 @@ router.post('/parse', upload.single('file'), (req: Request, res: Response, next:
   if (kind === 'unknown') {
     return res.status(400).json({ error: 'Desteklenen biçimler: Excel (.xlsx/.xls), PDF, TIFF (.tif/.tiff).' });
   }
-  const job = runJob('Belge okunuyor…', async (report) => {
+  let job;
+  try {
+    job = runJob('Belge okunuyor…', async (report) => {
     jobReport = report;
     try {
       const fakeNext = (e?: any) => {
@@ -252,6 +254,10 @@ router.post('/parse', upload.single('file'), (req: Request, res: Response, next:
       jobReport = null;
     }
   });
+  } catch (e) {
+    // Kuyruk dolu (429) vb. senkron hatalar merkezi hata katmanına
+    return next(e);
+  }
   res.status(202).json({ job_id: job.id, status: job.status });
 });
 

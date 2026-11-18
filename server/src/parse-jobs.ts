@@ -31,11 +31,19 @@ export function initParseJobs(p: Pool): void {
     `UPDATE parse_jobs SET status = 'error',
        error = 'Sunucu yeniden başladı — iş tamamlanamadı.', finished_at = now()
      WHERE status IN ('queued', 'running')`
-  ).catch(() => {});
+  ).catch((e) => console.warn('[PTYP] parse_jobs açılış temizliği başarısız:', e?.message || e));
 }
 
 const jobs = new Map<string, ParseJob>();
 let chain: Promise<void> = Promise.resolve();
+
+// Kuyruk sınırı: her bekleyen iş, isteğin (ve yüklenen dosya belleğinin) canlı tuttuğu
+// bir kapanış kapsamıdır — sınırsız kuyruk sınırsız bellek demektir.
+const MAX_PENDING_JOBS = 5;
+
+// İş duvar saati sınırı: takılan bir OCR çağrısı kuyruğu sonsuğa dek bloklamasın.
+// İstemci tarafı yoklama (postParse) da 25 dk sonra vazgeçer.
+const JOB_TIMEOUT_MS = 25 * 60 * 1000;
 
 function dbJobUpdate(job: ParseJob): void {
   if (!pool) return;
@@ -54,10 +62,23 @@ function dbJobUpdate(job: ParseJob): void {
         job.id,
       ]
     )
-    .catch(() => {});
+    .catch((e) => console.warn(`[PTYP] parse_job ${job.id} DB'ye yazılamadı:`, e?.message || e));
 }
 
 export function runJob(label: string, fn: (report: (p: string) => void) => Promise<unknown>): ParseJob {
+  // Kuyruk doluysa işi hiç almaya — istemciye 429 dönsün (merkezi hata katmanı err.status'u geçirir)
+  let pending = 0;
+  for (const j of jobs.values()) {
+    if (j.status === 'queued' || j.status === 'running') pending++;
+  }
+  if (pending >= MAX_PENDING_JOBS) {
+    const err = new Error(
+      `İş kuyruğu dolu (${MAX_PENDING_JOBS} iş bekliyor). Lütfen devam eden işler bitince tekrar deneyin.`
+    );
+    (err as Error & { status?: number }).status = 429;
+    throw err;
+  }
+
   const job: ParseJob = {
     id: crypto.randomUUID(),
     status: 'queued',
@@ -73,15 +94,24 @@ export function runJob(label: string, fn: (report: (p: string) => void) => Promi
          VALUES ($1, 'queued', $2, now())`,
         [job.id, label]
       )
-      .catch(() => {});
+      .catch((e) => console.warn(`[PTYP] parse_job ${job.id} kuyruğa yazılamadı:`, e?.message || e));
   }
   chain = chain.then(async () => {
     job.status = 'running';
     dbJobUpdate(job);
     try {
-      job.result = await fn((p) => {
-        job.progress = p;
+      const timeout = new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error('İş zaman aşımına uğradı (25 dk) — OCR servisi yanıt vermiyor olabilir.')),
+          JOB_TIMEOUT_MS
+        ).unref();
       });
+      job.result = await Promise.race([
+        fn((p) => {
+          job.progress = p;
+        }),
+        timeout,
+      ]);
       job.status = 'done';
     } catch (e: any) {
       job.status = 'error';
@@ -121,6 +151,8 @@ setInterval(() => {
     if (j.finished_at != null && j.finished_at < cutoff) jobs.delete(id);
   }
   if (pool) {
-    pool.query(`DELETE FROM parse_jobs WHERE finished_at < now() - interval '45 minutes'`).catch(() => {});
+    pool
+      .query(`DELETE FROM parse_jobs WHERE finished_at < now() - interval '45 minutes'`)
+      .catch((e) => console.warn('[PTYP] parse_jobs temizliği başarısız:', e?.message || e));
   }
 }, 10 * 60 * 1000).unref();
