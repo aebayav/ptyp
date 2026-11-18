@@ -119,6 +119,21 @@ ssh <sunucu> "cd ~/ptyp && npm run build"
 sudo systemctl restart ptyp        # yalnızca server kodu değiştiyse gerekir
 ```
 
+## Mobil (Android / Capacitor)
+
+Saha uygulaması Capacitor ile APK olarak paketlenir (`client/`):
+
+```bash
+npm --prefix client run mobile:init     # bir kez: cap add android
+npm --prefix client run mobile:sync     # web derlemesini native projeye aktar
+npm --prefix client run mobile:android  # Android Studio'da aç
+```
+
+`client/android/` klasörü `.gitignore`'dadır (yerel olarak üretilir). **APK'da saha GPS
+özelliklerinin (En Yakın Direk, mesafe doğrulaması) çalışması için** Android projesini
+yeniden ürettikten sonra `client/android-overrides/` içindeki izin dosyalarını kopyalayın
+(ayrıntılar: `client/android-overrides/README.md`).
+
 ## Karanlık / aydınlık tema
 
 Sol menünün altındaki tema düğmesiyle değiştirilir; tercih tarayıcıda saklanır.
