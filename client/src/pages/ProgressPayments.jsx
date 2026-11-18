@@ -120,30 +120,14 @@ export default function ProgressPayments() {
   }
 
   async function populateNewItems() {
-    try {
-      const { items } = await api.post(`/api/progress-payments`, {
-         project_id: projectId,
-         period_label: 'Taslak (Silinecek)',
-         notes: 'Geçici'
-      });
-      // This approach is problematic as it creates a dummy payment.
-      // Better to fetch work groups and calculate locally for the new form,
-      // but the prompt explicitly said to use the `/:id/populate` endpoint.
-      // Since `/:id/populate` requires an ID, for a completely NEW payment
-      // that isn't saved yet, it's tricky.
-      // Let's implement local fetch for work groups to pre-fill new items.
-      const wgs = await api.get(`/api/workgroups?project_id=${projectId}`);
-      // calculate previous qtys by checking past payments isn't directly exposed in an endpoint.
-      // A workaround is to save the payment first as draft, then populate it.
-      alert('Lütfen önce taslak olarak kaydedin, ardından "İş Gruplarından Doldur" butonunu kullanın.');
-    } catch (e) {
-      alert(e.message);
-    }
+    // Yeni hakediş henüz kaydedilmediği için iş gruplarından doldurulamaz —
+    // kullanıcıyı taslak kaydetmeye yönlendir (sunucuda yetim kayıt oluşturma).
+    alert('Lütfen önce taslak olarak kaydedin, ardından "İş Gruplarından Doldur" butonunu kullanın.');
   }
 
   function handleItemChange(index, field, val) {
-    const newItems = [...form.items];
-    newItems[index][field] = val;
+    // Nesneyi de kopyala — paylaşılan item referansını mutasyon yapma (React state kuralı)
+    const newItems = form.items.map((it, i) => (i === index ? { ...it, [field]: val } : it));
     setForm({ ...form, items: newItems });
   }
 
@@ -203,12 +187,12 @@ export default function ProgressPayments() {
 
   async function changeStatus(p, newStatus) {
     try {
-      const detail = await api.get(`/api/progress-payments/${p.id}`);
+      // items gönderilmediğinde sunucu kalemleri korur — yalnız durum güncellenir
+      // (önce GET + tam PUT yapılırsa bu andaki kalem düzenlemeleri ezilir)
       await api.put(`/api/progress-payments/${p.id}`, {
-        period_label: detail.period_label,
-        notes: detail.notes,
+        period_label: p.period_label,
+        notes: p.notes || '',
         status: newStatus,
-        items: detail.items,
       });
       await loadPayments();
       if (selPayment?.id === p.id) {
@@ -263,7 +247,9 @@ export default function ProgressPayments() {
       });
       if (!res.ok) throw new Error('Rapor üretilemedi.');
       const blob = await res.blob();
-      window.open(URL.createObjectURL(blob), '_blank');
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (e) {
       alert('Rapor açılamadı: ' + e.message);
     }

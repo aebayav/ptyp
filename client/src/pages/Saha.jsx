@@ -24,19 +24,24 @@ function PhotoImg({ url, className = 'photo-thumb', onClick }) {
   const [src, setSrc] = useState(null);
   useEffect(() => {
     let alive = true;
+    let objectUrl = null;
     (async () => {
       try {
         const res = await fetch(apiUrl(url), { headers: { Authorization: 'Bearer ' + getToken() } });
         if (!res.ok) return;
         const blob = await res.blob();
-        const objectUrl = URL.createObjectURL(blob);
+        objectUrl = URL.createObjectURL(blob);
         if (alive) setSrc(objectUrl);
+        else URL.revokeObjectURL(objectUrl); // bileşen çoktan unmount olduysa hemen bırak
       } catch {
         /* sessiz */
       }
     })();
     return () => {
       alive = false;
+      // URL değişince / unmount'ta blob URL'i bırak — bellek sızıntısı olmasın
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (src) URL.revokeObjectURL(src);
     };
   }, [url]);
   if (!src) return <span className={`${className} photo-loading`}>…</span>;
@@ -224,6 +229,13 @@ export default function Saha() {
     if (!data || !mapDivRef.current || tab !== 'poles') return;
     (async () => {
       const L = await loadLeaflet();
+      // Sekme değişimi harita <div>'ini yeniden oluşturur; eski harita kopuk DOM düğümüne
+      // bağlıysa kaldırıp yeni düğüme kur (RouteMap ile aynı desen — yoksa boş harita kalır)
+      if (mapInstanceRef.current && mapInstanceRef.current.getContainer() !== mapDivRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+        layerRef.current = null;
+      }
       if (!mapInstanceRef.current) {
         const map = L.map(mapDivRef.current, {});
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
@@ -339,6 +351,24 @@ export default function Saha() {
       ? findNearestPole(gpsState.lat, gpsState.lon, data.poles, capturePole?.idx)
       : null;
 
+  // Önizleme URL'lerini serbest bırakarak fotoğraf listesini sıfırla (blob URL sızıntısı olmasın)
+  function clearProcessedPhotos() {
+    setProcessedPhotos((prev) => {
+      for (const p of prev) {
+        if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
+      }
+      return [];
+    });
+  }
+
+  function removeProcessedPhoto(idx) {
+    setProcessedPhotos((prev) => {
+      const removed = prev[idx];
+      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+      return prev.filter((_, i) => i !== idx);
+    });
+  }
+
   function openCaptureModal(pole, overrideLat = null, overrideLon = null) {
     // Varsayılan olarak bir sonraki mantıklı aşamayı öner
     const order = ['excavation', 'foundation', 'erection', 'fittings', 'stringing', 'completed'];
@@ -349,7 +379,7 @@ export default function Saha() {
     setCaptureStage(nextStage);
     setCaptureNote(pole.note || '');
     setCaptureChecklist([]);
-    setProcessedPhotos([]);
+    clearProcessedPhotos();
     setLastDecisionResult(null);
 
     // Eğer henüz GPS alınmadıysa sessizce arka planda konum iste
@@ -469,6 +499,7 @@ export default function Saha() {
       setLastDecisionResult(res);
       await load();
       if (tab === 'pool') await loadPool();
+      clearProcessedPhotos();
     } catch (err) {
       // Şebeke hatası veya çevrimdışı durumdaysa IndexedDB kuyruğuna kaydet
       if (isNetworkOrOfflineError(err)) {
@@ -500,6 +531,7 @@ export default function Saha() {
         );
         await refreshOfflineQueue();
         setCapturePole(null);
+        clearProcessedPhotos();
         setMsg({
           type: 'ok',
           text: `Çevrimdışı: ${capturePole.name} fotoğrafı kuyruğa kaydedildi. İnternet geldiğinde otomatik gönderilecek.`,
@@ -706,7 +738,10 @@ export default function Saha() {
       });
       if (!res.ok) throw new Error('QR sayfası üretilemedi.');
       const blob = await res.blob();
-      window.open(URL.createObjectURL(blob), '_blank');
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      // Yeni sekme belgeyi yükledikten sonra blob URL'i serbest bırak (sızıntı olmasın)
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (e) {
       setMsg({ type: 'err', text: e.message });
     }
@@ -1625,7 +1660,7 @@ export default function Saha() {
                       />
                       <button
                         type="button"
-                        onClick={() => setProcessedPhotos((prev) => prev.filter((_, i) => i !== idx))}
+                        onClick={() => removeProcessedPhoto(idx)}
                         style={{
                           position: 'absolute',
                           top: 4,

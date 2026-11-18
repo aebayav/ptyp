@@ -12,13 +12,16 @@ export default function Planlama() {
   const [data, setData] = useState(null);
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   function loadPlanning(pid = projectId) {
     if (pid == null) return Promise.resolve();
+    setLoading(true);
     return api
       .get(`/api/planning?project_id=${pid}`)
       .then(setData)
-      .catch((e) => setMsg({ type: 'err', text: e.message }));
+      .catch((e) => setMsg({ type: 'err', text: e.message }))
+      .finally(() => setLoading(false));
   }
 
   useEffect(() => {
@@ -93,7 +96,29 @@ export default function Planlama() {
     return { groups, min, max, pos, todayPos };
   }, [data]);
 
-  if (!data) return null;
+  if (!data) {
+    // Boş sayfa yerine: sayfa iskeleti + yükleniyor/hata durumu
+    return (
+      <div>
+        <div className="page-head">
+          <div>
+            <h1>Plan &amp; Gerçekleşme</h1>
+            <p className="sub">Ağırlıklı ilerlemeden otomatik S-eğrisi ve gecikme uyarısı</p>
+          </div>
+        </div>
+        <ProjectBar projects={projects} projectId={projectId} onChange={setProjectId} />
+        {msg ? (
+          <div className={msg.type === 'ok' ? 'notice-banner' : 'form-error'} style={{ marginBottom: 12 }}>
+            {msg.text}
+          </div>
+        ) : (
+          <div className="card">
+            <div className="empty"><span className="empty-ico"></span>{loading ? 'Yükleniyor…' : 'Plan verisi bulunamadı.'}</div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   const s = data.summary;
 
