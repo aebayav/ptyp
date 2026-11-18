@@ -33,7 +33,9 @@ const PHOTOS_DIR = path.join(__dirname, '..', '..', 'uploads', 'pole-photos');
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024, files: 8 },
+  // İstemci fotoğrafları yerelde yeniden sıkıştırıp (~250 KB JPEG) yollar; ham kamera
+  // fotoğrafı ihtimaline karşı pay bırakılır. 6 dosya × 12 MB = en kötü 72 MB bellek.
+  limits: { fileSize: 12 * 1024 * 1024, files: 6 },
   fileFilter: (_req, file, cb) => {
     if (file.mimetype && file.mimetype.startsWith('image/')) cb(null, true);
     else cb(new Error('Yalnızca görsel dosyaları yüklenebilir.'));
@@ -214,12 +216,14 @@ router.put('/:id/status', async (req: Request, res: Response) => {
     [projectId, idx, status, note, uid]
   );
   // Saha direk durumu güncellendiğinde bağlı iş gruplarının ilerlemesini otomatik senkronize et
-  await syncWorkGroupsFromSaha(projectId, true).catch(() => {});
+  await syncWorkGroupsFromSaha(projectId, true).catch((e) => console.warn('[PTYP] iş grubu saha senkronu başarısız:', e?.message || e));
   res.json({ pole_idx: idx, status, status_label: POLE_STATUSES[status].label, note });
 });
 
 // Direğe fotoğraf ekle (çoklu) + %100 Lokal Karar Modeli (Decision Scorecard) + Otomatik Hakediş Havuzu
-router.post('/:id/photos', upload.array('photos', 8), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/photos', upload.array('photos', 6), async (req: Request, res: Response, next: NextFunction) => {
+  // DB yazımı başarısız olursa diske yazılan dosyalar yetim kalmasın — izle, hatada sil
+  const writtenFiles: string[] = [];
   try {
     const projectId = Number(req.params.id);
     if (!Number.isInteger(projectId) || projectId <= 0) {
@@ -318,6 +322,7 @@ router.post('/:id/photos', upload.array('photos', 8), async (req: Request, res: 
 
       const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${path.basename(f.originalname || 'foto.jpg').replace(/[^A-Za-z0-9._-]/g, '_')}`;
       fs.writeFileSync(path.join(dir, filename), sanitizedBuf);
+      writtenFiles.push(path.join(dir, filename));
 
       const r = await pool.query(
         `INSERT INTO pole_photos (
@@ -395,7 +400,7 @@ router.post('/:id/photos', upload.array('photos', 8), async (req: Request, res: 
              updated_at = now()`,
           [projectId, idx, claimedStage, note, uid]
         );
-        await syncWorkGroupsFromSaha(projectId, true).catch(() => {});
+        await syncWorkGroupsFromSaha(projectId, true).catch((e) => console.warn('[PTYP] iş grubu saha senkronu başarısız:', e?.message || e));
         statusUpdated = true;
       }
 
@@ -421,6 +426,14 @@ router.post('/:id/photos', upload.array('photos', 8), async (req: Request, res: 
       hakedis_pool_entry: poolEntry,
     });
   } catch (e) {
+    // Henüz DB'ye bağlanmamış foto dosyalarını temizle (yetim dosya kalmasın)
+    for (const p of writtenFiles) {
+      try {
+        fs.unlinkSync(p);
+      } catch {
+        /* dosya zaten yoksa sorun değil */
+      }
+    }
     next(e);
   }
 });
@@ -464,7 +477,7 @@ router.put('/photos/:id/review', requireRole('owner'), async (req: Request, res:
            status = EXCLUDED.status, updated_by = EXCLUDED.updated_by, updated_at = now()`,
         [ph.project_id, ph.pole_idx, ph.stage, reviewNote, uid]
       );
-      await syncWorkGroupsFromSaha(ph.project_id, true).catch(() => {});
+      await syncWorkGroupsFromSaha(ph.project_id, true).catch((e) => console.warn('[PTYP] iş grubu saha senkronu başarısız:', e?.message || e));
     }
 
     if (ph.stage !== 'issue') {
@@ -593,7 +606,7 @@ router.put('/hakedis-pool/:poolId', requireRole('owner'), async (req: Request, r
          status = EXCLUDED.status, updated_by = EXCLUDED.updated_by, updated_at = now()`,
       [cur.project_id, cur.pole_idx, cur.stage, notes, uid]
     );
-    await syncWorkGroupsFromSaha(cur.project_id, true).catch(() => {});
+    await syncWorkGroupsFromSaha(cur.project_id, true).catch((e) => console.warn('[PTYP] iş grubu saha senkronu başarısız:', e?.message || e));
   } else if (status === 'rejected' && cur.evidence_photo_id) {
     await pool.query(
       `UPDATE pole_photos SET decision_status = 'manual_rejected', reviewed_by = $1, reviewed_at = now() WHERE id = $2`,

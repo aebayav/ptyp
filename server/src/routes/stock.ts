@@ -1,6 +1,7 @@
 // Depo & stok: irsaliye ile giriş, şantiyeye sevk, sarfiyat.
 // Kalan stok = giriş − (sevk + sarfiyat). Keşif miktarı ile yan yana karşılaştırma.
 import { Router, Request, Response } from 'express';
+import type { Pool } from 'pg';
 import { pool } from '../db';
 import { requireAuth, requireRole, AuthedRequest } from '../auth';
 import { generateKesifItems } from './kesif';
@@ -94,26 +95,45 @@ async function generateUniqueMaterialCode(): Promise<string> {
 }
 
 async function ensureKesifAndSyncMaterials(projectId: number): Promise<{ added: number }> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await ensureKesifAndSyncMaterialsTx(client, projectId);
+    await client.query('COMMIT');
+    return result;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** Asıl senkronizasyon — çağıranın sağladığı işlem (transaction) içinde çalışır. */
+async function ensureKesifAndSyncMaterialsTx(
+  client: { query: Pool['query'] },
+  projectId: number
+): Promise<{ added: number }> {
   // 1) Projede kesif_items boşsa ve project_dtl varsa otomatik keşif kalemlerini oluştur
-  let kesifRes = await pool.query(
+  let kesifRes = await client.query(
     'SELECT item_name, unit, qty, unit_price, notes FROM kesif_items WHERE project_id = $1 ORDER BY position, id',
     [projectId]
   );
   if (kesifRes.rowCount === 0) {
-    const dtlRes = await pool.query('SELECT header, rows FROM project_dtl WHERE project_id = $1', [projectId]);
+    const dtlRes = await client.query('SELECT header, rows FROM project_dtl WHERE project_id = $1', [projectId]);
     const dtlRows: DtlRow[] = Array.isArray(dtlRes.rows[0]?.rows) ? dtlRes.rows[0].rows : [];
     if (dtlRows.length > 0) {
       const header: DtlHeader = dtlRes.rows[0]?.header || {};
       const generated = generateKesifItems(header, dtlRows);
       for (let i = 0; i < generated.length; i++) {
         const it = generated[i];
-        await pool.query(
+        await client.query(
           `INSERT INTO kesif_items (project_id, position, item_name, unit, qty, unit_price, notes)
            VALUES ($1, $2, $3, $4, $5, 0, $6)`,
           [projectId, i, it.item_name, it.unit || 'adet', Number(it.qty) || 0, it.notes || '']
         );
       }
-      kesifRes = await pool.query(
+      kesifRes = await client.query(
         'SELECT item_name, unit, qty, unit_price, notes FROM kesif_items WHERE project_id = $1 ORDER BY position, id',
         [projectId]
       );
@@ -121,7 +141,7 @@ async function ensureKesifAndSyncMaterials(projectId: number): Promise<{ added: 
   }
 
   // 2) Keşif kalemlerinden henüz materials tablosunda olmayanları otomatik ekle
-  const matRes = await pool.query('SELECT id, name, code FROM materials');
+  const matRes = await client.query('SELECT id, name, code FROM materials');
   const existingNorm = new Set(matRes.rows.map((m: any) => normalizeStockMaterialName(m.name)));
   const existingCodes = new Set(matRes.rows.map((m: any) => String(m.code || '').toUpperCase()));
   let nextSeq = matRes.rows.reduce((max: number, r: any) => Math.max(max, Number(r.id) || 0), 0) + 1;
@@ -150,7 +170,7 @@ async function ensureKesifAndSyncMaterials(projectId: number): Promise<{ added: 
       ? 'İzolatör & Hırdavat'
       : 'Keşif Kalemi';
 
-    await pool.query(
+    await client.query(
       `INSERT INTO materials (code, name, category, spec, unit, quantity, target_price, status, notes)
        VALUES ($1, $2, $3, '', $4, $5, $6, 'open', $7)`,
       [
@@ -278,34 +298,44 @@ router.post('/movements', async (req: Request, res: Response) => {
   const saha_request_id =
     req.body?.saha_request_id === '' || req.body?.saha_request_id == null ? null : Number(req.body?.saha_request_id);
 
-  const { rows } = await pool.query(
-    `INSERT INTO stock_movements (project_id, material_id, movement_type, qty, unit, irsaliye_no, supplier_id, saha_request_id, note, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-    [
-      pid,
-      material_id,
-      mtype,
-      qty,
-      String(req.body?.unit || mat.rows[0].unit || 'adet').slice(0, 20),
-      String(req.body?.irsaliye_no || '').trim().slice(0, 40),
-      supplier_id,
-      saha_request_id,
-      String(req.body?.note || '').trim().slice(0, 300),
-      u.user?.id,
-    ]
-  );
-
-  // Eğer sevk hareketi bir saha talebine bağlandıysa talebi karşılandı olarak işaretle
-  if (mtype === 'sevk' && saha_request_id) {
-    await pool.query(
-      `UPDATE saha_requests
-       SET status = 'fulfilled', fulfilled_by = $1, fulfilled_at = now()
-       WHERE id = $2 AND project_id = $3`,
-      [u.user?.id || null, saha_request_id, pid]
+  // Hareket yazımı + (varsa) saha talebini karşılama TEK işlemde: yarı yolda kalırsa geri alınsın
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `INSERT INTO stock_movements (project_id, material_id, movement_type, qty, unit, irsaliye_no, supplier_id, saha_request_id, note, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [
+        pid,
+        material_id,
+        mtype,
+        qty,
+        String(req.body?.unit || mat.rows[0].unit || 'adet').slice(0, 20),
+        String(req.body?.irsaliye_no || '').trim().slice(0, 40),
+        supplier_id,
+        saha_request_id,
+        String(req.body?.note || '').trim().slice(0, 300),
+        u.user?.id,
+      ]
     );
-  }
 
-  res.status(201).json(rows[0]);
+    // Eğer sevk hareketi bir saha talebine bağlandıysa talebi karşılandı olarak işaretle
+    if (mtype === 'sevk' && saha_request_id) {
+      await client.query(
+        `UPDATE saha_requests
+         SET status = 'fulfilled', fulfilled_by = $1, fulfilled_at = now()
+         WHERE id = $2 AND project_id = $3`,
+        [u.user?.id || null, saha_request_id, pid]
+      );
+    }
+    await client.query('COMMIT');
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
 });
 
 router.delete('/movements/:id', async (req: Request, res: Response) => {

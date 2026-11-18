@@ -44,9 +44,9 @@ async function fileToText(buffer: Buffer, ext: string): Promise<string> {
 // Halka açık uç: satıcılar giriş yapmadan teklif dosyası yükler
 router.post('/quote-upload', upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const firmName = String(req.body?.firm_name || '').trim();
-    const contact = String(req.body?.contact || '').trim();
-    const email = String(req.body?.email || '').trim();
+    const firmName = String(req.body?.firm_name || '').trim().slice(0, 120);
+    const contact = String(req.body?.contact || '').trim().slice(0, 120);
+    const email = String(req.body?.email || '').trim().slice(0, 160);
     if (!firmName) return res.status(400).json({ error: 'Firma adı zorunludur.' });
     if (!req.file) return res.status(400).json({ error: 'Teklif dosyası yüklenmedi.' });
 
@@ -74,37 +74,53 @@ router.post('/quote-upload', upload.single('file'), async (req: Request, res: Re
 
     const detected = detectQuotes(text, materials);
 
-    // Firma: ada göre bul veya otomatik kaydet
-    let supplier = (
-      await pool.query('SELECT id, name FROM suppliers WHERE lower(name) = $1', [
-        firmName.toLocaleLowerCase('tr-TR'),
-      ])
-    ).rows[0];
+    // Firma + teklifler TEK işlemde: yarıda kalırsa satıcı kaydı teklifsiz / teklifsiz satıcı
+    // gibi tutarsız durumlar kalmasın
+    const client = await pool.connect();
+    let supplier: { id: number; name: string };
     let createdSupplier = false;
-    if (!supplier) {
-      const ins = await pool.query(
-        'INSERT INTO suppliers (name, contact_name, email) VALUES ($1, $2, $3) RETURNING id, name',
-        [firmName, contact, email]
-      );
-      supplier = ins.rows[0];
-      createdSupplier = true;
-    }
-
-    // Tespit edilen fiyatları teklif olarak yaz
     const saved: unknown[] = [];
-    for (const d of detected) {
-      const ins = await pool.query(
-        `INSERT INTO quotes (material_id, supplier_id, price, currency, status, notes)
-         VALUES ($1, $2, $3, $4, 'received', $5) RETURNING id`,
-        [d.material_id, supplier.id, d.price, d.currency, `Otomatik tespit (${req.file!.originalname}): "${d.line}"`]
-      );
-      saved.push({
-        id: ins.rows[0].id,
-        material_id: d.material_id,
-        material_name: d.material_name,
-        price: d.price,
-        currency: d.currency,
-      });
+    try {
+      await client.query('BEGIN');
+
+      // Firma: ada göre bul veya otomatik kaydet
+      const found = (
+        await client.query('SELECT id, name FROM suppliers WHERE lower(name) = $1', [
+          firmName.toLocaleLowerCase('tr-TR'),
+        ])
+      ).rows[0];
+      if (found) {
+        supplier = found;
+      } else {
+        const ins = await client.query(
+          'INSERT INTO suppliers (name, contact_name, email) VALUES ($1, $2, $3) RETURNING id, name',
+          [firmName, contact, email]
+        );
+        supplier = ins.rows[0];
+        createdSupplier = true;
+      }
+
+      // Tespit edilen fiyatları teklif olarak yaz
+      for (const d of detected) {
+        const ins = await client.query(
+          `INSERT INTO quotes (material_id, supplier_id, price, currency, status, notes)
+           VALUES ($1, $2, $3, $4, 'received', $5) RETURNING id`,
+          [d.material_id, supplier.id, d.price, d.currency, `Otomatik tespit (${req.file!.originalname}): "${d.line}"`]
+        );
+        saved.push({
+          id: ins.rows[0].id,
+          material_id: d.material_id,
+          material_name: d.material_name,
+          price: d.price,
+          currency: d.currency,
+        });
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      client.release();
     }
 
     const unmatched =
