@@ -652,6 +652,73 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+
+  {
+    // İhale İzleme (İhale Kutusu): EKAP'tan günlük hasat edilen ihale duyuruları,
+    // izleme sorguları ve tarama koşu kayıtları (sessiz bayatlamayı önler).
+    id: 11,
+    name: 'ihale-izleme',
+    up: async (c) => {
+      // Hasat edilen ihaleler — İKN benzersiz; content_hash anlamlı alan değişimini yakalar
+      await c.query(`
+        CREATE TABLE IF NOT EXISTS tenders (
+          id               SERIAL PRIMARY KEY,
+          ikn              TEXT NOT NULL UNIQUE,
+          ihale_adi        TEXT NOT NULL DEFAULT '',
+          ihale_tip        TEXT NOT NULL DEFAULT '',
+          usul             TEXT NOT NULL DEFAULT '',
+          durum            TEXT NOT NULL DEFAULT '',
+          durum_aciklama   TEXT NOT NULL DEFAULT '',
+          idare_adi        TEXT NOT NULL DEFAULT '',
+          il              TEXT NOT NULL DEFAULT '',
+          ihale_tarih_saat TIMESTAMPTZ,
+          content_hash     TEXT NOT NULL DEFAULT '',
+          first_seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_seen_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_change_at   TIMESTAMPTZ,
+          changed_fields   JSONB NOT NULL DEFAULT '[]',
+          is_read          BOOLEAN NOT NULL DEFAULT false,
+          matched_queries  JSONB NOT NULL DEFAULT '[]',
+          raw              JSONB NOT NULL DEFAULT '{}'
+        );
+        CREATE INDEX IF NOT EXISTS idx_tenders_tarih ON tenders(ihale_tarih_saat);
+        CREATE INDEX IF NOT EXISTS idx_tenders_unread ON tenders(is_read);
+      `);
+      // İzleme sorguları — kullanıcı tarafından genişletilebilir anahtar kelimeler
+      await c.query(`
+        CREATE TABLE IF NOT EXISTS ihale_monitor_queries (
+          id          SERIAL PRIMARY KEY,
+          name        TEXT NOT NULL,
+          search_text TEXT NOT NULL,
+          active      BOOLEAN NOT NULL DEFAULT true,
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+      `);
+      // Tohum sorgular: firmanın ilgi alanı (ENH / trafo yapım işleri)
+      await c.query(`
+        INSERT INTO ihale_monitor_queries (name, search_text)
+        SELECT * FROM (VALUES
+          ('ENH', 'enerji nakil hattı'),
+          ('Trafo', 'trafo merkezi'),
+          ('İletim', 'enerji iletim hattı')
+        ) AS v(name, search_text)
+        WHERE NOT EXISTS (SELECT 1 FROM ihale_monitor_queries)
+      `);
+      // Tarama koşu kayıtları — İhale Kutusu "son tarama" göstergesi + Portföy çipi
+      await c.query(`
+        CREATE TABLE IF NOT EXISTS ihale_scan_runs (
+          id            SERIAL PRIMARY KEY,
+          started_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+          finished_at   TIMESTAMPTZ,
+          status        TEXT NOT NULL DEFAULT 'running',
+          error         TEXT NOT NULL DEFAULT '',
+          queries_run   INTEGER NOT NULL DEFAULT 0,
+          new_count     INTEGER NOT NULL DEFAULT 0,
+          changed_count INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+    },
+  },
 ];
 
 /** Bekleyen migrasyonları sırayla uygular. */
