@@ -105,6 +105,27 @@ describe('buildPortfolio', () => {
     expect(r.totals.projects_with_warnings).toBe(1);
   });
 
+  it('aggregates ALL FOUR warning types into warnings and warning_count', () => {
+    const r = buildPortfolio({
+      projects: [PROJECT_1],
+      weighted: [{ project_id: 1, num: 7100, den: 100, avg_progress: 40 }],
+      saha: [],
+      lateTasks: [{ project_id: 1, c: 2 }],
+      parcels: [{ project_id: 1, c: 3 }],
+      expiringCerts: [{ project_id: 1, c: 4 }],
+      openRequests: [{ project_id: 1, c: 5 }],
+      payments: [],
+    });
+    expect(r.projects[0].warnings).toEqual({
+      late_tasks: 2,
+      unpermitted_parcels: 3,
+      expiring_certs: 4,
+      open_requests: 5,
+    });
+    expect(r.projects[0].warning_count).toBe(14);
+    expect(r.totals.projects_with_warnings).toBe(1);
+  });
+
   it('maps payment statuses to their own counters and sums total_amount across all', () => {
     const r = buildPortfolio({
       projects: [PROJECT_1],

@@ -112,7 +112,7 @@ router.get('/overview/portfolio', async (_req: Request, res: Response) => {
          WHERE project_id IS NOT NULL AND status = 'open' GROUP BY project_id`
       ),
       pool.query(
-        `SELECT pp.project_id, pp.status, COUNT(*)::int AS c,
+        `SELECT pp.project_id, pp.status, COUNT(DISTINCT pp.id)::int AS c,
                 COALESCE(SUM(i.current_qty * i.unit_price), 0)::float AS total
          FROM progress_payments pp
          LEFT JOIN progress_payment_items i ON i.payment_id = pp.id
