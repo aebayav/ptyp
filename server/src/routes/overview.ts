@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
 import { LATE_TASK_SQL } from '../late-filter';
+import { buildPortfolio } from '../portfolio-summary';
 
 const router = Router();
 
@@ -62,6 +63,76 @@ router.get('/overview', async (_req: Request, res: Response) => {
     unpermittedParcels: par.rows[0].c,
     expiringCerts: cert.rows[0].c,
   });
+});
+
+// Portföy genel bakış: tüm projeleri ilerleme, hakediş ve uyarılarla tek yanıtta toplar.
+// Satır sıralaması buildPortfolio içinde: uyarı çok → ilerleme yüksek.
+router.get('/overview/portfolio', async (_req: Request, res: Response) => {
+  const [projects, weighted, saha, lateTasks, parcels, expiringCerts, openRequests, payments] =
+    await Promise.all([
+      pool.query('SELECT id, name, type, capacity, employer, end_date FROM projects ORDER BY id'),
+      pool.query(
+        `SELECT project_id,
+                COALESCE(SUM(progress * weight), 0)::float AS num,
+                COALESCE(SUM(weight), 0)::float AS den,
+                COALESCE(AVG(progress), 0)::float AS avg_progress
+         FROM work_groups WHERE project_id IS NOT NULL GROUP BY project_id`
+      ),
+      // Saha ilerlemesi: overview'daki aşama ağırlıklarıyla (kazı 15 → tamam 100)
+      pool.query(
+        `SELECT p.project_id,
+                COALESCE(SUM(CASE s.status
+                        WHEN 'excavation' THEN 15 WHEN 'foundation' THEN 30
+                        WHEN 'erection' THEN 50 WHEN 'fittings' THEN 70
+                        WHEN 'stringing' THEN 85 WHEN 'completed' THEN 100
+                        ELSE 0 END), 0)::float AS num,
+                COUNT(p.id)::int AS cnt
+         FROM poles p
+         LEFT JOIN pole_status s ON s.project_id = p.project_id AND s.pole_idx = p.idx
+         WHERE p.project_id IS NOT NULL
+         GROUP BY p.project_id`
+      ),
+      pool.query(
+        `SELECT w.project_id, COUNT(*)::int AS c
+         FROM tasks t JOIN work_groups w ON w.id = t.work_group_id
+         WHERE w.project_id IS NOT NULL AND ${LATE_TASK_SQL}
+         GROUP BY w.project_id`
+      ),
+      pool.query(
+        `SELECT project_id, COUNT(*)::int AS c FROM parcels
+         WHERE project_id IS NOT NULL AND easement_status = 'izinsiz' GROUP BY project_id`
+      ),
+      pool.query(
+        `SELECT project_id, COUNT(*)::int AS c FROM certifications
+         WHERE project_id IS NOT NULL AND expiry_date IS NOT NULL AND expiry_date <= CURRENT_DATE + 30
+         GROUP BY project_id`
+      ),
+      pool.query(
+        `SELECT project_id, COUNT(*)::int AS c FROM saha_requests
+         WHERE project_id IS NOT NULL AND status = 'open' GROUP BY project_id`
+      ),
+      pool.query(
+        `SELECT pp.project_id, pp.status, COUNT(*)::int AS c,
+                COALESCE(SUM(i.current_qty * i.unit_price), 0)::float AS total
+         FROM progress_payments pp
+         LEFT JOIN progress_payment_items i ON i.payment_id = pp.id
+         WHERE pp.project_id IS NOT NULL
+         GROUP BY pp.project_id, pp.status`
+      ),
+    ]);
+
+  res.json(
+    buildPortfolio({
+      projects: projects.rows,
+      weighted: weighted.rows,
+      saha: saha.rows,
+      lateTasks: lateTasks.rows,
+      parcels: parcels.rows,
+      expiringCerts: expiringCerts.rows,
+      openRequests: openRequests.rows,
+      payments: payments.rows,
+    })
+  );
 });
 
 export default router;
