@@ -47,6 +47,8 @@
   --badge-green-text: #1e6f45;
   --badge-gray-bg: #edf1f5;
   --badge-gray-text: #55636f;
+  --badge-red-bg: #fdeceb;
+  --badge-red-text: #a32b26;
 }
 
 [data-theme='dark'] {
@@ -91,6 +93,8 @@
   --badge-green-text: #7fd8a8;
   --badge-gray-bg: #24344b;
   --badge-gray-text: #a8b6c6;
+  --badge-red-bg: #3b1a1e;
+  --badge-red-text: #f09696;
 }
 
 * {
@@ -370,6 +374,7 @@ tr.best td {
 .badge-amber { background: var(--badge-amber-bg); color: var(--badge-amber-text); }
 .badge-green { background: var(--badge-green-bg); color: var(--badge-green-text); }
 .badge-gray { background: var(--badge-gray-bg); color: var(--badge-gray-text); }
+.badge-red { background: var(--badge-red-bg); color: var(--badge-red-text); }
 
 /* ---------- Butonlar ---------- */
 .btn {

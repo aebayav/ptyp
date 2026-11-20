@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './AuthContext';
 import { api } from './api';
 import Modal from './components/Modal';
 import Dashboard from './pages/Dashboard';
+import Portfolyo from './pages/Portfolyo';
 import Materials from './pages/Materials';
 import Suppliers from './pages/Suppliers';
 import Quotes from './pages/Quotes';
@@ -137,6 +138,10 @@ function Sidebar({ menuOpen, setMenuOpen }) {
             <>
               <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>
                 Genel Bakış
+              </NavLink>
+
+              <NavLink to="/portfoy" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Portföy
               </NavLink>
 
               <div className="nav-group">TEDARİK</div>
@@ -337,6 +342,7 @@ function Shell() {
           {user && user.role === 'owner' ? (
             <>
               <Route path="/" element={<Dashboard />} />
+              <Route path="/portfoy" element={<Portfolyo />} />
               <Route path="/malzemeler" element={<Materials />} />
               <Route path="/saticilar" element={<Suppliers />} />
               <Route path="/teklifler" element={<Quotes />} />

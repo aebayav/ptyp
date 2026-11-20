@@ -64,7 +64,10 @@ export default function Dashboard() {
           <h1>Genel Bakış</h1>
           <p className="sub">ENH &amp; Trafo projeleri — genel durum</p>
         </div>
-        <Link to="/malzemeler" className="btn btn-primary">+ Yeni Malzeme</Link>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <Link to="/portfoy" className="btn">Portföy</Link>
+          <Link to="/malzemeler" className="btn btn-primary">+ Yeni Malzeme</Link>
+        </div>
       </div>
 
       <div className="grid-cards">
