@@ -90,4 +90,6 @@ jobs:
 
       - name: Anahtar yok — dağıtım atlandı
         if: steps.check.outputs.ready == 'false'
-        run: echo "DEPLOY_SSH_KEY sırrı tanımlı değil; testler geçti, dağıtım atlandı. Repo ayarları → Secrets → Actions → DEPLOY_SSH_KEY."
+        run: |
+          echo "::warning::DEPLOY_SSH_KEY sırrı tanımlı değil — dağıtım ATLANDI (testler geçti). Repo ayarları → Secrets → Actions → DEPLOY_SSH_KEY ekleyin."
+          echo "DEPLOY_SSH_KEY sırrı tanımlı değil; testler geçti, dağıtım atlandı."
