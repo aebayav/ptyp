@@ -70,7 +70,7 @@ jobs:
       - name: Dağıt — git pull, build, restart, sağlık kontrolü
         if: steps.check.outputs.ready == 'true'
         run: |
-          ssh -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+          ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
             -J ssh.turguz.app turguz@ptyp 'set -e
           cd ~/ptyp
           git fetch -q origin
@@ -78,7 +78,7 @@ jobs:
           git log --oneline -1
           npm run build
           sudo -n systemctl restart ptyp
-          sudo -n systemctl restart ocr
+          sudo -n systemctl restart ocr || echo "::warning::OCR servisi yeniden başlatılamadı (sudoers kapsamı dışı olabilir)"
           # Sağlık kontrolü: sabit bekleme yerine 60 sn boyunca yokla
           for i in $(seq 1 30); do
             if systemctl is-active --quiet ptyp; then echo "ptyp: aktif"; break; fi
