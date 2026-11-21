@@ -4,7 +4,7 @@
 
 **Goal:** EKAP ihale duyurularını Playwright ile günlük hasat edip İhale Kutusu sayfasında sunan izleme modülü (tasarım: ihale tarih penceresi, değişim işaretleme, tarama sağlığı).
 
-**Architecture:** systemd timer → bağımsız Node script'i → kısa ömürlü headless chromium (Turnstile'i doğal geçer) → sayfa bağlamında EKAP JSON API'sini sorgular → saf `ihale-upsert` mantığıyla DB'ye upsert → owner-only route'lar → `/ihaleler` sayfası + Portföy kartı.
+**Architecture:** kullanıcının gerçek tarayıcısında bir **bookmarklet** EKAP arama sayfasının bağlamında sorguları koşar (Turnstile kullanıcı oturumuyla zaten doğrulanmış) ve satırları token'la PTYP ingest ucuyla gönderir → saf `ihale-upsert` mantığıyla DB'ye upsert → owner-only route'lar → `/ihaleler` sayfası + Portföy kartı. (Revizyon A: Playwright sunucu hasadı kanıtlanarak öldü — bkz. spec eki.)
 
 **Tech Stack:** Express 5 + TypeScript strict · pg · Playwright (chromium) · React 18 · vitest
 
@@ -12,9 +12,9 @@
 
 ## Global Constraints
 
-- `tsc` derlemesi temiz kalalı; yeni bağımlılık YALNIZ `playwright` (server, runtime)
-- **Express süreci asla playwright import etmez** — elle tarama `scripts/ihale-monitor.js`'i child process olarak **spawn** eder (`routes/ihaleler.ts` `ekap-client`'ı import ETMEZ)
-- EKAP nezaketi: koşu başına ≤5 sorgu, sorgu başına ≤3 sayfa (×10 kayıt); yalnız günlük timer + elle "Şimdi Tara"
+- `tsc` derlemesi temiz kalmalı; **yeni npm bağımlılığı yok** (Playwright pivotla düştü)
+- **İngest ucu `requireAuth` DIŞINDA** — kendi koruması `x-ptyp-token` + CORS (yalnız `https://ekapv2.kik.gov.tr`, preflight dahil); Express yalnız saf `http`/`pool` kullanır
+- EKAP nezaketi: bookmarklet sorgu başına ≤3 sayfa (×10 kayıt); ingest `scanGuard` ile çift-tıklamayı reddeder (429)
 - Tarih ayrıştırma: EKAP'tan gelen `DD.MM.YYYY HH:mm` **Europe/Istanbul duvar saati** kabul edilir (VPS UTC'de koşar)
 - UI Türkçe; yalnız mevcut CSS sınıfları; route/migrasyon/sayfa desenleri birebir mevcut dosyalar gibi
 - Migrasyon numarası: `migrations.ts`'teki en yüksek `id`'nin sıradakisi (grep ile bulunur)
@@ -68,55 +68,64 @@
 
 ---
 
-### Task 2: EKAP hasat client'i + monitör CLI + canlı spike (merdiven doğrulaması)
+### Task 2: Migrasyon genişletmesi (ingest token) + bookmarklet üretici — TDD
 
 **Files:**
-- Create: `server/src/ekap-client.ts`
-- Create: `server/src/scripts/ihale-monitor.ts`
-- Modify: `server/package.json` (`playwright` runtime dep; script girişi yok — doğrudan node ile koşulur)
+- Modify: `server/src/migrations.ts` (migrasyon #11'in içine `ihale_settings` — henüz hiçbir DB'ye uygulanmadığı için güvenle genişletilir; ledger ruling'e bağlı)
+- Create: `server/src/ihale-bookmarklet.ts`
+- Test: `server/test/ihale-bookmarklet.test.ts`
 
 **Interfaces:**
-- Consumes: Task 1 `EkapRow`, `ihale_monitor_queries` tablosu
-- Produces: `runEkapHarvest(queries: { name: string; searchText: string }[], opts?: { headful?: boolean }): Promise<EkapRow[]>` — chromium açar → `ekapv2.kik.gov.tr/ekap/search` yükler → doğrulama oturumunu bekler (ağ boşta / `human-verification/status` OK) → sayfa bağlamında `fetch('/b_ihalearama/api/Ihale/GetListByParameters', {method:'POST', headers:{'content-type':'application/json','api-version':'v1'}, body: JSON.stringify(q)})` — gövde: `{searchText, ihaleAdindaAra:true, teklifCetvelindeAra:true, searchType:'GirdigimGibi', yasaKapsami4734List:[1], ihaleTuruIdList:[2], ihaleTarihSaatBaslangic:<bugün 00:00 Europe/Istanbul ISO>, orderBy:'ihaleTarihi', siralamaTipi:'asc', paginationSkip, paginationTake:10}` — sayfa 0..2, satır bitince dur. Sorgular arası ~1 sn `waitTimeout` (nezaket). Hata: açıklayıcı `Error` fırlat, tarayıcıyı `finally`'de kapat.
-- `ihale-monitor.ts` CLI: pool + `runMigrations` YOK (sunucu Express açarken migrasyonu zaten uygular; script yalnız okur-yazar) → aktif sorguları oku → hasat → her satır `mapEkapRow` + `classifyUpsert` → INSERT/UPDATE → koşu kaydı: başta `ihale_scan_runs`'a `status='running'` satırı, sonda 'ok'/'error' + new_count/changed_count → exit 0/1. Ortam: `IHALE_HEADFUL=1` (merdiven (b)); `IHALE_MAX_QUERIES` varsayılan 5.
+- Consumes: Task 1 çekirdeği; `ihale_monitor_queries` aktif satırları
+- Produces:
+  - `generateBookmarklet(input: { origin: string; token: string; queries: { name: string; search_text: string }[] }): string` — `javascript:` + `encodeURIComponent(...)` önekli tek satır; içinde:
+    - bugünün Europe/Istanbul 00:00'ı **koşu anında** hesaplanır (yeniden üretim gereksiz)
+    - her sorgu için `POST /b_ihalearama/api/Ihale/GetListByParameters` (gövde şablonu: Task 1 recon'unun tam alan listesi — `ihaleTuruIdList:[2]`, `orderBy:'ihaleTarihi'`, `siralamaTipi:'asc'`, `paginationTake:10`, sayfa 0..2, `<10` satırda dur)
+    - toplanan satırlar `POST {origin}/api/ihaleler/ingest` (`x-ptyp-token` başlığı) ile gönderilir; yanıt özeti `alert` ile kullanıcıya ("X yeni, Y değişen ✓" / hata mesajı)
+    - 0 satır da gönderilir (tazelik sinyali; sessiz-boş-kabul yok mantığı elle hasatta geçersiz)
+  - `EKAP_SEARCH_URL` sabiti (`https://ekapv2.kik.gov.tr/ekap/search`) — İstemci "EKAP'ı Aç" için
 
-- [ ] **Adım 1: playwright'i kur** — `npm.cmd --prefix server install playwright` (chromium iner ~300 MB; bu makinede bir kez)
+- [ ] **Adım 1: Başarısız testleri yaz**
 
-- [ ] **Adım 2: Spike — merdiven (a): headless canlı doğrulama**
+  Test 1 — çıktı `javascript:` ile başlar; `decodeURIComponent` sonrası `origin`, `token`, her `search_text` ve `ihaleTuruIdList:[2]` içerir
+  Test 2 — tarih penceresi koşu anında: üretilen kodda sabit tarih YOK, `Date.now()` / `toISOString` çağrısı VAR
+  Test 3 — `{origin}/api/ihaleler/ingest` hedefi ve `x-ptyp-token` başlığı kodda mevcut
+  Test 4 — sorgular arası nezaket: 0 satır dönerse ingest yine çağrılır; sayfa döngüsü `<10` satırda kırılır
+  Test 5 — üretim deterministik: aynı girdi iki kez aynı uzunluğun (%95+ karakter birebir) çıktı — rastgelelik yok
 
-  Yereldeki `.env` DB'sine karşı: `npx.cmd --prefix server tsx src/scripts/ihale-monitor.ts` koştur.
-  Expected: koşu kaydı 'ok', `tenders` tablosunda ≥1 satır (İKN'li, tarih ayrıştırılmış). **Turnstile headless'i engellerse** (timeout/403/boş yanıt): spike sonucunu kayda geçir, `IHALE_HEADFUL=1` (yerelde görünen pencere) ile tekrar — bu VPS'te `xvfb-run` karşılığıdır (merdiven (b)). İkisi de ölmüşse: DUR, kullanıcıya bildir (tasarımın (c) kolu). Spike sonucunu çalışma alanı ledger'ine yaz.
+- [ ] **Adım 2: RED doğrula** — `npm --prefix server run test` → FAIL (`Cannot find module '../src/ihale-bookmarklet'`)
 
-- [ ] **Adım 3: `ekap-client.ts` + `ihale-monitor.ts`'i yaz** (Adım 2'de öğrenilenlerle; doğrulama bekleyişi, hata mesajları)
+- [ ] **Adım 3: Migrasyon #11'i genişlet** — `ihale_settings (id INTEGER PRIMARY KEY DEFAULT 1, ingest_token TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())` + boşsa rastgele token tohumu (crypto)
 
-- [ ] **Adım 4: CLI'yi canlı doğrula** — yeniden koş; `psql` yerine: küçük node sorgusuyla veya ikinci koşuyla `update_seen` yolunu doğrula (aynı İKN tekrar → changed 0, is_read korunur)
+- [ ] **Adım 4: `ihale-bookmarklet.ts`'i uygula** — tek şablonlu fonksiyon; gövde şablonu Task 1'in EKAP recon gövdesi
 
-- [ ] **Adım 5: Derleme + paket** — `npm --prefix server run build` (dist/scripts/ihale-monitor.js oluşmalı) + tüm testler
+- [ ] **Adım 5: GREEN + derleme** — tüm testler + `tsc` temiz
 
-- [ ] **Adım 6: Commit** — `feat(ihale): add EKAP harvest client and daily monitor script`
+- [ ] **Adım 6: Commit** — `feat(ihale): add ingest token setting and bookmarklet generator`
 
 ---
 
-### Task 3: Route'lar — liste, okundu, stats, sorgu CRUD, scan-now (spawn)
+### Task 3: Route'lar — liste, okundu, stats, sorgu CRUD, ingest (CORS+token), bookmarklet üretici ucu
 
 **Files:**
-- Create: `server/src/routes/ihaleler.ts`
-- Modify: `server/src/index.ts` (mount: `app.use('/api/ihaleler', ihalelerRouter)` — auth bloğunun altına, overviewRouter'ın yanına)
+- Create: `server/src/routes/ihaleler.ts` (İKİ router: authed + ingest)
+- Modify: `server/src/index.ts` (mount: auth bloğuna `app.use('/api/ihaleler', ihalelerRouter)` + `app.use('/api/ihaleler/ingest', ihaleIngestRouter)` — ingest auth DIŞINDA)
 
 **Interfaces:**
-- Consumes: Task 1 `isScanStale`/`scanGuard`; `ihale_scan_runs`/`tenders`/`ihale_monitor_queries`; **spawn edilen** `dist/scripts/ihale-monitor.js` (Express playwright import ETMEZ)
+- Consumes: Task 1 `mapEkapRow`/`classifyUpsert`/`isScanStale`/`scanGuard`/`EkapRow`; Task 2 `generateBookmarklet` + `ihale_settings.ingest_token`
 - Produces (Task 4 tüketir — alan adları birebir):
   - `GET /api/ihaleler` → satır dizisi: `{ ikn, ihale_adi, ihale_tip, usul, durum, durum_aciklama, idare_adi, il, ihale_tarih_saat, is_read, changed_fields, matched_queries, last_seen_at }` — sıra: okunmamış önce, sonra `ihale_tarih_saat` artan
   - `GET /api/ihaleler/stats` → `{ unread: number, last_run: { status, started_at, finished_at, error, new_count, changed_count } | null, is_stale: boolean }`
   - `PUT /api/ihaleler/ikn/:ikn/read` → 204; `PUT /api/ihaleler/read-all` → 204
-  - `POST /api/ihaleler/scan-now` → `scanGuard` reddi: 429 + `{error}`; izin: `ihale_scan_runs`'a 'running' satırı + `spawn('node', ['dist/scripts/ihale-monitor.js'], {detached:true, stdio:'ignore'}).unref()` → `202 {started:true}` (dev'de `tsx src/scripts/...` — `isProduction`'a göre seç)
+  - `GET /api/ihaleler/bookmarklet` → `{ code: string, ekap_url: string, token_suffix: string }` — origin `req.protocol + '://' + req.get('host')`
+  - `POST /api/ihaleler/ingest-token/regenerate` → `{ token }` (ihale_settings günceller)
   - `GET/POST /api/ihaleler/queries`, `PUT/DELETE /api/ihaleler/queries/:id` → sorgu CRUD; POST'ta `active=true`, say >5 → 400
-  - Router: `router.use(requireAuth, requireRole('owner'))`
+  - `POST /api/ihaleler/ingest` (**token ile, auth dışı**): gövde `{ rows: EkapRow[] }`; `scanGuard` reddi → 429 `{error}`; başarı → `{ new_count, changed_count }` + `ihale_scan_runs`'a 'ok' satırı ('running' yok — eşzamanlı riski bookmarklet tekil tıklamada yok). CORS: `Origin: https://ekapv2.kik.gov.tr` tam eşleşmeli; `Access-Control-Allow-Origin: <o origin>`, `Allow-Headers: content-type, x-ptyp-token`, `Allow-Methods: POST, OPTIONS`; OPTIONS 204.
+  - Authed router: `router.use(requireAuth, requireRole('owner'))`
 
-- [ ] **Adım 1: Route'ları yaz** — yukarıdaki şema birebir; `scanGuard`'ın sonucu 429 gövdesinde nedenle döner
-- [ ] **Adım 2: `scan-now` çakışma yolunu doğrula** — yerelde sunucuyu başlat (`npm run dev`), curl ile: (1) tarama → 202; (2) hemen tekrar → 429 (running koruması); `stats`'ta running görünür; tarama bitince 'ok' + is_stale=false
-- [ ] **Adım 3: Derleme + paket** — `tsc` temiz, tüm testler, `dist/scripts` yolu doğru (spawn dev/prod ayrımı TS'te derlenebilir olmalı)
-- [ ] **Adım 4: Commit** — `feat(ihale): add tender list/stats/scan API routes`
+- [ ] **Adım 1: Route'ları yaz** — yukarıdaki şema birebir; ingest `x-ptyp-token`'ı `ihale_settings`'ten sabit-zamanlı karşılaştırır (`timingSafeEqual` benzeri uzunluk-normalize basit karşılaştırma yeterli — token zaten yüksek entropi); upsert döngüsü migrasyondaki şemayla (INSERT ON CONFLICT DO NOTHING / update_changed / update_seen — Task 1 kararları)
+- [ ] **Adım 2: Derleme + paket** — `tsc` temiz, tüm testler (127+5); CORS/ingest akışı canlı doğrulama Task 5'te VPS'te (yerel DB parolası uyuşmuyor — ledger'da)
+- [ ] **Adım 3: Commit** — `feat(ihale): add tender list/stats/queries routes and token-protected CORS ingest`
 
 ---
 
@@ -132,11 +141,12 @@
 - Produces: rota `/ihaleler` (yalnız owner dalı); `Ihaleler` default export
 
 - [ ] **Adım 1: Sayfayı yaz** — `Planlama.jsx` iskeleti (loading/error/empty). İçerik:
-  - `page-head`: "İhale Kutusu" + "🔄 Şimdi Tara" (scan-now 202 → stats poll 3 sn arayla bitene dek → liste yenile; 429 → hata mesajı nedeniyle)
+  - `page-head`: "İhale Kutusu" + "Yenile" düğmesi (liste+stats yeniden fetch)
+  - **"EKAP Taraması" kurulum kartı** (`card`, sayfanın üstünde): (1) `GET /api/ihaleler/bookmarklet` → gösterilen `<a>` bağlantısı (`javascript:` kodu — sürüklenebilir yer imi) + "Kopyala" düğmesi (clipboard) + kısa 3 adımlı Türkçe talimat (EKAP'i aç → yer imine tıkla → kutuya dön); (2) "EKAP Arama Sayfasını Aç" düğmesi (`window.open(ekap_url)`); (3) sorgular değişince bookmarklet'in yeniden kopyalanması gerektiği notu
   - "Son tarama" satırı: `{status} · {fmtDate(finished_at)} · yeni {new_count}`; `is_stale` → `badge-amber "tarama uyuyor"` (Review Focus 4'ün görünen hali)
   - Tablo: İKN (kalın okunmamışsa) · Ad (+`badge-amber "değişti"` changed_fields doluysa) · İdare · İl · Durum (`badge-red` iptal, `badge-green` açık-benzeri — eşleme: açıklama metni 'İptal' içerir → red, 'Katılıma Açık' → green, değilse gray) · Tarih (fmtDate + "X gün" sayaç; geçmişse `badge-red "kapandı"`)
-  - Satır tıklaması: `PUT .../read` + `window.open` EKAP arama (`https://ekapv2.kik.gov.tr/ekap/search` — İKN ile derin bağlantı spike'ta çözüldüyse onu kullan, çözülmediyse arama sayfası)
-  - Sorgu paneli: aktif sorgular chip'leri (sil ×) + yeni anahtar kelime formu (POST)
+  - Satır tıklaması: `PUT .../read` + `window.open` EKAP arama (`https://ekapv2.kik.gov.tr/ekap/search`)
+  - Sorgu paneli: aktif sorgular chip'leri (sil ×) + yeni anahtar kelime formu (POST) + sorgu değişince kurulum kartında "bookmarklet'i güncelle" notu basılır
   - "Tümünü Okundu İşaretle" düğmesi
 - [ ] **Adım 2: Portföy kartı** — `Portfolyo.jsx`: `/api/ihaleler/stats` fetch; 4. `stat-card` `{unread} Yeni İhale` (warn sınıfı >0), `/ihaleler`'e Link + onClick `setProjectId` GEREKMEZ (ihaleler proje-bağımsız); `is_stale` → kartın altına `badge-amber` çip
 - [ ] **Adım 3: Derleme kapısı** — `npm --prefix client run build` hatasız
@@ -144,17 +154,14 @@
 
 ---
 
-### Task 5: CI/CD + systemd timer + README (dağıtım omurgası)
+### Task 5: README + dağıtım + canlı uçtan-uca doğrulama (kullanıcı tarayıcısıyla)
 
 **Files:**
-- Modify: `.github/workflows/ci-cd.yml`
-- Create: `deploy/ptyp-ihale-monitor.service` + `deploy/ptyp-ihale-monitor.timer`
-- Modify: `README.md`
+- Modify: `README.md` (modül tablosuna "İhale Kutusu" satırı + kurulum bölümü)
 
-- [ ] **Adım 1: CI betiği** — test işine ortam `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"` (server bağımlılık kurulumunda tarayıcı inmesin); deploy SSH betiğinde `npm run build` ÖNCESİNE `npm --prefix server install --no-audit --no-fund` satırı (yeni bağımlılıklar dağıtımı kırmaz)
-- [ ] **Adım 2: systemd birimleri** — `ptyp-backup` deseninin kopyası: service (User=turguz, oneshot, `ExecStart=/usr/bin/node /home/turguz/ptyp/server/dist/scripts/ihale-monitor.js`, WorkingDirectory=/home/turguz/ptyp/server) + timer (OnCalendar `*-*-* 06:00:00`, Persistent=true). Not: `.env` yükleme `db.ts → config.ts` zinciriyle zaten olur (Task 2 spike kanıtlar)
-- [ ] **Adım 3: README** — "İhale İzleme" bölümü: VPS tek sefer hazırlığı (npm install → `npx playwright install chromium` → `sudo npx playwright install-deps` [şifre bir kez] → `systemctl enable --now ptyp-ihale-monitor.timer`), spike merdiveni notu (headful gerekiyorsa `IHALE_HEADFUL=1` + `xvfb`), sorgu yönetimi UI'dan
-- [ ] **Adım 4: Derleme + paket** — `npm --prefix server run build` + tüm testler + `npm --prefix client run build` (dağıtım öncesi tam kapı)
-- [ ] **Adım 5: Commit** — `ci(ihale): install server deps on deploy, add monitor timer units and README ops`
+CI/CD değişikliği YOK (yeni npm bağımlılık kalmadı; mevcut hat sırayı düzenliyor). systemd YOK.
 
-- [ ] **Adım 6: Kullanıcıyla dağıtım** — push → CI yeşil dağıtım; VPS hazırlığını kullanıcıyla birlikte yap (sudo şifresi ondan): npm install, chromium + deps, timer enable; ardından canlı doğrulama: elle tarama tetikle → İhale Kutusu'nda satırlar + stats ok
+- [ ] **Adım 1: README** — "İhale İzleme" bölümü: bookmarklet kurulumu (İhale Kutusu → "Bookmarklet'i Kur" kartı → sürükle/kopyala), günlük ritüel (EKAP'i aç → yer imine tıkla → kutuya dön; "tarama uyuyor" çipi >48 sa hatırlatır), sorgu yönetimi UI'dan, token yenileme (sızıntı halinde "Yeniden Üret")
+- [ ] **Adım 2: Tam derleme kapısı** — `npm --prefix server run build` + tüm testler + `npm --prefix client run build`
+- [ ] **Adım 3: Commit + push** — `feat(ihale): add tender monitoring README for bookmarklet workflow` → push → CI otomatik dağıtır (deploy betiği değişmedi)
+- [ ] **Adım 4: Canlı uçtan-uca doğrulama (kullanıcıyla)** — canlıda: (1) `/ihaleler` açılır, kurulum kartından bookmarklet kopyalanır/yer imine eklenir; (2) EKAP arama sayfası açılır, yer imine tıklanır → alert "X yeni ✓"; (3) İhale Kutusu yenilenir: satırlar + "son tarama" taze + Portföy çipi; (4) çift tıklama koruması: yer imine hemen tekrar tıklanır → 429 alerti. Kanıtlar ledger'e.

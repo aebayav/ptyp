@@ -1,6 +1,6 @@
 # İhale İzleme (İhale Kutusu) — Tasarım Belgesi
 
-**Tarih:** 2026-11-21 · **Durum:** Onaya sunuluyor
+**Tarih:** 2026-11-21 · **Durum:** Onaylı — **Revizyon A (bookmarklet pivotu), kullanıcı onaylı**
 
 ## Amaç ve Neden
 
@@ -163,3 +163,58 @@ birlikte günlük yük ≤ 15 API çağrısı.
   sırası: Mal/Yapım/Hizmet/Danışmanlık varsayımı — Yapım=2 kontrol edilecek).
 - `scan-now` iş durum izleme ayrıntısı (tamamlanana kadar poll — parse-jobs
   deseninin hafif türevi ya da senkron await).
+
+---
+
+## REVİZYON A — Bookmarklet Pivotu (21.11.2026, kullanıcı onaylı)
+
+### Kanıt: Playwright merdiveni (a) ve (b) kanıtlanarak öldü
+
+Canlı testler: headless chromium → 60 sn boyunca **429**; headful taze profil →
+**428**; headful GERÇEK kurulu Chrome + kalıcı profil → **428** (SPA arama
+yerine e-imza kapısına düşer; Turnstile iframe hiç oluşmaz, `verify` çağrısı
+atılmaz). Geçen tek ortam: kullanıcının gerçek etkileşimli tarayıcı oturumu
+(recon'da tüm çağrılar 200). Stealth/evasion reddedildi — devlet sitesinin
+anti-bot sistemine karşı silah yarışı bu tasarımın reddettiği şey.
+
+### Yeni yaklaşım: güvenilir-tarayıcı hasadı (bookmarklet)
+
+Kullanıcının gerçek tarayıcı oturumu — Cloudflare'in zaten güvendiği istemci —
+hasadı yapar; PTYP yalnız veriyi KABUL eder:
+
+```
+İhale Kutusu (/ihaleler) → "Bookmarklet'i Kur" kartı:
+   1. javascript: bağlantısı kopyalanır (PTYP GET /api/ihaleler/bookmarklet
+      üretir: PTYP kökü + ingest token + aktif sorgular gömülü)
+   2. tarayıcı yer imlerine eklenir (sürükle veya ekle)
+Günlük ritüel: EKAP arama sayfası açılır → yer imine tek tık:
+   → bookmarklet SAYFA BAĞLAMINDA sorguları koşar (aynı origin, Turnstile
+     zaten kullanıcı oturumuyla doğrulanmış — 428/429 engeli tasfiye)
+   → satırlar + token, PTYP POST /api/ihaleler/ingest'e gider
+   → sunucu mapEkapRow + classifyUpsert ile upsert + ihale_scan_runs 'ok'
+   → özet alert: "X yeni, Y değişen ✓"; PTYP sayfası yenilenince kutu taze
+```
+
+- **İngest güvenliği:** `ihale_settings` tek satır tablosu (`ingest_token`,
+  yeniden üretilebilir) + CORS yalnız `https://ekapv2.kik.gov.tr` origin'ine,
+  preflight (OPTIONS) dahil; `x-ptyp-token` başlığı. Çift tıklamada ikinci
+  ingest'i `scanGuard` ile reddet (429) — EKAP nezaketi.
+- **Token ömrü sorunu yok:** ingest token uzun ömürlü; JWT'nin 12 saatlik
+  süresi bu akışa girmez.
+- **0 satır meşrudur:** elle hasatta "sessiz boş kutu" şüphesi kalkar — ingest
+  0 satırla da koşu kaydını 'ok' yazar (tazelik sinyali).
+- **Bookmarklet tarih penceresini koşu anında hesaplar** — yeniden üretim
+  gerekmez; sorgular değişirse yeniden kopyalanır (sayfa bunu hatırlatır).
+
+### Plandan düşenler (Artık Hedef Olmayanlar)
+
+- systemd timer / VPS chromium kurulumu / `playwright` bağımlılığı / CI'da
+  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` + deploy'a `npm install` — hiçbiri
+  gerekmez (yeni npm bağımlılık kalmadı).
+- "Şimdi Kara" sunucu-scan-now düğmesi → yerini bookmarklet ritüeline bırakır.
+
+### Kalan her şey
+
+Migrasyon #11 (tenders/queries/scan_runs), `ihale-upsert.ts` çekirdeği ve
+testleri, İhale Kutusu sayfası, Portföy bayatlama çipi, sorgu yönetimi,
+tarama sağlığı satırı — aynen. Pencere/değişim/nezaket kararları değişmez.
