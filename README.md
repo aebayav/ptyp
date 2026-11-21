@@ -143,10 +143,16 @@ tarayıcınızda** tek tıklamayla yapılır — Cloudflare'in zaten güvendiği
 
 1. **İhale Kutusu** sayfasını açın → kurulum kartındaki **"PTYP İhale Hasadı"**
    bağlantısını tarayıcı yer imleri çubuğuna sürükleyin (veya "Kopyala").
-2. **"EKAP Aramayı Aç"** ile arama sayfasını açin.
+2. **"EKAP Aramayı Aç"** ile arama sayfasını açın ve sayfanın **yüklenmesini
+   bekleyin** (arama kutusu görünsün).
 3. Yer imine bir kez tıklayın — aktif sorgular (örn. "enerji nakil hattı",
    "trafo merkezi", Yapım türü) sayfa içinde koşar ve sonuçlar PTYP'ye akar.
    Özet: "X yeni, Y değişen ✓".
+
+Doğrulama oturumu henüz hazır değilse bookmarklet otomatik bekleyip **3 kez
+yeniden dener** (428/429). Kalıcı hata alırsanız: **EKAP'e firma hesabınızla
+(veya e-imza ile) giriş yapın** ve aynı yer imine tekrar tıklayın — giriş
+yapılı oturumda doğrulama sorunu yaşanmaz.
 
 - Sorguları İhale Kutusu'ndaki formdan yönetin (en fazla 5); değiştirince
   bookmarklet'i **yeniden kopyalayın** (yeni sorgular gömülü gelir).

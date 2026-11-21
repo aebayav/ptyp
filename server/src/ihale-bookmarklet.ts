@@ -35,7 +35,10 @@ function bookmarkletCode(input: BookmarkletInput): string {
     `for(let qi=0;qi<Q.length;qi++){` +
     `const q=Q[qi];let done=false;` +
     `for(let p=0;p<3&&!done;p++){` +
-    `let r;try{r=await fetch('/b_ihalearama/api/Ihale/GetListByParameters',{method:'POST',headers:{'content-type':'application/json',accept:'application/json','api-version':'v1'},body:JSON.stringify({` +
+    // Doğrulama oturumu sayfa açılır açılmaz hazır olmayabilir (Turnstile
+    // birkaç sn sürebilir) — 428/429'da 5 sn bekle, aynı sayfayı en çok 4 deneme
+    `let r=null,attempt=0;` +
+    `while(true){try{r=await fetch('/b_ihalearama/api/Ihale/GetListByParameters',{method:'POST',headers:{'content-type':'application/json',accept:'application/json','api-version':'v1'},body:JSON.stringify({` +
     `searchText:q.search_text,filterType:null,ikNdeAra:false,ihaleAdindaAra:true,ihaleBilgilerindeAra:true,teklifCetvelindeAra:true,searchType:'GirdigimGibi',` +
     `iknYili:null,iknSayi:null,` +
     `ihaleTarihSaatBaslangic:D,ihaleTarihSaatBitis:null,ilanTarihSaatBaslangic:null,ilanTarihSaatBitis:null,` +
@@ -48,9 +51,14 @@ function bookmarkletCode(input: BookmarkletInput): string {
     `yabanciIsteklilereIzinVeriliyorMu:null,alternatifTeklifVerilebilirMi:null,konsorsiyumKatilabilirMi:null,` +
     `altYukleniciCalistirilabilirMi:null,fiyatFarkiVerilecekMi:null,avansVerilecekMi:null,` +
     `cerceveAnlasmaMi:null,personelCalistirilmasinaDayaliMi:null,` +
-    `orderBy:'ihaleTarihi',siralamaTipi:'asc',paginationSkip:p*10,paginationTake:10})});` +
-    `}catch(e){alert('EKAP\\u2019a erişilemedi (ağ). Sayfayı yenileyip tekrar deneyin.');return;}` +
-    `if(!r.ok){alert('EKAP sorgusu başarısız (HTTP '+r.status+'). Sayfayı yenileyip tekrar deneyin — doğrulama oturumu eskimiş olabilir.');return;}` +
+    `orderBy:'ihaleTarihi',siralamaTipi:'asc',paginationSkip:p*10,paginationTake:10})});}` +
+    `catch(e){alert('EKAP\\u2019a erişilemedi (ağ). Sayfayı yenileyip tekrar deneyin.');return;}` +
+    `if(!r.ok&&(r.status===428||r.status===429)&&attempt<3){attempt++;await new Promise(s=>setTimeout(s,5000));continue;}` +
+    `if(!r.ok){alert('EKAP sorgusu başarısız (HTTP '+r.status+'). '+` +
+    `((r.status===428||r.status===429)?` +
+    `'Doğrulama oturumu kurulamadı: EKAP\\u2019e giriş yapıp tekrar deneyin veya sayfa açıldıktan birkaç saniye sonra tekrar tıklayın.'` +
+    `:'Sayfayı yenileyip tekrar deneyin.'));return;}` +
+    `break;}` +
     `const d=await r.json();const L=(d&&d.list)||[];all.push(...L);if(L.length<10)done=true;` +
     `}` +
     // Sorgular arası nezaket aralığı

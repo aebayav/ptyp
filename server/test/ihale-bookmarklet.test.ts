@@ -106,9 +106,38 @@ describe('generateBookmarklet — sandbox davranışı', () => {
     const alerts: string[] = [];
     const fetchMock = async () => ({ ok: false, status: 428, json: async () => ({}) });
     const code = decodedCode();
-    const fn = new Function('fetch', 'alert', 'return ' + code);
-    await fn(fetchMock, (m: string) => alerts.push(m));
+    const fn = new Function('fetch', 'alert', 'setTimeout', 'return ' + code);
+    // 428 kalıcı: tekrar denemeleri anında yürüt (gerçek 3×5 sn bekleme yerine)
+    await fn(fetchMock, (m: string) => alerts.push(m), (cb: () => void, _ms: number) => cb());
     expect(alerts[0]).toContain('428');
+    expect(alerts[0]).toContain('giriş');
+  });
+
+  it('retries 428/429 with backoff and succeeds once EKAP verification settles', async () => {
+    // İlk iki deneme doğrulama henüz tamamlanmadığı için 428 verir; üçüncüde oturum
+    // kurulur ve 200 döner — bookmarklet pes etmeden bekleyip hasatı tamamlamalı.
+    const rows = [{ ikn: '2026/900', ihaleAdi: 'Test İhalesi' }];
+    const alerts: string[] = [];
+    let ekapCalls = 0;
+    let ingestBody: any = null;
+
+    const fetchMock = async (url: string, init?: any) => {
+      if (url.includes('b_ihalearama')) {
+        ekapCalls++;
+        if (ekapCalls <= 2) return { ok: false, status: 428, json: async () => ({}) };
+        return { ok: true, status: 200, json: async () => ({ list: rows }) };
+      }
+      ingestBody = JSON.parse(init.body);
+      return { ok: true, status: 200, json: async () => ({ new_count: 1, changed_count: 0 }) };
+    };
+
+    const code = decodedCode();
+    const fn = new Function('fetch', 'alert', 'setTimeout', 'return ' + code);
+    // setTimeout taklidi: bekleme süresini kısalt (gerçek 5 sn yerine anında)
+    await fn(fetchMock, (m: string) => alerts.push(m), (cb: () => void, _ms: number) => cb());
+    expect(ekapCalls).toBeGreaterThanOrEqual(3); // iki reddin ardından üçüncü (sonra 2. sorgu)
+    expect(ingestBody.rows).toHaveLength(2); // her iki sorgu 1'er satır getirdi
+    expect(alerts[0]).toContain('1 yeni'); // ingest taklidinin bildirdiği sayı
   });
 
   it('surfaces ingest rejection (429 double-click guard) with the server reason', async () => {
