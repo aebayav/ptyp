@@ -24,6 +24,7 @@ import Depo from './pages/Depo';
 import Planlama from './pages/Planlama';
 import FiyatFarki from './pages/FiyatFarki';
 import Isg from './pages/Isg';
+import Ihaleler from './pages/Ihaleler';
 import Dokumanlar from './pages/Dokumanlar';
 
 function useTheme() {
@@ -185,6 +186,11 @@ function Sidebar({ menuOpen, setMenuOpen }) {
               </NavLink>
               <NavLink to="/isg" className={({ isActive }) => (isActive ? 'active' : '')}>
                 İSG
+              </NavLink>
+
+              <div className="nav-group">İHALE</div>
+              <NavLink to="/ihaleler" className={({ isActive }) => (isActive ? 'active' : '')}>
+                İhale Kutusu
               </NavLink>
               <NavLink to="/belge-kmz" className={({ isActive }) => (isActive ? 'active' : '')}>
                 Belge → KMZ
@@ -358,6 +364,7 @@ function Shell() {
               <Route path="/saha/direk/:proje/:direk" element={<Saha />} />
               <Route path="/gunluk-raporlar" element={<DailyReports />} />
               <Route path="/isg" element={<Isg />} />
+              <Route path="/ihaleler" element={<Ihaleler />} />
               <Route path="/dokumanlar" element={<Dokumanlar />} />
               <Route path="/belge-kmz" element={<DocumentKmz />} />
               <Route path="/kullanicilar" element={<Users />} />
