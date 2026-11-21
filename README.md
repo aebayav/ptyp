@@ -26,6 +26,7 @@ tedarik, iş takibi, hakediş, keşif (BOQ), saha günlük raporları ve belgede
 | Belge → KMZ | PDF/TIFF/Excel'den direk koordinatları + DTL tablosunu okuyup KMZ üretme |
 | Dokümanlar | Pafta, DTL revizyonları ve onay yazıları — projeye bağlı, revizyonlu, dosyalı |
 | Kullanıcılar | İş sahibi, saha ve satıcı (tedarikçi portalı) hesapları |
+| İhale Kutusu | EKAP ihale duyuruları — tarayıcıda tek tıklamalık tarama; teslim tarihli liste, değişim uyarıları |
 
 Tedarikçiler kendi portalında yalnızca açık malzemeleri ve kendi tekliflerini görür.
 
@@ -133,6 +134,28 @@ npm --prefix client run mobile:android  # Android Studio'da aç
 özelliklerinin (En Yakın Direk, mesafe doğrulaması) çalışması için** Android projesini
 yeniden ürettikten sonra `client/android-overrides/` içindeki izin dosyalarını kopyalayın
 (ayrıntılar: `client/android-overrides/README.md`).
+
+## İhale Kutusu (EKAP izleme)
+
+EKAP, arama sayfasını Cloudflare Turnstile doğrulamasıyla korur ve otomatik
+erişimi (sunucu tarafı scraping) reddeder. Bu yüzden tarama **sizin
+tarayıcınızda** tek tıklamayla yapılır — Cloudflare'in zaten güvendiği istemci:
+
+1. **İhale Kutusu** sayfasını açın → kurulum kartındaki **"PTYP İhale Hasadı"**
+   bağlantısını tarayıcı yer imleri çubuğuna sürükleyin (veya "Kopyala").
+2. **"EKAP Aramayı Aç"** ile arama sayfasını açin.
+3. Yer imine bir kez tıklayın — aktif sorgular (örn. "enerji nakil hattı",
+   "trafo merkezi", Yapım türü) sayfa içinde koşar ve sonuçlar PTYP'ye akar.
+   Özet: "X yeni, Y değişen ✓".
+
+- Sorguları İhale Kutusu'ndaki formdan yönetin (en fazla 5); değiştirince
+  bookmarklet'i **yeniden kopyalayın** (yeni sorgular gömülü gelir).
+- İhale tarihi değişirse (erteleme) veya durum değişirse (iptal/düzeltme) kayıt
+  yeniden okunmamış işaretlenir.
+- **"tarama uyuyor"** çipi (İhale Kutusu + Portföy) son başarılı taramadan
+  48 saat geçince yanar — günlük ritüel bu.
+- İngest token'ı sızarsa sayfadaki "Yeniden Üret" ile değiştirilir
+  (bookmarklet'i yeniden kopyalamanız gerekir).
 
 ## Karanlık / aydınlık tema
 

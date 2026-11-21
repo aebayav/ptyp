@@ -184,6 +184,22 @@ export default function Ihaleler() {
             🔖 PTYP İhale Hasadı
           </a>
           <button className="btn btn-sm" onClick={copyBookmarklet}>{copied ? '✓ Kopyalandı' : 'Kopyala'}</button>
+          <button
+            className="btn btn-sm"
+            title="Sızıntı halinde ingest token'ını yenileyin — bookmarklet'i yeniden kopyalamanız gerekir"
+            onClick={async () => {
+              if (!window.confirm('İngest token yenilenecek; eski bookmarklet geçersiz olur. Devam?')) return;
+              try {
+                await api.post('/api/ihaleler/ingest-token/regenerate');
+                setMsg({ type: 'ok', text: 'Token yenilendi — bookmarklet\'i yeniden kopyalayın.' });
+                await load();
+              } catch (err) {
+                setMsg({ type: 'err', text: err.message });
+              }
+            }}
+          >
+            Token Yenile
+          </button>
           {bm?.token_suffix && <span className="muted" style={{ fontSize: 12 }}>token: {bm.token_suffix}</span>}
         </div>
         <p className="muted" style={{ fontSize: 12, marginTop: 10 }}>
