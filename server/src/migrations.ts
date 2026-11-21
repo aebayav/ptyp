@@ -717,6 +717,21 @@ export const MIGRATIONS: Migration[] = [
           changed_count INTEGER NOT NULL DEFAULT 0
         );
       `);
+      // İngest token'ı — bookmarklet PTYP'ye bu uzun ömürlü token'la yazar
+      // (JWT'nin 12 saatlik süresi bu akışa girmez). Sızıntı halinde
+      // "Yeniden Üret" ucu değiştirir. Tek satır tablo (id=1).
+      await c.query(`
+        CREATE TABLE IF NOT EXISTS ihale_settings (
+          id           INTEGER PRIMARY KEY,
+          ingest_token TEXT NOT NULL,
+          updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+      `);
+      await c.query(`
+        INSERT INTO ihale_settings (id, ingest_token)
+        SELECT 1, md5(random()::text || clock_timestamp()::text || 'ptyp-ihale')
+        WHERE NOT EXISTS (SELECT 1 FROM ihale_settings)
+      `);
     },
   },
 ];
