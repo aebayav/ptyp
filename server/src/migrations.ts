@@ -734,6 +734,23 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+
+  {
+    // İhale ingest token'ı kriptografik rastgelelikle üretilecek: uzun ömürlü
+    // bearer token, Math.random'lık tohumdaydı. Bir kez döndürülür (henüz
+    // bookmarklet dağıtılmadan). PG13+ core'da gen_random_uuid CSPRNG'dir.
+    id: 12,
+    name: 'ihale-ingest-token-csprng',
+    up: async (c) => {
+      await c.query(`
+        UPDATE ihale_settings
+           SET ingest_token = replace(gen_random_uuid()::text, '-', '') ||
+                               replace(gen_random_uuid()::text, '-', ''),
+               updated_at = now()
+         WHERE id = 1
+      `);
+    },
+  },
 ];
 
 /** Bekleyen migrasyonları sırayla uygular. */

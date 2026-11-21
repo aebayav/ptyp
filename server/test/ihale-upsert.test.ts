@@ -100,6 +100,15 @@ describe('isScanStale', () => {
   });
 });
 
+describe('isRunAbandoned', () => {
+  it('treats a running scan older than 15 minutes as abandoned (crash recovery)', async () => {
+    const { isRunAbandoned } = await import('../src/ihale-upsert');
+    const now = Date.parse('2026-11-21T12:00:00Z');
+    expect(isRunAbandoned('2026-11-21T11:50:00Z', now)).toBe(false); // 10 dk — hâlâ çalışıyor olabilir
+    expect(isRunAbandoned('2026-11-21T11:30:00Z', now)).toBe(true); // 30 dk — terk edilmiş
+  });
+});
+
 describe('scanGuard', () => {
   it('rejects while a scan is running', () => {
     const now = Date.parse('2026-11-21T12:00:00Z');

@@ -127,6 +127,16 @@ export function isScanStale(lastOkIso: string | null, nowMs: number = Date.now()
   return nowMs - t > 48 * 60 * 60 * 1000;
 }
 
+/** 'running' duran bir koşu bu kadar süredir başladıysa terk edilmiştir
+ *  (çökme kalıntısı) — kilit açılıp hata olarak kapatılabilir. */
+export const RUN_ABANDON_MS = 15 * 60 * 1000;
+
+export function isRunAbandoned(startedIso: string, nowMs: number = Date.now()): boolean {
+  const t = Date.parse(startedIso);
+  if (!Number.isFinite(t)) return true;
+  return nowMs - t > RUN_ABANDON_MS;
+}
+
 /** Elle tarama izni: çalışıyor mu, çok yeni mi koşuldu mu? (çift tetikleme koruması) */
 export function scanGuard(
   lastRun: { status: string; started_at: string } | null,

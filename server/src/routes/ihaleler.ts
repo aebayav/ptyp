@@ -7,9 +7,10 @@
 //     açılır; x-ptyp-token, ihale_settings tablosundaki uzun ömürlü
 //     ingest token'la karşılaştırılır (JWT'nin 12 saatlik süresi bu akışa girmez).
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
-import { mapEkapRow, classifyUpsert, isScanStale, scanGuard, EkapRow } from '../ihale-upsert';
+import { mapEkapRow, classifyUpsert, isScanStale, scanGuard, isRunAbandoned, EkapRow } from '../ihale-upsert';
 import { generateBookmarklet, EKAP_SEARCH_URL } from '../ihale-bookmarklet';
 
 // ---------- 1) Yetkili uçlar ----------
@@ -28,22 +29,27 @@ router.get('/', async (_req: Request, res: Response) => {
   res.json(rows);
 });
 
-// Tarama durumu: okunmamış sayısı + son koşu + bayatlama çipi verisi
+// Tarama durumu: okunmamış sayısı + son koşu + bayatlama çipi.
+// is_stale YALNIZ son BAŞARILI ('ok') koşudan hesaplanır (spec) — aradaki
+// tek bir hatalı deneme, veri tazeyken çipi yakmaz; hata ayrıca görünür kalır.
 router.get('/stats', async (_req: Request, res: Response) => {
-  const [unread, lastRun] = await Promise.all([
+  const [unread, lastRun, lastOk] = await Promise.all([
     pool.query('SELECT COUNT(*)::int AS c FROM tenders WHERE is_read = false'),
     pool.query(
       `SELECT status, started_at, finished_at, error, new_count, changed_count
        FROM ihale_scan_runs ORDER BY id DESC LIMIT 1`
     ),
+    pool.query(
+      `SELECT finished_at, started_at FROM ihale_scan_runs
+       WHERE status = 'ok' ORDER BY id DESC LIMIT 1`
+    ),
   ]);
   const run = lastRun.rows[0] || null;
+  const ok = lastOk.rows[0] || null;
   res.json({
     unread: unread.rows[0].c,
     last_run: run,
-    is_stale: run
-      ? isScanStale(run.status === 'ok' ? String(run.finished_at || run.started_at) : null)
-      : true,
+    is_stale: isScanStale(ok ? String(ok.finished_at || ok.started_at) : null),
   });
 });
 
@@ -85,12 +91,9 @@ router.get('/bookmarklet', async (req: Request, res: Response) => {
   });
 });
 
-// İngest token'ını yenile (sızıntı halinde)
+// İngest token'ını yenile (sızıntı halinde) — CSPRNG: uzun ömürlü bearer token
 router.post('/ingest-token/regenerate', async (_req: Request, res: Response) => {
-  const token = require('crypto')
-    .createHash('md5')
-    .update(String(Date.now()) + String(Math.random()) + 'ptyp-ihale')
-    .digest('hex');
+  const token = crypto.randomBytes(24).toString('hex');
   await pool.query('UPDATE ihale_settings SET ingest_token = $1, updated_at = now() WHERE id = 1', [token]);
   res.json({ token });
 });
@@ -166,7 +169,10 @@ ihaleIngestRouter.options('/', (req: Request, res: Response) => {
   res.status(204).end();
 });
 
-// Bookmarklet POST'u — token korumalı, auth dışı
+// Bookmarklet POST'u — token korumalı, auth dışı.
+// Koşu kilidi: pg_try_advisory_lock TEK client üzerinde — hem atomik hem
+// çökme-güvenli (bağlantı ölünce kilit otomatik düşer); 15 dk'yu aşan
+// 'running' kalıntıları (çökme) hata olarak kapatılıp kilit tazelenir.
 ihaleIngestRouter.post('/', async (req: Request, res: Response) => {
   corsForEkap(res, req.headers.origin);
 
@@ -176,8 +182,20 @@ ihaleIngestRouter.post('/', async (req: Request, res: Response) => {
     return res.status(401).json({ error: 'Geçersiz ingest token. İhale Kutusu sayfasından bookmarklet\'i yeniden kopyalayın.' });
   }
 
-  // Çift tıklama koruması: son koşu 10 dakikadan yeni → satırlar yine işlenmez,
-  // EKAP'ı ikinci turdan korumak için tamamı reddedilir
+  // Çökme kalıntısı kurtarma: süre aşmış 'running' koşuyu hata olarak kapat
+  const abandoned = await pool.query(
+    `UPDATE ihale_scan_runs
+        SET status = 'error', finished_at = now(),
+            error = 'Koşu yarım kaldı (sunucu yeniden başladı olabilir).'
+      WHERE status = 'running' AND started_at < now() - (15 * 60 * 1000 || ' milliseconds')::interval
+      RETURNING id`
+  );
+  if ((abandoned.rowCount ?? 0) > 0) {
+    console.warn(`[IHALE] ${abandoned.rowCount} terk edilmiş koşu hata olarak kapatıldı`);
+  }
+
+  // Çift tıklama koruması (yumuşak): son koşu çok yeniyse tamamını reddet —
+  // EKAP ikinci turdan korunur. Atomik kilit aşağıda gerçek yarışı kapatır.
   const last = await pool.query(
     `SELECT status, started_at FROM ihale_scan_runs ORDER BY id DESC LIMIT 1`
   );
@@ -191,18 +209,30 @@ ihaleIngestRouter.post('/', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Tek koşuda en fazla 200 satır bekleniyor.' });
   }
 
-  const runRow = await pool.query(
-    `INSERT INTO ihale_scan_runs (status, queries_run) VALUES ('running', 0) RETURNING id`
-  );
-  const runId = Number(runRow.rows[0].id);
-
-  let newCount = 0;
-  let changedCount = 0;
+  // Atomik koşu kilidi: tek bağlantı, oturum-kapsamlı advisory lock.
+  // Çözülmezse (başka koşu sürüyor) 429; çökmede kilit bağlantıyla ölür.
+  const client = await pool.connect();
+  let locked = false;
   try {
+    const lock = await client.query(
+      `SELECT pg_try_advisory_lock(hashtext('ptyp_ihale_ingest')) AS ok`
+    );
+    locked = Boolean(lock.rows[0]?.ok);
+    if (!locked) {
+      return res.status(429).json({ error: 'Başka bir tarama sürüyor. Lütfen bitmesini bekleyin.' });
+    }
+
+    const runRow = await client.query(
+      `INSERT INTO ihale_scan_runs (status, queries_run) VALUES ('running', 0) RETURNING id`
+    );
+    const runId = Number(runRow.rows[0].id);
+
+    let newCount = 0;
+    let changedCount = 0;
     for (const raw of rows) {
       const incoming = mapEkapRow(raw);
       if (!incoming.ikn) continue;
-      const { rows: existingRows } = await pool.query(
+      const { rows: existingRows } = await client.query(
         `SELECT ikn, ihale_adi, ihale_tip, usul, durum, durum_aciklama, idare_adi, il,
                 ihale_tarih_saat, content_hash
          FROM tenders WHERE ikn = $1`,
@@ -211,7 +241,8 @@ ihaleIngestRouter.post('/', async (req: Request, res: Response) => {
       const decision = classifyUpsert(existingRows[0] || null, incoming);
 
       if (decision.action === 'insert') {
-        await pool.query(
+        // Sayım rowCount'tan: eşzamanlı durumda ikinci insert 0 döner
+        const ins = await client.query(
           `INSERT INTO tenders
              (ikn, ihale_adi, ihale_tip, usul, durum, durum_aciklama, idare_adi, il,
               ihale_tarih_saat, content_hash, is_read, changed_fields, raw)
@@ -223,9 +254,9 @@ ihaleIngestRouter.post('/', async (req: Request, res: Response) => {
             incoming.ihale_tarih_saat, incoming.content_hash, JSON.stringify(raw),
           ]
         );
-        newCount++;
+        newCount += ins.rowCount ?? 0;
       } else if (decision.action === 'update_changed') {
-        await pool.query(
+        await client.query(
           `UPDATE tenders SET
               ihale_adi = $2, ihale_tip = $3, usul = $4, durum = $5, durum_aciklama = $6,
               idare_adi = $7, il = $8, ihale_tarih_saat = $9, content_hash = $10,
@@ -241,14 +272,14 @@ ihaleIngestRouter.post('/', async (req: Request, res: Response) => {
         );
         changedCount++;
       } else {
-        await pool.query(
+        await client.query(
           `UPDATE tenders SET last_seen_at = now(), raw = $2::jsonb WHERE ikn = $1`,
           [incoming.ikn, JSON.stringify(raw)]
         );
       }
     }
 
-    await pool.query(
+    await client.query(
       `UPDATE ihale_scan_runs
          SET status = 'ok', finished_at = now(), new_count = $2, changed_count = $3
        WHERE id = $1`,
@@ -256,10 +287,21 @@ ihaleIngestRouter.post('/', async (req: Request, res: Response) => {
     );
     res.json({ new_count: newCount, changed_count: changedCount });
   } catch (e: any) {
-    await pool.query(
-      `UPDATE ihale_scan_runs SET status = 'error', finished_at = now(), error = $2 WHERE id = $1`,
-      [runId, String(e?.message || e).slice(0, 500)]
-    ).catch(() => {});
+    // runId bu kapsamda olmayabilir — koşu satırı varsa hata işaretle
+    await pool
+      .query(
+        `UPDATE ihale_scan_runs SET status = 'error', finished_at = now(), error = $2
+         WHERE id IN (SELECT id FROM ihale_scan_runs WHERE status = 'running' ORDER BY id DESC LIMIT 1)`,
+        [String(e?.message || e).slice(0, 500)]
+      )
+      .catch(() => {});
     throw e; // merkezi hata katmanı 500'ler
+  } finally {
+    // Oturum-kapsamlı kilit: bağlantı geri verildiğinde otomatik düşer;
+    // yine de düzgün bırakalım (client henüz havuzda değilken).
+    if (locked) {
+      await client.query(`SELECT pg_advisory_unlock(hashtext('ptyp_ihale_ingest'))`).catch(() => {});
+    }
+    client.release();
   }
 });
