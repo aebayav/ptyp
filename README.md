@@ -137,31 +137,29 @@ yeniden ürettikten sonra `client/android-overrides/` içindeki izin dosyaların
 
 ## İhale Kutusu (EKAP izleme)
 
-EKAP, arama sayfasını Cloudflare Turnstile doğrulamasıyla korur ve otomatik
-erişimi (sunucu tarafı scraping) reddeder. Bu yüzden tarama **sizin
-tarayıcınızda** tek tıklamayla yapılır — Cloudflare'in zaten güvendiği istemci:
+EKAP, arama API'sini Cloudflare Turnstile ile korur ve tarayıcı otomasyonunu
+(dürüst headless/headful dahi) reddeder. Bu yüzden tarama sunucuda,
+**sizin giriş yapılı EKAP oturum çerezinizle** düz HTTP üzerinden yapılır —
+günde bir kez, en fazla 5 sorgu × 3 sayfa (nazik hacim).
 
-1. **İhale Kutusu** sayfasını açın → kurulum kartındaki **"PTYP İhale Hasadı"**
-   bağlantısını tarayıcı yer imleri çubuğuna sürükleyin (veya "Kopyala").
-2. **"EKAP Aramayı Aç"** ile arama sayfasını açın ve sayfanın **yüklenmesini
-   bekleyin** (arama kutusu görünsün).
-3. Yer imine bir kez tıklayın — aktif sorgular (örn. "enerji nakil hattı",
-   "trafo merkezi", Yapım türü) sayfa içinde koşar ve sonuçlar PTYP'ye akar.
-   Özet: "X yeni, Y değişen ✓".
+**Kurulum (bir kez):**
 
-Doğrulama oturumu henüz hazır değilse bookmarklet otomatik bekleyip **3 kez
-yeniden dener** (428/429). Kalıcı hata alırsanız: **EKAP'e firma hesabınızla
-(veya e-imza ile) giriş yapın** ve aynı yer imine tekrar tıklayın — giriş
-yapılı oturumda doğrulama sorunu yaşanmaz.
+1. Tarayıcıda `ekapv2.kik.gov.tr`'i açın, **firma hesabınızla giriş yapın**.
+2. **F12 → Network** → herhangi bir isteğe tıklayın → **Request Headers** →
+   `cookie:` satırının tamamını kopyalayın.
+3. PTYP **İhale Kutusu** sayfasındaki forma yapıştırıp kaydedin.
+4. **"Şimdi Tara"** ile test edin: "X yeni, Y değişen" mesajı kutuyu doldurur.
 
-- Sorguları İhale Kutusu'ndaki formdan yönetin (en fazla 5); değiştirince
-  bookmarklet'i **yeniden kopyalayın** (yeni sorgular gömülü gelir).
+**Günlük akış:** `deploy/ptyp-ihale-monitor.timer` (systemd) her sabah 06:00'da
+taramayı koşturur; elle tetikleme de mümkündür.
+
+- Sorguları İhale Kutusu'ndaki formdan yönetin (en fazla 5 aktif).
 - İhale tarihi değişirse (erteleme) veya durum değişirse (iptal/düzeltme) kayıt
   yeniden okunmamış işaretlenir.
+- Çerez süresi dolarsa tarama hatası **"oturumu yenile"** der → EKAP'e tekrar
+  giriş yapıp yeni çerezi aynı forma kaydedin.
 - **"tarama uyuyor"** çipi (İhale Kutusu + Portföy) son başarılı taramadan
-  48 saat geçince yanar — günlük ritüel bu.
-- İngest token'ı sızarsa sayfadaki "Yeniden Üret" ile değiştirilir
-  (bookmarklet'i yeniden kopyalamanız gerekir).
+  48 saat geçince yanar.
 
 ## Karanlık / aydınlık tema
 

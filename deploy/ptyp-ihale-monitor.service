@@ -1,0 +1,12 @@
+[Unit]
+Description=PTYP ihale izleme taraması (EKAP oturum çereziyle düz HTTP)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=turguz
+WorkingDirectory=/home/turguz/ptyp/server
+ExecStart=/usr/bin/node /home/turguz/ptyp/server/dist/scripts/ihale-monitor.js
+# Tarama uzun sürerse uyar; kill etme (DB kaydı 'running' kalırsa 15 dk kurtarması kapatır)
+TimeoutStartSec=600

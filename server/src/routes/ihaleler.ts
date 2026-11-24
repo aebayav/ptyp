@@ -1,19 +1,13 @@
-// İhale İzleme route'ları — İKİ router:
-//
-//  1. ihalelerRouter (JWT + owner): liste, okundu, stats, sorgu CRUD,
-//     bookmarklet üretici, token yenileme.
-//  2. ihaleIngestRouter (TOKEN + CORS, auth DIŞINDA): bookmarklet'in
-//     EKAP sayfasından çağırdığı ingest ucu. CORS yalnız EKAP origin'ine
-//     açılır; x-ptyp-token, ihale_settings tablosundaki uzun ömürlü
-//     ingest token'la karşılaştırılır (JWT'nin 12 saatlik süresi bu akışa girmez).
+// İhale İzleme route'ları — owner-only (JWT).
+// Hasat sunucuda: "Şimdi Tara" (scan-now) monitör CLI'sini child process olarak
+// spawn eder (Express asla ekap-http import ETMEZ — süreç izolasyonu).
+// Oturum çerezi kullanıcı tarafından kaydedilir (ihale_settings.ekap_cookies).
 import { Router, Request, Response } from 'express';
-import crypto from 'crypto';
+import { spawn } from 'child_process';
+import path from 'path';
 import { pool } from '../db';
 import { requireAuth, requireRole } from '../auth';
-import { mapEkapRow, classifyUpsert, isScanStale, scanGuard, isRunAbandoned, EkapRow } from '../ihale-upsert';
-import { generateBookmarklet, EKAP_SEARCH_URL } from '../ihale-bookmarklet';
-
-// ---------- 1) Yetkili uçlar ----------
+import { isScanStale, scanGuard } from '../ihale-upsert';
 
 const router = Router();
 router.use(requireAuth, requireRole('owner'));
@@ -29,11 +23,9 @@ router.get('/', async (_req: Request, res: Response) => {
   res.json(rows);
 });
 
-// Tarama durumu: okunmamış sayısı + son koşu + bayatlama çipi.
-// is_stale YALNIZ son BAŞARILI ('ok') koşudan hesaplanır (spec) — aradaki
-// tek bir hatalı deneme, veri tazeyken çipi yakmaz; hata ayrıca görünür kalır.
+// Tarama durumu: okunmamış sayısı + son koşu + bayatlama + çerez var mı
 router.get('/stats', async (_req: Request, res: Response) => {
-  const [unread, lastRun, lastOk] = await Promise.all([
+  const [unread, lastRun, lastOk, cookies] = await Promise.all([
     pool.query('SELECT COUNT(*)::int AS c FROM tenders WHERE is_read = false'),
     pool.query(
       `SELECT status, started_at, finished_at, error, new_count, changed_count
@@ -43,13 +35,16 @@ router.get('/stats', async (_req: Request, res: Response) => {
       `SELECT finished_at, started_at FROM ihale_scan_runs
        WHERE status = 'ok' ORDER BY id DESC LIMIT 1`
     ),
+    pool.query('SELECT LENGTH(ekap_cookies) AS len FROM ihale_settings WHERE id = 1'),
   ]);
   const run = lastRun.rows[0] || null;
   const ok = lastOk.rows[0] || null;
+  const cookieLen = Number(cookies.rows[0]?.len || 0);
   res.json({
     unread: unread.rows[0].c,
     last_run: run,
     is_stale: isScanStale(ok ? String(ok.finished_at || ok.started_at) : null),
+    has_cookies: cookieLen > 0,
   });
 });
 
@@ -68,34 +63,19 @@ router.put('/read-all', async (_req: Request, res: Response) => {
   res.status(204).end();
 });
 
-// Bookmarklet üretici — origin istekten türetilir (proxy arkasında trust proxy açık)
-router.get('/bookmarklet', async (req: Request, res: Response) => {
-  const origin = `${req.protocol}://${req.get('host')}`;
-  const { rows: tokenRows } = await pool.query(
-    'SELECT ingest_token FROM ihale_settings WHERE id = 1'
+// EKAP oturum çerezini kaydet/güncelle (owner) — gizli, asla geri döndürülmez
+router.put('/ekap-cookies', async (req: Request, res: Response) => {
+  const cookies = String(req.body?.cookies || '').trim().slice(0, 4000);
+  if (!cookies || cookies.length < 20) {
+    return res.status(400).json({
+      error: 'Çerez boş/çok kısa. EKAP sekmesinde F12 → Network → herhangi bir istek → Request Headers → cookie satırının TAMAMINI kopyalayın.',
+    });
+  }
+  await pool.query(
+    'UPDATE ihale_settings SET ekap_cookies = $1, updated_at = now() WHERE id = 1',
+    [cookies]
   );
-  const token = tokenRows[0]?.ingest_token || '';
-  if (!token) return res.status(500).json({ error: 'İngest token bulunamadı — migrasyonları kontrol edin.' });
-
-  const { rows: queries } = await pool.query(
-    'SELECT name, search_text FROM ihale_monitor_queries WHERE active ORDER BY id LIMIT 5'
-  );
-  res.json({
-    code: generateBookmarklet({
-      origin,
-      token,
-      queries: queries.map((q: any) => ({ name: q.name, search_text: q.search_text })),
-    }),
-    ekap_url: EKAP_SEARCH_URL,
-    token_suffix: token.slice(0, 6) + '…' + token.slice(-4),
-  });
-});
-
-// İngest token'ını yenile (sızıntı halinde) — CSPRNG: uzun ömürlü bearer token
-router.post('/ingest-token/regenerate', async (_req: Request, res: Response) => {
-  const token = crypto.randomBytes(24).toString('hex');
-  await pool.query('UPDATE ihale_settings SET ingest_token = $1, updated_at = now() WHERE id = 1', [token]);
-  res.json({ token });
+  res.json({ saved: true });
 });
 
 // Sorgu listesi
@@ -141,47 +121,9 @@ router.delete('/queries/:id', async (req: Request, res: Response) => {
   res.status(204).end();
 });
 
-export default router;
-
-// ---------- 2) İngest ucu (bookmarklet) ----------
-
-const EKAP_ORIGIN = 'https://ekapv2.kik.gov.tr';
-
-function corsForEkap(res: Response, origin: string | undefined): void {
-  if (origin === EKAP_ORIGIN) {
-    res.setHeader('Access-Control-Allow-Origin', EKAP_ORIGIN);
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'content-type, x-ptyp-token');
-    res.setHeader('Access-Control-Max-Age', '86400');
-  }
-}
-
-async function ingestToken(): Promise<string> {
-  const { rows } = await pool.query('SELECT ingest_token FROM ihale_settings WHERE id = 1');
-  return String(rows[0]?.ingest_token || '');
-}
-
-export const ihaleIngestRouter = Router();
-
-// Preflight
-ihaleIngestRouter.options('/', (req: Request, res: Response) => {
-  corsForEkap(res, req.headers.origin);
-  res.status(204).end();
-});
-
-// Bookmarklet POST'u — token korumalı, auth dışı.
-// Koşu kilidi: pg_try_advisory_lock TEK client üzerinde — hem atomik hem
-// çökme-güvenli (bağlantı ölünce kilit otomatik düşer); 15 dk'yu aşan
-// 'running' kalıntıları (çökme) hata olarak kapatılıp kilit tazelenir.
-ihaleIngestRouter.post('/', async (req: Request, res: Response) => {
-  corsForEkap(res, req.headers.origin);
-
-  const sent = String(req.headers['x-ptyp-token'] || '');
-  const expected = await ingestToken();
-  if (!expected || sent.length !== expected.length || sent !== expected) {
-    return res.status(401).json({ error: 'Geçersiz ingest token. İhale Kutusu sayfasından bookmarklet\'i yeniden kopyalayın.' });
-  }
-
+// "Şimdi Tara" — monitör CLI'yi spawn eder (Express ekap-http YÜKLEMEZ).
+// Çift tıklama: scanGuard; çökme kalıntısı: 15 dk'lik terk koşu kurtarması.
+router.post('/scan-now', async (_req: Request, res: Response) => {
   // Çökme kalıntısı kurtarma: süre aşmış 'running' koşuyu hata olarak kapat
   const abandoned = await pool.query(
     `UPDATE ihale_scan_runs
@@ -194,8 +136,6 @@ ihaleIngestRouter.post('/', async (req: Request, res: Response) => {
     console.warn(`[IHALE] ${abandoned.rowCount} terk edilmiş koşu hata olarak kapatıldı`);
   }
 
-  // Çift tıklama koruması (yumuşak): son koşu çok yeniyse tamamını reddet —
-  // EKAP ikinci turdan korunur. Atomik kilit aşağıda gerçek yarışı kapatır.
   const last = await pool.query(
     `SELECT status, started_at FROM ihale_scan_runs ORDER BY id DESC LIMIT 1`
   );
@@ -204,104 +144,23 @@ ihaleIngestRouter.post('/', async (req: Request, res: Response) => {
     return res.status(429).json({ error: guard.reason || 'Az önce tarandı.' });
   }
 
-  const rows: EkapRow[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
-  if (rows.length > 200) {
-    return res.status(400).json({ error: 'Tek koşuda en fazla 200 satır bekleniyor.' });
+  // Çerez var mı? (spawn hemen ölmesin — net hata dönsün)
+  const cookies = await pool.query('SELECT LENGTH(ekap_cookies) AS len FROM ihale_settings WHERE id = 1');
+  if (!(Number(cookies.rows[0]?.len || 0) > 0)) {
+    return res.status(400).json({
+      error: 'EKAP oturum çerezi kayıtlı değil. Önce EKAP\'e giriş yapıp çerezi kaydedin.',
+    });
   }
 
-  // Atomik koşu kilidi: tek bağlantı, oturum-kapsamlı advisory lock.
-  // Çözülmezse (başka koşu sürüyor) 429; çökmede kilit bağlantıyla ölür.
-  const client = await pool.connect();
-  let locked = false;
-  try {
-    const lock = await client.query(
-      `SELECT pg_try_advisory_lock(hashtext('ptyp_ihale_ingest')) AS ok`
-    );
-    locked = Boolean(lock.rows[0]?.ok);
-    if (!locked) {
-      return res.status(429).json({ error: 'Başka bir tarama sürüyor. Lütfen bitmesini bekleyin.' });
-    }
-
-    const runRow = await client.query(
-      `INSERT INTO ihale_scan_runs (status, queries_run) VALUES ('running', 0) RETURNING id`
-    );
-    const runId = Number(runRow.rows[0].id);
-
-    let newCount = 0;
-    let changedCount = 0;
-    for (const raw of rows) {
-      const incoming = mapEkapRow(raw);
-      if (!incoming.ikn) continue;
-      const { rows: existingRows } = await client.query(
-        `SELECT ikn, ihale_adi, ihale_tip, usul, durum, durum_aciklama, idare_adi, il,
-                ihale_tarih_saat, content_hash
-         FROM tenders WHERE ikn = $1`,
-        [incoming.ikn]
-      );
-      const decision = classifyUpsert(existingRows[0] || null, incoming);
-
-      if (decision.action === 'insert') {
-        // Sayım rowCount'tan: eşzamanlı durumda ikinci insert 0 döner
-        const ins = await client.query(
-          `INSERT INTO tenders
-             (ikn, ihale_adi, ihale_tip, usul, durum, durum_aciklama, idare_adi, il,
-              ihale_tarih_saat, content_hash, is_read, changed_fields, raw)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,'[]'::jsonb,$11::jsonb)
-           ON CONFLICT (ikn) DO NOTHING`,
-          [
-            incoming.ikn, incoming.ihale_adi, incoming.ihale_tip, incoming.usul,
-            incoming.durum, incoming.durum_aciklama, incoming.idare_adi, incoming.il,
-            incoming.ihale_tarih_saat, incoming.content_hash, JSON.stringify(raw),
-          ]
-        );
-        newCount += ins.rowCount ?? 0;
-      } else if (decision.action === 'update_changed') {
-        await client.query(
-          `UPDATE tenders SET
-              ihale_adi = $2, ihale_tip = $3, usul = $4, durum = $5, durum_aciklama = $6,
-              idare_adi = $7, il = $8, ihale_tarih_saat = $9, content_hash = $10,
-              last_seen_at = now(), last_change_at = now(),
-              changed_fields = $11::jsonb, is_read = false, raw = $12::jsonb
-           WHERE ikn = $1`,
-          [
-            incoming.ikn, incoming.ihale_adi, incoming.ihale_tip, incoming.usul,
-            incoming.durum, incoming.durum_aciklama, incoming.idare_adi, incoming.il,
-            incoming.ihale_tarih_saat, incoming.content_hash,
-            JSON.stringify(decision.changedFields), JSON.stringify(raw),
-          ]
-        );
-        changedCount++;
-      } else {
-        await client.query(
-          `UPDATE tenders SET last_seen_at = now(), raw = $2::jsonb WHERE ikn = $1`,
-          [incoming.ikn, JSON.stringify(raw)]
-        );
-      }
-    }
-
-    await client.query(
-      `UPDATE ihale_scan_runs
-         SET status = 'ok', finished_at = now(), new_count = $2, changed_count = $3
-       WHERE id = $1`,
-      [runId, newCount, changedCount]
-    );
-    res.json({ new_count: newCount, changed_count: changedCount });
-  } catch (e: any) {
-    // runId bu kapsamda olmayabilir — koşu satırı varsa hata işaretle
-    await pool
-      .query(
-        `UPDATE ihale_scan_runs SET status = 'error', finished_at = now(), error = $2
-         WHERE id IN (SELECT id FROM ihale_scan_runs WHERE status = 'running' ORDER BY id DESC LIMIT 1)`,
-        [String(e?.message || e).slice(0, 500)]
-      )
-      .catch(() => {});
-    throw e; // merkezi hata katmanı 500'ler
-  } finally {
-    // Oturum-kapsamlı kilit: bağlantı geri verildiğinde otomatik düşer;
-    // yine de düzgün bırakalım (client henüz havuzda değilken).
-    if (locked) {
-      await client.query(`SELECT pg_advisory_unlock(hashtext('ptyp_ihale_ingest'))`).catch(() => {});
-    }
-    client.release();
-  }
+  const isProd = process.env.NODE_ENV === 'production';
+  const script = isProd
+    ? path.join(__dirname, '..', 'scripts', 'ihale-monitor.js') // dist/scripts
+    : path.join(__dirname, 'ihale-monitor.ts');
+  const child = isProd
+    ? spawn('node', [script], { detached: true, stdio: 'ignore' })
+    : spawn('npx', ['tsx', script], { detached: true, stdio: 'ignore', shell: true });
+  child.unref();
+  res.status(202).json({ started: true });
 });
+
+export default router;

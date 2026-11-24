@@ -751,6 +751,19 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+
+  {
+    // İhale izleme pivotu (Revizyon B): bookmarklet/ingest yüzeyi kaldırıldı;
+    // hasat sunucuda, kullanıcının giriş yapılı EKAP oturum çereziyle düz HTTP
+    // yapılır. Çerez burada saklanır (gizli — owner-only uç üzerinden yazılır).
+    id: 13,
+    name: 'ihale-ekap-cookies',
+    up: async (c) => {
+      await c.query(`
+        ALTER TABLE ihale_settings ADD COLUMN IF NOT EXISTS ekap_cookies TEXT NOT NULL DEFAULT ''
+      `);
+    },
+  },
 ];
 
 /** Bekleyen migrasyonları sırayla uygular. */

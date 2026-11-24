@@ -28,7 +28,7 @@ import planningRouter from './routes/planning';
 import fiyatFarkiRouter from './routes/fiyat-farki';
 import isgRouter from './routes/isg';
 import documentsRouter from './routes/documents';
-import ihalelerRouter, { ihaleIngestRouter } from './routes/ihaleler';
+import ihalelerRouter from './routes/ihaleler';
 
 validateConfig(); // üretimde güvensiz varsayılanlarla açılmayı reddeder
 const app = express();
@@ -38,9 +38,6 @@ app.use(express.json());
 // ---------- Açık uç (giriş gerektirmez) ----------
 app.use('/api/auth', authRouter);
 app.use('/api/public', publicLimiter, quoteUploadRouter); // satıcı teklif dosyası yükleme (herkese açık, IP başına sınırlı)
-// İhale ingest — bookmarklet EKAP sayfasından x-ptyp-token ile yazar (JWT yerine
-// uzun ömürlü token + EKAP-only CORS; auth bilinçli DIŞARIDA)
-app.use('/api/ihaleler/ingest', ihaleIngestRouter);
 
 // ---------- Buradan sonrası kimlik doğrulama ister (route dosyalarında requireAuth) ----------
 app.use('/api/ihaleler', ihalelerRouter);
