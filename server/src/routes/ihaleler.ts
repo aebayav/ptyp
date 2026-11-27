@@ -28,7 +28,7 @@ router.get('/stats', async (_req: Request, res: Response) => {
   const [unread, lastRun, lastOk, cookies] = await Promise.all([
     pool.query('SELECT COUNT(*)::int AS c FROM tenders WHERE is_read = false'),
     pool.query(
-      `SELECT status, started_at, finished_at, error, new_count, changed_count
+      `SELECT id, status, started_at, finished_at, error, new_count, changed_count
        FROM ihale_scan_runs ORDER BY id DESC LIMIT 1`
     ),
     pool.query(
@@ -65,14 +65,21 @@ router.put('/read-all', async (_req: Request, res: Response) => {
 
 // EKAP oturum çerezini kaydet/güncelle (owner) — gizli, asla geri döndürülmez
 router.put('/ekap-cookies', async (req: Request, res: Response) => {
-  const cookies = String(req.body?.cookies || '').trim().slice(0, 4000);
+  const cookies = String(req.body?.cookies || '')
+    .replace(/[\r\n]+/g, ' ')
+    .trim()
+    .replace(/^cookie\s*:\s*/i, '')
+    .trim()
+    .slice(0, 4000);
   if (!cookies || cookies.length < 20) {
     return res.status(400).json({
       error: 'Çerez boş/çok kısa. EKAP sekmesinde F12 → Network → herhangi bir istek → Request Headers → cookie satırının TAMAMINI kopyalayın.',
     });
   }
   await pool.query(
-    'UPDATE ihale_settings SET ekap_cookies = $1, updated_at = now() WHERE id = 1',
+    `INSERT INTO ihale_settings (id, ingest_token, ekap_cookies, updated_at)
+     VALUES (1, '', $1, now())
+     ON CONFLICT (id) DO UPDATE SET ekap_cookies = EXCLUDED.ekap_cookies, updated_at = now()`,
     [cookies]
   );
   res.json({ saved: true });
@@ -137,8 +144,9 @@ router.post('/scan-now', async (_req: Request, res: Response) => {
   }
 
   const last = await pool.query(
-    `SELECT status, started_at FROM ihale_scan_runs ORDER BY id DESC LIMIT 1`
+    `SELECT id, status, started_at FROM ihale_scan_runs ORDER BY id DESC LIMIT 1`
   );
+  const prevRunId = Number(last.rows[0]?.id || 0);
   const guard = scanGuard(last.rows[0] || null);
   if (!guard.allow) {
     return res.status(429).json({ error: guard.reason || 'Az önce tarandı.' });
@@ -152,15 +160,17 @@ router.post('/scan-now', async (_req: Request, res: Response) => {
     });
   }
 
+  const serverRoot = path.resolve(__dirname, '..', '..');
   const isProd = process.env.NODE_ENV === 'production';
   const script = isProd
     ? path.join(__dirname, '..', 'scripts', 'ihale-monitor.js') // dist/scripts
-    : path.join(__dirname, 'ihale-monitor.ts');
+    : path.join(__dirname, '..', 'scripts', 'ihale-monitor.ts'); // src/scripts
   const child = isProd
-    ? spawn('node', [script], { detached: true, stdio: 'ignore' })
-    : spawn('npx', ['tsx', script], { detached: true, stdio: 'ignore', shell: true });
+    ? spawn(process.execPath, [script], { cwd: serverRoot, detached: true, stdio: 'ignore' })
+    : spawn('npx', ['tsx', script], { cwd: serverRoot, detached: true, stdio: 'ignore', shell: true });
+  child.on('error', (err) => console.error('[IHALE] monitör başlatılamadı:', err.message));
   child.unref();
-  res.status(202).json({ started: true });
+  res.status(202).json({ started: true, prev_run_id: prevRunId });
 });
 
 export default router;

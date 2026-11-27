@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { apiUrl } from '../api';
 import { fmtMoney } from '../utils';
 
 export default function QuoteUpload() {
@@ -23,7 +24,7 @@ export default function QuoteUpload() {
     fd.append('email', email);
     fd.append('file', file);
     try {
-      const res = await fetch('/api/public/quote-upload', { method: 'POST', body: fd });
+      const res = await fetch(apiUrl('/api/public/quote-upload'), { method: 'POST', body: fd });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Yükleme başarısız oldu.');
       setResult(data);

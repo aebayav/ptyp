@@ -148,6 +148,13 @@ export function scanGuard(
   if (lastRun.status === 'running') {
     return { allow: false, reason: 'Bir tarama hâlen çalışıyor. Lütfen bitmesini bekleyin.' };
   }
+  // Hatalı koşudan sonra (örn. çerez yenilendi) 10 dk kilitleme — 10 sn sonra tekrar denenebilsin
+  if (lastRun.status === 'error') {
+    if (ageMs < 10 * 1000) {
+      return { allow: false, reason: 'Lütfen birkaç saniye bekleyip tekrar deneyin.' };
+    }
+    return { allow: true };
+  }
   if (ageMs < 10 * 60 * 1000) {
     return { allow: false, reason: 'Son tarama 10 dakikadan yeni. Lütfen bir süre sonra deneyin.' };
   }

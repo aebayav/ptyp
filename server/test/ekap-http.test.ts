@@ -139,4 +139,38 @@ describe('runEkapHarvestHttp', () => {
     ).rejects.toThrow('oturum');
     expect(calls).toBe(0);
   });
+
+  it('strips leading "cookie:" prefix and rejects HTML challenge pages cleanly', async () => {
+    const sent: string[] = [];
+    const fetchOk = async (_url: string, init?: any) => {
+      sent.push(init.headers.cookie);
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json; charset=utf-8' },
+        json: async () => ({ list: [ROW('2026/42')] }),
+      };
+    };
+    const rows = await runEkapHarvestHttp([{ name: 'T', searchText: 'trafo' }], 'cookie: EKAP_SESSION=abc123\r\n', {
+      fetchImpl: fetchOk as any,
+      sleepImpl: noSleep,
+    });
+    expect(rows).toHaveLength(1);
+    expect(sent[0]).toBe('EKAP_SESSION=abc123');
+
+    const fetchHtml = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'text/html; charset=utf-8' },
+      json: async () => {
+        throw new SyntaxError('Unexpected token <');
+      },
+    });
+    await expect(
+      runEkapHarvestHttp([{ name: 'T', searchText: 'trafo' }], 'EKAP_SESSION=abc123', {
+        fetchImpl: fetchHtml as any,
+        sleepImpl: noSleep,
+      })
+    ).rejects.toThrow('oturum');
+  });
 });

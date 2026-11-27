@@ -52,6 +52,8 @@ CONF_THRESHOLD = float(os.environ.get("CONF_THRESHOLD", "0.85"))
 # Ollama çağrısı kaç kez denenir / kaç sn beklenir (0 = devre dışı)
 OLLAMA_ATTEMPTS = int(os.environ.get("OLLAMA_ATTEMPTS", "2"))
 OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "240"))
+OLLAMA_NUM_THREADS = int(os.environ.get("OLLAMA_NUM_THREADS", "8"))
+OLLAMA_KEEP_ALIVE = os.environ.get("OLLAMA_KEEP_ALIVE", "30m")
 # Aynı anda Ollama'ya gönderilecek bant isteği (OLLAMA_NUM_PARALLEL ile uyumlu tutun)
 OCR_CONCURRENCY = max(1, int(os.environ.get("OCR_CONCURRENCY", "1")))
 # PDF render ölçeği (taban ölçek; düşük çözünürlüklü sayfalarda otomatik yükseltilir)
@@ -621,8 +623,11 @@ async def glm_read(images_b64: list[str], prompt: str, num_predict: int, timeout
                     "images": images_b64,
                     "stream": False,
                     "think": False,
+                    "keep_alive": OLLAMA_KEEP_ALIVE,
                     "options": {
-                        "num_ctx": 2048 if num_predict <= 200 else 4096,
+                        "num_ctx": 1536 if num_predict <= 160 else (2048 if num_predict <= 300 else 4096),
+                        "num_batch": 512,
+                        "num_thread": OLLAMA_NUM_THREADS,
                         "num_predict": num_predict,
                         "temperature": 0,
                         "top_k": 1,
@@ -636,7 +641,7 @@ async def glm_read(images_b64: list[str], prompt: str, num_predict: int, timeout
             if r.status_code == 200:
                 resp = (r.json().get("response") or "").strip()
                 if "<think>" in resp:
-                    resp = re.sub(r"<think>.*?</think>", "", resp, flags=re.S).strip()
+                    resp = re.sub(r"<think>.*?(?:</think>|$)", "", resp, flags=re.S).strip()
                 return resp or None
             if r.status_code == 404:  # model yok → boşuna tekrar deneme
                 return None
@@ -2565,7 +2570,7 @@ async def ocr_document(request: Request, file: UploadFile, rotate: str = "auto")
                             if band_img.shape[0] < 12:
                                 continue
                             composed = await asyncio.to_thread(compose_band, band_img)
-                            line = await glm_read([encode_b64(composed, fmt=".png")], ROW_PROMPT, 160)
+                            line = await glm_read([encode_b64(composed, max_w=1600, fmt=".png")], ROW_PROMPT, 128)
                             p2 = parse_glm_line(line or "")
                             if p2 and not p2.get("weak") and len(p2.get("coords") or []) >= 2:
                                 c2 = cells_from_parsed(p2)
@@ -2584,7 +2589,7 @@ async def ocr_document(request: Request, file: UploadFile, rotate: str = "auto")
                         try:
                             band_img = cv2.cvtColor(original[gy0:gy1], cv2.COLOR_RGB2GRAY)
                             fullb = await asyncio.to_thread(compose_full_band, band_img)
-                            line = await glm_read([encode_b64(fullb, max_w=3400, fmt=".png")], BAND_TEXT_PROMPT, 160)
+                            line = await glm_read([encode_b64(fullb, max_w=2200, fmt=".png")], BAND_TEXT_PROMPT, 160)
                             gdtl = parse_dtl_line(line or "")
                             if not gdtl:
                                 continue

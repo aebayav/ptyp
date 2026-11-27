@@ -121,6 +121,8 @@ describe('scanGuard', () => {
     const now = Date.parse('2026-11-21T12:00:00Z');
     expect(scanGuard({ status: 'ok', started_at: '2026-11-21T11:55:01Z' }, now).allow).toBe(false); // ~5 dk
     expect(scanGuard({ status: 'ok', started_at: '2026-11-21T11:45:00Z' }, now).allow).toBe(true); // 15 dk
+    expect(scanGuard({ status: 'error', started_at: '2026-11-21T11:59:55Z' }, now).allow).toBe(false); // 5 sn
+    expect(scanGuard({ status: 'error', started_at: '2026-11-21T11:59:40Z' }, now).allow).toBe(true); // 20 sn (hata sonrası tekrar)
     expect(scanGuard(null, now).allow).toBe(true); // hiç koşu yok
   });
 });

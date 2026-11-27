@@ -70,7 +70,8 @@ export default function Ihaleler() {
     try {
       await api.put('/api/ihaleler/ekap-cookies', { cookies });
       setCookieInput('');
-      setMsg({ type: 'ok', text: 'Çerez kaydedildi — "Şimdi Tara" ile test edin.' });
+      setShowCookieForm(false);
+      setMsg({ type: 'ok', text: 'Çerez kaydedildi — "Şimdi Tara" ile taramayı başlatabilirsiniz.' });
       await load();
     } catch (err) {
       setMsg({ type: 'err', text: err.message });
@@ -84,13 +85,15 @@ export default function Ihaleler() {
     setScanning(true);
     setMsg(null);
     try {
-      await api.post('/api/ihaleler/scan-now');
-      // Tarama arka planda koşar (spawn) — stats'ı yoklayıp bitmesini bekle
+      const resp = await api.post('/api/ihaleler/scan-now');
+      const prevId = Number(resp?.prev_run_id ?? stats?.last_run?.id ?? 0);
+      // Tarama arka planda koşar (spawn) — YENİ koşu kaydının bitmesini bekle
+      let finished = false;
       for (let i = 0; i < 40; i++) {
         await new Promise((r) => setTimeout(r, 3000));
         const s = await api.get('/api/ihaleler/stats');
         const run = s.last_run;
-        if (run && run.status !== 'running' && new Date(run.started_at).getTime() > Date.now() - 10 * 60 * 1000) {
+        if (run && Number(run.id || 0) > prevId && run.status !== 'running') {
           setStats(s);
           if (run.status === 'ok') {
             setMsg({ type: 'ok', text: `Tarama tamam: ${run.new_count} yeni, ${run.changed_count} değişen.` });
@@ -98,8 +101,13 @@ export default function Ihaleler() {
             setMsg({ type: 'err', text: `Tarama başarısız: ${run.error || 'bilinmeyen hata'}` });
           }
           await load();
+          finished = true;
           break;
         }
+      }
+      if (!finished) {
+        setMsg({ type: 'err', text: 'Tarama zaman aşımına uğradı veya arka planda devam ediyor. Birazdan "Yenile"ye basın.' });
+        await load();
       }
     } catch (err) {
       setMsg({ type: 'err', text: err.message });
@@ -189,6 +197,12 @@ export default function Ihaleler() {
       {msg && (
         <div className={msg.type === 'ok' ? 'notice-banner' : 'form-error'} style={{ marginBottom: 12 }}>
           {msg.text}
+        </div>
+      )}
+
+      {!msg && lastRun?.status === 'error' && lastRun?.error && (
+        <div className="form-error" style={{ marginBottom: 12 }}>
+          Son tarama hatası: {lastRun.error}
         </div>
       )}
 

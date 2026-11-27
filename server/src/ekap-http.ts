@@ -83,7 +83,10 @@ export function todayStartIstanbul(nowMs: number = Date.now()): string {
   return trNow.toISOString().slice(0, 10) + 'T00:00:00';
 }
 
-export type FetchLike = (url: string, init?: any) => Promise<{ ok: boolean; status: number; json: () => Promise<any> }>;
+export type FetchLike = (
+  url: string,
+  init?: any
+) => Promise<{ ok: boolean; status: number; headers?: { get?: (k: string) => string | null }; json: () => Promise<any> }>;
 export type SleepLike = (ms: number) => Promise<void>;
 
 export interface HarvestHttpOptions {
@@ -96,6 +99,15 @@ export interface HarvestHttpOptions {
 }
 
 const API_URL = 'https://ekapv2.kik.gov.tr/b_ihalearama/api/Ihale/GetListByParameters';
+
+/** DevTools'tan kopyalanan "cookie: ..." önekini ve satır sonlarını temizler. */
+export function sanitizeCookieHeader(raw: string): string {
+  return String(raw || '')
+    .replace(/[\r\n]+/g, ' ')
+    .trim()
+    .replace(/^cookie\s*:\s*/i, '')
+    .trim();
+}
 
 /** Oturum çerezi geçersiz/hesap yetkisi yok → net hata (çerez yenileme talimatıyla). */
 function sessionError(status: number): Error {
@@ -114,32 +126,37 @@ export async function runEkapHarvestHttp(
   queries: HarvestQuery[],
   cookieHeader: string,
   opts: HarvestHttpOptions = {}
-): Promise<EkapRow[]> {
+): Promise<(EkapRow & { _matchedQuery?: string })[]> {
   const doFetch: FetchLike = opts.fetchImpl || (globalThis as any).fetch.bind(globalThis);
   const sleep: SleepLike = opts.sleepImpl || ((ms: number) => new Promise((r) => setTimeout(r, ms)));
   const maxPages = opts.maxPages ?? 3;
   const today = todayStartIstanbul();
 
-  if (!cookieHeader || !cookieHeader.trim()) {
+  const cleanCookie = sanitizeCookieHeader(cookieHeader);
+  if (!cleanCookie) {
     throw sessionError(401);
   }
 
-  const all: EkapRow[] = [];
+  const all: (EkapRow & { _matchedQuery?: string })[] = [];
   for (let qi = 0; qi < queries.length; qi++) {
     let done = false;
     for (let p = 0; p < maxPages && !done; p++) {
       let attempt = 0;
-      let res: { ok: boolean; status: number; json: () => Promise<any> } | null = null;
+      let res: { ok: boolean; status: number; headers?: { get?: (k: string) => string | null }; json: () => Promise<any> } | null = null;
       for (;;) {
         res = await doFetch(API_URL, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
-            accept: 'application/json',
+            accept: 'application/json, text/plain, */*',
             'api-version': 'v1',
-            cookie: cookieHeader,
+            origin: 'https://ekapv2.kik.gov.tr',
+            referer: 'https://ekapv2.kik.gov.tr/ekap/search',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            cookie: cleanCookie,
           },
           body: JSON.stringify(buildQueryBody(queries[qi].searchText, p * 10, today)),
+          signal: typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(30_000) : undefined,
         });
         if (res.ok) break;
         if ((res.status === 428 || res.status === 429) && attempt < 3) {
@@ -149,10 +166,19 @@ export async function runEkapHarvestHttp(
         }
         throw sessionError(res.status);
       }
-      const data = await res!.json();
+      const ct = res!.headers?.get?.('content-type') || '';
+      if (ct && !ct.toLowerCase().includes('json')) {
+        throw sessionError(403);
+      }
+      let data: any;
+      try {
+        data = await res!.json();
+      } catch {
+        throw sessionError(403);
+      }
       const list = (data && Array.isArray(data.list) ? data.list : []) as EkapRow[];
       for (const r of list) {
-        if (r && r.ikn) all.push(r);
+        if (r && r.ikn) all.push({ ...r, _matchedQuery: queries[qi].name || queries[qi].searchText });
       }
       if (list.length < 10) done = true;
     }

@@ -1,5 +1,5 @@
 [Unit]
-Description=Ollama Service (PTYP yapılandırması)
+Description=Ollama Service (PTYP 10 vCPU / 10 GB RAM optimize yapılandırması)
 After=network-online.target
 
 [Service]
@@ -8,13 +8,18 @@ User=ollama
 Group=ollama
 Restart=always
 RestartSec=3
-# PTYP ayarları: mmap kapalı (tam RAM), tam CPU offload,
-# KV cache kuantizasyonsuz (f16), flash attention açık, model sıcak kalsın
-Environment=OLLAMA_MMAP=0
+# 10 GB RAM / CPU-only optimizasyonları:
+# - OLLAMA_MMAP=1: bellek eşlemeli yükleme (OOM riskini azaltır)
+# - OLLAMA_KV_CACHE_TYPE=q8_0: f16'ya göre KV cache RAM'ini yarıya indirir
+# - OLLAMA_NUM_PARALLEL=1 & MAX_LOADED_MODELS=1: tek model + tek slot ile minimum RAM
+# - OLLAMA_KEEP_ALIVE=30m: çalışma boyunca sıcak kalır, boşta RAM'i serbest bırakır
+Environment=OLLAMA_MMAP=1
 Environment=OLLAMA_NUM_GPU=0
-Environment=OLLAMA_KV_CACHE_TYPE=f16
+Environment=OLLAMA_KV_CACHE_TYPE=q8_0
 Environment=OLLAMA_FLASH_ATTENTION=1
-Environment=OLLAMA_KEEP_ALIVE=-1
+Environment=OLLAMA_NUM_PARALLEL=1
+Environment=OLLAMA_MAX_LOADED_MODELS=1
+Environment=OLLAMA_KEEP_ALIVE=30m
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target

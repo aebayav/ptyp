@@ -41,16 +41,32 @@ async function main(): Promise<void> {
       throw new Error('Aktif izleme sorgusu yok — İhale Kutusu sayfasından ekleyin.');
     }
 
-    const rows: EkapRow[] = await runEkapHarvestHttp(
+    const rows = await runEkapHarvestHttp(
       queries.map((q: any) => ({ name: q.name, searchText: q.search_text })),
       cookieHeader
     );
 
+    // Aynı İKN birden fazla sorguda geldiyse tekilleştir ve eşleşen sorguları birleştir
+    const byIkn = new Map<string, { raw: EkapRow; matched: Set<string> }>();
+    for (const r of rows) {
+      const ikn = String(r.ikn || '').trim();
+      if (!ikn) continue;
+      const entry = byIkn.get(ikn);
+      if (entry) {
+        if (r._matchedQuery) entry.matched.add(r._matchedQuery);
+      } else {
+        const matched = new Set<string>();
+        if (r._matchedQuery) matched.add(r._matchedQuery);
+        byIkn.set(ikn, { raw: r, matched });
+      }
+    }
+
     let newCount = 0;
     let changedCount = 0;
-    for (const raw of rows) {
+    for (const { raw, matched } of byIkn.values()) {
       const incoming = mapEkapRow(raw);
       if (!incoming.ikn) continue;
+      const matchedArr = Array.from(matched);
       const { rows: existingRows } = await pool.query(
         `SELECT ikn, ihale_adi, ihale_tip, usul, durum, durum_aciklama, idare_adi, il,
                 ihale_tarih_saat, content_hash
@@ -63,13 +79,13 @@ async function main(): Promise<void> {
         const ins = await pool.query(
           `INSERT INTO tenders
              (ikn, ihale_adi, ihale_tip, usul, durum, durum_aciklama, idare_adi, il,
-              ihale_tarih_saat, content_hash, is_read, changed_fields, raw)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,'[]'::jsonb,$11::jsonb)
+              ihale_tarih_saat, content_hash, is_read, changed_fields, matched_queries, raw)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,'[]'::jsonb,$11::jsonb,$12::jsonb)
            ON CONFLICT (ikn) DO NOTHING`,
           [
             incoming.ikn, incoming.ihale_adi, incoming.ihale_tip, incoming.usul,
             incoming.durum, incoming.durum_aciklama, incoming.idare_adi, incoming.il,
-            incoming.ihale_tarih_saat, incoming.content_hash, JSON.stringify(raw),
+            incoming.ihale_tarih_saat, incoming.content_hash, JSON.stringify(matchedArr), JSON.stringify(raw),
           ]
         );
         newCount += ins.rowCount ?? 0;
@@ -79,20 +95,20 @@ async function main(): Promise<void> {
               ihale_adi = $2, ihale_tip = $3, usul = $4, durum = $5, durum_aciklama = $6,
               idare_adi = $7, il = $8, ihale_tarih_saat = $9, content_hash = $10,
               last_seen_at = now(), last_change_at = now(),
-              changed_fields = $11::jsonb, is_read = false, raw = $12::jsonb
+              changed_fields = $11::jsonb, matched_queries = $12::jsonb, is_read = false, raw = $13::jsonb
            WHERE ikn = $1`,
           [
             incoming.ikn, incoming.ihale_adi, incoming.ihale_tip, incoming.usul,
             incoming.durum, incoming.durum_aciklama, incoming.idare_adi, incoming.il,
             incoming.ihale_tarih_saat, incoming.content_hash,
-            JSON.stringify(decision.changedFields), JSON.stringify(raw),
+            JSON.stringify(decision.changedFields), JSON.stringify(matchedArr), JSON.stringify(raw),
           ]
         );
         changedCount++;
       } else {
         await pool.query(
-          `UPDATE tenders SET last_seen_at = now(), raw = $2::jsonb WHERE ikn = $1`,
-          [incoming.ikn, JSON.stringify(raw)]
+          `UPDATE tenders SET last_seen_at = now(), matched_queries = $2::jsonb, raw = $3::jsonb WHERE ikn = $1`,
+          [incoming.ikn, JSON.stringify(matchedArr), JSON.stringify(raw)]
         );
       }
     }
