@@ -47,7 +47,7 @@ log = logging.getLogger("ocr")
 app = FastAPI(title="PTYP OCR Servisi", version="2.1.0")
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
-VISION_MODEL = os.environ.get("VISION_MODEL", "ptyp-ai")
+VISION_MODEL = os.environ.get("VISION_MODEL", "paddleocr-vl")
 CONF_THRESHOLD = float(os.environ.get("CONF_THRESHOLD", "0.85"))
 # Ollama çağrısı kaç kez denenir / kaç sn beklenir (0 = devre dışı)
 OLLAMA_ATTEMPTS = int(os.environ.get("OLLAMA_ATTEMPTS", "2"))
@@ -434,33 +434,52 @@ def jpeg_b64(img: np.ndarray, max_w: int = 1200) -> str:
 
 # ---------- GLM-OCR akıllı okuma ----------
 
+_IS_PADDLE_VL = "paddle" in VISION_MODEL.lower()
+_IS_GLM_OCR = "glm" in VISION_MODEL.lower()
+
 PAGE_PROMPT = (
-    "Bu, bir enerji nakil hattı direk listesi tablosudur. Tablodaki HER satırı oku. "
-    "Her satır için YALNIZCA şu formatta tek satır yaz: DIR | Y | X\n"
-    "DIR: direk numarası (ör. D-14, P3, DP-2, 5, Portal)\n"
-    "Y: ilk koordinat değeri (6-7 haneli sayı, ondalıklı olabilir)\n"
-    "X: ikinci koordinat değeri (6-7 haneli sayı, ondalıklı olabilir)\n"
-    "Başlık satırlarını ve diğer yazıları atla. Sayıları aynen koru, hiçbir değer uydurma. "
-    "Başka hiçbir şey yazma."
+    "Table Recognition:"
+    if _IS_PADDLE_VL
+    else (
+        "Bu, bir enerji nakil hattı direk listesi tablosudur. Tablodaki HER satırı oku. "
+        "Her satır için YALNIZCA şu formatta tek satır yaz: DIR | Y | X\n"
+        "DIR: direk numarası (ör. D-14, P3, DP-2, 5, Portal)\n"
+        "Y: ilk koordinat değeri (6-7 haneli sayı, ondalıklı olabilir)\n"
+        "X: ikinci koordinat değeri (6-7 haneli sayı, ondalıklı olabilir)\n"
+        "Başlık satırlarını ve diğer yazıları atla. Sayıları aynen koru, hiçbir değer uydurma. "
+        "Başka hiçbir şey yazma."
+    )
 )
 
 ROW_PROMPT = (
-    "Bu görüntüde solda direk numarası, sağda iki koordinat değeri (Y ve X) var. "
-    "Şu formatta tek satır yaz: DIR | Y | X\n"
-    "DIR direk numarası (1-3 basamaklı sayı, ör. 41, 12, D-14, PB1) — TÜM basamaklarını eksiksiz yaz. "
-    "Y ve X 6-7 haneli koordinat sayıları, ondalık kısmı dahil aynen koru; uydurma. Başka bir şey yazma."
+    "OCR:"
+    if _IS_PADDLE_VL
+    else (
+        "Bu görüntüde solda direk numarası, sağda iki koordinat değeri (Y ve X) var. "
+        "Şu formatta tek satır yaz: DIR | Y | X\n"
+        "DIR direk numarası (1-3 basamaklı sayı, ör. 41, 12, D-14, PB1) — TÜM basamaklarını eksiksiz yaz. "
+        "Y ve X 6-7 haneli koordinat sayıları, ondalık kısmı dahil aynen koru; uydurma. Başka bir şey yazma."
+    )
 )
 
 BAND_TEXT_PROMPT = (
-    "Text Recognition:"
-    if "glm" in VISION_MODEL.lower()
-    else "Bu tablo satırındaki tüm hücreleri soldan sağa ' | ' ile ayırarak aynen yaz. Rakamları ve harfleri değiştirme, açıklama ekleme."
+    "Table Recognition:"
+    if _IS_PADDLE_VL
+    else (
+        "Text Recognition:"
+        if _IS_GLM_OCR
+        else "Bu tablo satırındaki tüm hücreleri soldan sağa ' | ' ile ayırarak aynen yaz. Rakamları ve harfleri değiştirme, açıklama ekleme."
+    )
 )
 
 HEADER_TEXT_PROMPT = (
-    "Text Recognition:"
-    if "glm" in VISION_MODEL.lower()
-    else "Görüntüdeki başlık bilgilerini (Hat adı, Gerilim kV, İletken tipi, Notlar) olduğu gibi oku, açıklama ekleme."
+    "OCR:"
+    if _IS_PADDLE_VL
+    else (
+        "Text Recognition:"
+        if _IS_GLM_OCR
+        else "Görüntüdeki başlık bilgilerini (Hat adı, Gerilim kV, İletken tipi, Notlar) olduğu gibi oku, açıklama ekleme."
+    )
 )
 
 COORD_RE = re.compile(r"\b\d{6,7}(?:[.,]\d{1,4})?\b")
@@ -642,6 +661,14 @@ async def glm_read(images_b64: list[str], prompt: str, num_predict: int, timeout
                 resp = (r.json().get("response") or "").strip()
                 if "<think>" in resp:
                     resp = re.sub(r"<think>.*?(?:</think>|$)", "", resp, flags=re.S).strip()
+                if "<fcel>" in resp or "<nl>" in resp or "<ecel>" in resp:
+                    resp = resp.replace("<nl>", "\n")
+                    resp = re.sub(r"<(?:f|e|l|u|x)cel>", " | ", resp)
+                    resp = "\n".join(
+                        re.sub(r"\s*\|\s*", " | ", ln).strip(" |")
+                        for ln in resp.splitlines()
+                        if ln.strip()
+                    )
                 return resp or None
             if r.status_code == 404:  # model yok → boşuna tekrar deneme
                 return None

@@ -1,11 +1,11 @@
 [Unit]
-Description=PTYP OCR Servisi (Indra OCR + Ollama ptyp-ai Qwen-VL fallback)
+Description=PTYP OCR Servisi (Indra OCR + Ollama PaddleOCR-VL-1.6 fallback)
 After=network.target
 
 [Service]
 WorkingDirectory=/root/ptyp/ocr-service
 Environment=OLLAMA_URL=http://127.0.0.1:11434
-Environment=VISION_MODEL=ptyp-ai
+Environment=VISION_MODEL=paddleocr-vl
 Environment=CONF_THRESHOLD=0.85
 Environment=OLLAMA_ATTEMPTS=2
 Environment=OLLAMA_NUM_THREADS=8

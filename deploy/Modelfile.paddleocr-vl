@@ -1,0 +1,11 @@
+# PTYP PaddleOCR-VL-1.6 (0.9B) — Hızlı & Yüksek Doğruluklu Tablo OCR Modeli
+# Kurulum: ollama create paddleocr-vl -f deploy/Modelfile.paddleocr-vl
+FROM hf.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF:latest
+
+PARAMETER num_ctx 2048
+PARAMETER num_batch 512
+PARAMETER num_predict 256
+PARAMETER num_thread 8
+PARAMETER temperature 0.0
+PARAMETER top_k 1
+PARAMETER repeat_penalty 1.05
