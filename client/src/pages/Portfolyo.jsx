@@ -65,7 +65,7 @@ export default function Portfolyo() {
           <p className="sub">Firmanın tüm projeleri — ilerleme, hakediş ve uyarılar tek bakışta</p>
         </div>
         <button className="btn" onClick={load} disabled={loading}>
-          {loading ? 'Yenileniyor…' : '🔄 Yenile'}
+          {loading ? 'Yenileniyor…' : 'Yenile'}
         </button>
       </div>
 
@@ -174,22 +174,22 @@ export default function Portfolyo() {
                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                         {p.warnings.late_tasks > 0 && (
                           <Link to="/is-takibi" onClick={goProject(p.id)}>
-                            <span className="badge badge-red">⚠ {p.warnings.late_tasks} gecikme</span>
+                            <span className="badge badge-red">{p.warnings.late_tasks} gecikme</span>
                           </Link>
                         )}
                         {p.warnings.unpermitted_parcels > 0 && (
                           <Link to="/kamulastirma" onClick={goProject(p.id)}>
-                            <span className="badge badge-red">⛔ {p.warnings.unpermitted_parcels} izinsiz</span>
+                            <span className="badge badge-red">{p.warnings.unpermitted_parcels} izinsiz</span>
                           </Link>
                         )}
                         {p.warnings.expiring_certs > 0 && (
                           <Link to="/isg" onClick={goProject(p.id)}>
-                            <span className="badge badge-amber">🎓 {p.warnings.expiring_certs} sertifika</span>
+                            <span className="badge badge-amber">{p.warnings.expiring_certs} sertifika</span>
                           </Link>
                         )}
                         {p.warnings.open_requests > 0 && (
                           <Link to="/depo" onClick={goProject(p.id)}>
-                            <span className="badge badge-amber">📦 {p.warnings.open_requests} talep</span>
+                            <span className="badge badge-amber">{p.warnings.open_requests} talep</span>
                           </Link>
                         )}
                       </div>

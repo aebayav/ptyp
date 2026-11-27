@@ -139,9 +139,39 @@ function Sidebar({ menuOpen, setMenuOpen }) {
               <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>
                 Genel Bakış
               </NavLink>
-
               <NavLink to="/portfoy" className={({ isActive }) => (isActive ? 'active' : '')}>
                 Portföy
+              </NavLink>
+
+              <div className="nav-group">SAHA &amp; İLERLEME</div>
+              <NavLink to="/saha" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Saha
+              </NavLink>
+              <NavLink to="/is-takibi" className={({ isActive }) => (isActive ? 'active' : '')}>
+                İş Takibi &amp; Güzergah
+              </NavLink>
+              <NavLink to="/planlama" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Plan &amp; Gerçekleşme
+              </NavLink>
+              <NavLink to="/gunluk-raporlar" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Günlük Raporlar
+              </NavLink>
+              <NavLink to="/isg" className={({ isActive }) => (isActive ? 'active' : '')}>
+                İSG
+              </NavLink>
+
+              <div className="nav-group">MALİYET &amp; HAKEDİŞ</div>
+              <NavLink to="/kesif" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Keşif
+              </NavLink>
+              <NavLink to="/hakedisler" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Hakediş Yönetimi
+              </NavLink>
+              <NavLink to="/fiyat-farki" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Fiyat Farkı
+              </NavLink>
+              <NavLink to="/kamulastirma" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Kamulaştırma
               </NavLink>
 
               <div className="nav-group">TEDARİK</div>
@@ -158,45 +188,15 @@ function Sidebar({ menuOpen, setMenuOpen }) {
                 Teklif &amp; Karşılaştırma
               </NavLink>
 
-              <div className="nav-group">PROJE</div>
-              <NavLink to="/is-takibi" className={({ isActive }) => (isActive ? 'active' : '')}>
-                İş Takibi &amp; Güzergah
-              </NavLink>
-              <NavLink to="/kamulastirma" className={({ isActive }) => (isActive ? 'active' : '')}>
-                Kamulaştırma
-              </NavLink>
-              <NavLink to="/planlama" className={({ isActive }) => (isActive ? 'active' : '')}>
-                Plan &amp; Gerçekleşme
-              </NavLink>
-              <NavLink to="/hakedisler" className={({ isActive }) => (isActive ? 'active' : '')}>
-                Hakediş Yönetimi
-              </NavLink>
-              <NavLink to="/fiyat-farki" className={({ isActive }) => (isActive ? 'active' : '')}>
-                Fiyat Farkı
-              </NavLink>
-              <NavLink to="/kesif" className={({ isActive }) => (isActive ? 'active' : '')}>
-                Keşif
-              </NavLink>
-              <NavLink to="/saha" className={({ isActive }) => (isActive ? 'active' : '')}>
-                Saha
-              </NavLink>
-              <NavLink to="/gunluk-raporlar" className={({ isActive }) => (isActive ? 'active' : '')}>
-                Günlük Raporlar
-              </NavLink>
-              <NavLink to="/isg" className={({ isActive }) => (isActive ? 'active' : '')}>
-                İSG
-              </NavLink>
+              <div className="nav-group">YÖNETİM</div>
               <NavLink to="/belge-kmz" className={({ isActive }) => (isActive ? 'active' : '')}>
                 Belge → KMZ
               </NavLink>
-
-              <div className="nav-group">YÖNETİM</div>
-              <NavLink to="/kullanicilar" className={({ isActive }) => (isActive ? 'active' : '')}>
-                Kullanıcılar
-              </NavLink>
-
               <NavLink to="/dokumanlar" className={({ isActive }) => (isActive ? 'active' : '')}>
                 Dokümanlar
+              </NavLink>
+              <NavLink to="/kullanicilar" className={({ isActive }) => (isActive ? 'active' : '')}>
+                Kullanıcılar
               </NavLink>
             </>
           ) : isField ? (
@@ -231,20 +231,23 @@ function Sidebar({ menuOpen, setMenuOpen }) {
               <div className="user-role">{isOwner ? 'İş Sahibi' : isField ? 'Saha Ekibi' : 'Satıcı'}</div>
             </div>
           </div>
-          <button className="theme-toggle" onClick={toggleTheme}>
-            {theme === 'dark' ? 'Aydınlık Tema' : 'Karanlık Tema'}
-          </button>
-          <button
-            className="theme-toggle"
-            onClick={() => {
-              setOldPw('');
-              setNewPw('');
-              setPwMsg(null);
-              setPwOpen(true);
-            }}
-          >
-            Şifre Değiştir
-          </button>
+          <div className="sidebar-foot-row">
+            <button className="theme-toggle" onClick={toggleTheme} style={{ marginBottom: 0 }}>
+              {theme === 'dark' ? 'Aydınlık' : 'Karanlık'}
+            </button>
+            <button
+              className="theme-toggle"
+              style={{ marginBottom: 0 }}
+              onClick={() => {
+                setOldPw('');
+                setNewPw('');
+                setPwMsg(null);
+                setPwOpen(true);
+              }}
+            >
+              Şifre
+            </button>
+          </div>
           <button
             className="logout-btn"
             onClick={() => {

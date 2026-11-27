@@ -207,11 +207,18 @@ button {
 }
 
 .sidebar-foot {
-  padding: 14px 18px;
+  padding: 12px 14px;
   font-size: 11px;
   color: #5f7694;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   line-height: 1.5;
+}
+
+.sidebar-foot-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 6px;
 }
 
 .main {
@@ -239,9 +246,22 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 22px;
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
   gap: 16px;
   flex-wrap: wrap;
+}
+
+.main > div select,
+.main > div input[type='search'] {
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 13.5px;
+  font-family: inherit;
 }
 
 .page-head h1 {
@@ -280,7 +300,16 @@ button {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 18px 20px;
+  padding: 16px 18px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: border-color 0.15s ease;
+}
+
+a:hover > .stat-card {
+  border-color: var(--border-strong);
 }
 
 .stat-card .stat-ico {
@@ -288,14 +317,15 @@ button {
 }
 
 .stat-card .stat-value {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 700;
-  margin-top: 8px;
+  margin-top: 4px;
+  line-height: 1.2;
 }
 
 .stat-card .stat-label {
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 12px;
   margin-top: 2px;
 }
 
@@ -305,6 +335,55 @@ button {
 
 .stat-card.warn {
   border-left: 4px solid var(--red);
+}
+
+/* ---------- Kompakt uyarı şeridi (Dashboard) ---------- */
+.alert-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.alert-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  text-decoration: none;
+  color: var(--muted);
+  font-size: 12.5px;
+  transition: border-color 0.15s ease;
+}
+
+.alert-chip:hover {
+  border-color: var(--border-strong);
+}
+
+.alert-chip strong {
+  font-size: 15px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.alert-chip.warn {
+  border-left: 3px solid var(--red);
+}
+
+.alert-chip.warn strong {
+  color: var(--red);
+}
+
+.alert-chip.amber {
+  border-left: 3px solid var(--accent);
+}
+
+.alert-chip.amber strong {
+  color: var(--amber);
 }
 
 /* ---------- Tablo ---------- */

@@ -71,77 +71,64 @@ export default function Dashboard() {
       </div>
 
       <div className="grid-cards">
-        <div className="stat-card">
-          <div className="stat-value">{overview.materials}</div>
-          <div className="stat-label">Toplam Malzeme</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-value">{overview.suppliers}</div>
-          <div className="stat-label">Kayıtlı Satıcı</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-value">{overview.quotes}</div>
-          <div className="stat-label">Alınan Teklif</div>
-        </div>
-        <div className="stat-card warn">
-          <div className="stat-value">{overview.requested}</div>
-          <div className="stat-label">Bekleyen Teklif</div>
-        </div>
-      </div>
-
-      <div className="grid-cards">
-        <div className="stat-card accent">
-          <div className="stat-value">{fmtMoney(overview.bestTotal)}</div>
-          <div className="stat-label">En İyi Teklifler Toplamı</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-value">{overview.withoutQuotes}</div>
-          <div className="stat-label">Teklif Alınmamış Malzeme</div>
-        </div>
-        <Link to="/saha" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <div className="stat-card accent" style={{ cursor: 'pointer' }}>
-            <div className="stat-value">%{overview.sahaProgress ?? 0}</div>
-            <div className="progress-track mini" style={{ marginTop: 8, marginBottom: 4 }}>
-              <div className="progress-fill" style={{ width: `${overview.sahaProgress ?? 0}%` }} />
-            </div>
-            <div className="stat-label">Saha · {overview.sahaPoles ?? 0} direk</div>
-          </div>
-        </Link>
         <Link to="/is-takibi" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <div className="stat-card" style={{ cursor: 'pointer' }}>
+          <div className="stat-card">
+            <div className="stat-label">Fiziki İlerleme</div>
             <div className="stat-value">%{overview.overallProgress ?? 0}</div>
-            <div className="progress-track mini" style={{ marginTop: 8, marginBottom: 4 }}>
+            <div className="progress-track mini" style={{ marginTop: 8 }}>
               <div className="progress-fill" style={{ width: `${overview.overallProgress ?? 0}%` }} />
             </div>
-            <div className="stat-label">Fiziki İlerleme</div>
           </div>
         </Link>
-        <Link to="/is-takibi" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <div className="stat-card warn" style={{ cursor: 'pointer' }}>
-            <div className="stat-value">{overview.lateTasks ?? 0}</div>
-            <div className="stat-label">Geciken · {overview.openTasks ?? 0} açık</div>
+        <Link to="/saha" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <div className="stat-card accent">
+            <div className="stat-label">Saha · {overview.sahaPoles ?? 0} direk</div>
+            <div className="stat-value">%{overview.sahaProgress ?? 0}</div>
+            <div className="progress-track mini" style={{ marginTop: 8 }}>
+              <div className="progress-fill" style={{ width: `${overview.sahaProgress ?? 0}%` }} />
+            </div>
+          </div>
+        </Link>
+        <Link to="/teklifler" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <div className="stat-card accent">
+            <div className="stat-label">En İyi Teklifler Toplamı</div>
+            <div className="stat-value">{fmtMoney(overview.bestTotal)}</div>
+            <div className="stat-label" style={{ marginTop: 6 }}>
+              {overview.quotes} teklif · {overview.withoutQuotes} teklifsiz
+            </div>
+          </div>
+        </Link>
+        <Link to="/malzemeler" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <div className="stat-card">
+            <div className="stat-label">Tedarik</div>
+            <div className="stat-value">{overview.materials}</div>
+            <div className="stat-label" style={{ marginTop: 6 }}>
+              malzeme · {overview.suppliers} satıcı
+            </div>
           </div>
         </Link>
       </div>
 
-      <div className="grid-cards">
-        <Link to="/saha" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <div className={`stat-card ${overview.openSahaRequests > 0 ? 'warn' : ''}`} style={{ cursor: 'pointer' }}>
-            <div className="stat-value">{overview.openSahaRequests ?? 0}</div>
-            <div className="stat-label">Saha Malzeme Talebi</div>
-          </div>
+      <div className="alert-strip">
+        <Link to="/is-takibi" className={`alert-chip ${(overview.lateTasks ?? 0) > 0 ? 'warn' : ''}`}>
+          <span>Geciken Görev</span>
+          <strong>{overview.lateTasks ?? 0}</strong>
         </Link>
-        <Link to="/kamulastirma" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <div className={`stat-card ${overview.unpermittedParcels > 0 ? 'warn' : ''}`} style={{ cursor: 'pointer' }}>
-            <div className="stat-value">{overview.unpermittedParcels ?? 0}</div>
-            <div className="stat-label">İzinsiz Parsel</div>
-          </div>
+        <Link to="/teklifler" className={`alert-chip ${(overview.requested ?? 0) > 0 ? 'amber' : ''}`}>
+          <span>Bekleyen Teklif</span>
+          <strong>{overview.requested ?? 0}</strong>
         </Link>
-        <Link to="/isg" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <div className={`stat-card ${overview.expiringCerts > 0 ? 'warn' : ''}`} style={{ cursor: 'pointer' }}>
-            <div className="stat-value">{overview.expiringCerts ?? 0}</div>
-            <div className="stat-label">Yaklaşan Sertifika</div>
-          </div>
+        <Link to="/saha" className={`alert-chip ${(overview.openSahaRequests ?? 0) > 0 ? 'amber' : ''}`}>
+          <span>Saha Talebi</span>
+          <strong>{overview.openSahaRequests ?? 0}</strong>
+        </Link>
+        <Link to="/kamulastirma" className={`alert-chip ${(overview.unpermittedParcels ?? 0) > 0 ? 'warn' : ''}`}>
+          <span>İzinsiz Parsel</span>
+          <strong>{overview.unpermittedParcels ?? 0}</strong>
+        </Link>
+        <Link to="/isg" className={`alert-chip ${(overview.expiringCerts ?? 0) > 0 ? 'warn' : ''}`}>
+          <span>Yaklaşan Sertifika</span>
+          <strong>{overview.expiringCerts ?? 0}</strong>
         </Link>
       </div>
 
