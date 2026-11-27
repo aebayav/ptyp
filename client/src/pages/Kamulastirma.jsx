@@ -228,20 +228,20 @@ export default function Kamulastirma() {
             <div className="card" style={{ marginBottom: 14, padding: '12px 16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
                 <div style={{ fontWeight: 700, fontSize: 13 }}>
-                  🚧 Gergi Kantonları Çalışılabilir Cephe Analizi
+                  Gergi Kantonları Çalışılabilir Cephe Analizi
                 </div>
                 <div style={{ display: 'flex', gap: 8, fontSize: 11.5, flexWrap: 'wrap' }}>
                   <span className="badge badge-green">
-                    🟢 Açık Cephe: {readiness.summary.open_canton_count}/{readiness.summary.total_cantons}
+                    Açık Cephe: {readiness.summary.open_canton_count}/{readiness.summary.total_cantons}
                   </span>
                   {readiness.summary.ready_for_stringing_count > 0 && (
                     <span className="badge badge-blue">
-                      ⚡ Tel Çekimine Hazır: {readiness.summary.ready_for_stringing_count}
+                      Tel Çekimine Hazır: {readiness.summary.ready_for_stringing_count}
                     </span>
                   )}
                   {readiness.summary.blocked_canton_count > 0 && (
                     <span className="badge badge-red">
-                      🔴 Kamulaştırma Engelli: {readiness.summary.blocked_canton_count}
+                      Kamulaştırma Engelli: {readiness.summary.blocked_canton_count}
                     </span>
                   )}
                 </div>

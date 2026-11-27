@@ -287,7 +287,7 @@ export default function Kesif() {
                       </td>
                       <td>
                         <button className="btn btn-sm btn-danger" onClick={() => removeItem(i)} disabled={busy} title="Kalemi sil">
-                          ✕
+                          
                         </button>
                       </td>
                     </tr>

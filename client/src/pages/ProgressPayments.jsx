@@ -272,7 +272,7 @@ export default function ProgressPayments() {
             >
               {transferringPool
                 ? 'Aktarılıyor…'
-                : `🛡️ Saha Havuzundan Aktar (${poolReadyCount} Hazır)`}
+                : `Saha Havuzundan Aktar (${poolReadyCount} Hazır)`}
             </button>
           )}
           {projectId != null && (
@@ -282,7 +282,7 @@ export default function ProgressPayments() {
       </div>
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
-        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>PROJE:</span>
+        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>Proje</span>
         <select value={projectId ?? ''} onChange={(e) => setProjectId(Number(e.target.value))}>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
@@ -352,14 +352,14 @@ export default function ProgressPayments() {
                         title="Yeşil Defter + İcmal + Fiyat Farkı Excel Çıktısı"
                         onClick={() => exportHakedisExcel(p)}
                       >
-                        📗 Yeşil Defter (Excel)
+                        Yeşil Defter (Excel)
                       </button>
                       <button
                         className="btn btn-sm"
                         title="Fotoğraflı Kanıt Albümü ve Resmi Hakediş Raporu (Yazdır / PDF)"
                         onClick={() => openHakedisReport(p)}
                       >
-                        🖨️ Rapor
+                        Rapor
                       </button>
                       <button className="btn btn-sm" title="Düzenle" onClick={() => openEditModal(p)}>Düzenle</button>
                       {p.status === 'draft' && (
@@ -389,14 +389,14 @@ export default function ProgressPayments() {
                 onClick={() => exportHakedisExcel(selPayment)}
                 title="3 Sayfalı Excel: Hakediş İcmali + Yeşil Defter (Direk Bazlı Metraj) + Fiyat Farkı Pn"
               >
-                📗 Yeşil Defter &amp; İcmal (Excel)
+                Yeşil Defter &amp; İcmal (Excel)
               </button>
               <button
                 className="btn btn-sm"
                 onClick={() => openHakedisReport(selPayment)}
                 title="Onaylı saha fotoğrafları ve imza bloklarıyla resmi hakediş raporu"
               >
-                🖨️ Kanıtlı Rapor (PDF/Yazdır)
+                Kanıtlı Rapor (PDF/Yazdır)
               </button>
               {selPayment.status === 'draft' && (
                 <button className="btn btn-sm" onClick={() => changeStatus(selPayment, 'submitted')}>Sun (Onaya Gönder)</button>

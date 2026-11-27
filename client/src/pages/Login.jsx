@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, getApiBaseUrl, setApiBaseUrl } from '../api';
 import { useAuth } from '../AuthContext';
+import { PtypMark } from '../App';
 
 export default function Login() {
   const { login } = useAuth();
@@ -20,7 +21,6 @@ export default function Login() {
     try {
       const { token, user } = await api.post('/api/auth/login', { username, password });
       login(token, user);
-      // QR/baglanti ile gelindiyse giriş sonrası asıl hedefe dön
       let after = null;
       try {
         after = sessionStorage.getItem('ptyp_after_login');
@@ -49,14 +49,16 @@ export default function Login() {
     <div className="layout-login">
       <div className="auth-card">
         <div className="auth-brand">
-          <span></span>
-          <h1>PTYP</h1>
-          <p>Elektrik Nakil Hattı &amp; Trafo Merkezi Projesi</p>
+          <div className="auth-brand-row">
+            <PtypMark />
+            <h1>PTYP</h1>
+          </div>
+          <p>ENH ve trafo merkezi proje yönetimi</p>
         </div>
         {error && <div className="form-error">{error}</div>}
         <form onSubmit={submit}>
           <div className="field">
-            <label>Kullanıcı Adı</label>
+            <label>Kullanıcı adı</label>
             <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus required autoComplete="username" />
           </div>
           <div className="field">
@@ -64,30 +66,30 @@ export default function Login() {
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
           </div>
           <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
-            {busy ? 'Giriş yapılıyor…' : 'Giriş Yap'}
+            {busy ? 'Giriş yapılıyor…' : 'Giriş yap'}
           </button>
         </form>
         <p className="auth-note">
-          İş sahibi, saha ekibi ve satıcı hesapları aynı portaldan giriş yapar ·{' '}
+          İş sahibi, saha ekibi ve satıcı hesapları aynı ekrandan giriş yapar ·{' '}
           <button
             type="button"
             onClick={() => setShowServerCfg((v) => !v)}
             style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: 12, textDecoration: 'underline' }}
           >
-            Sunucu Ayarı
+            Sunucu ayarı
           </button>
         </p>
         {showServerCfg && (
-          <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: 'var(--soft-bg)', border: '1px solid var(--border)' }}>
-            <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, marginBottom: 4 }}>
-              Sunucu Adresi (Mobil APK / Uzak Bağlantı için)
+          <div style={{ marginTop: 12, padding: 12, borderRadius: 8, background: 'var(--soft-bg)', border: '1px solid var(--border)' }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, marginBottom: 6, color: 'var(--text-secondary)' }}>
+              Sunucu adresi (APK / uzak bağlantı)
             </label>
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 8 }}>
               <input
                 value={serverUrl}
                 onChange={(e) => setServerUrl(e.target.value)}
-                placeholder="https://turguz.app (boş = aynı sunucu)"
-                style={{ flex: 1, fontSize: 12.5, padding: '6px 8px' }}
+                placeholder="https://turguz.app"
+                style={{ flex: 1, height: 32, fontSize: 12.5, padding: '0 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--input-bg)', color: 'var(--text)' }}
               />
               <button
                 type="button"

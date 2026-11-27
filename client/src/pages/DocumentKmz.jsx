@@ -171,7 +171,7 @@ export default function DocumentKmz() {
         if (!batchCmUsed && d.tm3_cm_used) batchCmUsed = d.tm3_cm_used;
         if (!firstPreview && d.ocr?.pages?.length) firstPreview = d.ocr.pages[0].preview;
         const domInfo = d.tm3_cm_used ? ` (DOM ${d.tm3_cm_used}°)` : '';
-        log.push(`${i + 1}/${files.length} · ${f.name}: ${d.count} direk${domInfo} ✓`);
+        log.push(`${i + 1}/${files.length} · ${f.name}: ${d.count} direk${domInfo} `);
         console.log(`[Belge→KMZ batch ${i + 1}/${files.length}]`, okumaBilgisi(d));
       } catch (e) {
         log.push(`${i + 1}/${files.length} · ${f.name}: HATA — ${e.message}`);
@@ -471,7 +471,7 @@ export default function DocumentKmz() {
       </div>
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
-        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>PROJE:</span>
+        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>Proje</span>
         <select value={projectId ?? ''} onChange={(e) => setProjectId(Number(e.target.value))}>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>

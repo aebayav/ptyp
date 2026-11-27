@@ -477,7 +477,7 @@ export default function Depo() {
                     <option value="">—</option>
                     {requests.map((r) => (
                       <option key={r.id} value={r.id}>
-                        #{r.id} {r.item_name} ({fmtNum(r.qty)} {r.unit}) {r.status === 'fulfilled' ? '✓' : ''}
+                        #{r.id} {r.item_name} ({fmtNum(r.qty)} {r.unit}) {r.status === 'fulfilled' ? '' : ''}
                       </option>
                     ))}
                   </select>

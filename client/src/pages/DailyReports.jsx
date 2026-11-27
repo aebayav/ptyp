@@ -191,7 +191,7 @@ export default function DailyReports() {
       </div>
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
-        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>PROJE:</span>
+        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>Proje</span>
         <select value={projectId ?? ''} onChange={(e) => setProjectId(Number(e.target.value))}>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>

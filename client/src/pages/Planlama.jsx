@@ -131,7 +131,7 @@ export default function Planlama() {
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn" onClick={handleSyncSaha} disabled={busy}>
-            🔄 Sahadan Güncelle
+            Sahadan Güncelle
           </button>
           <Link to="/is-takibi" className="btn">
             İş Takibinde Düzenle
@@ -153,7 +153,7 @@ export default function Planlama() {
             <div>Bu projede henüz ağırlıklı iş grubu veya takvim tanımlanmamış.</div>
             <div style={{ marginTop: 10, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
               <button className="btn btn-accent" onClick={handleQuickGenerate} disabled={busy}>
-                {busy ? 'Oluşturuluyor…' : '⚡ Otomatik İş Planı Oluştur'}
+                {busy ? 'Oluşturuluyor…' : 'Otomatik İş Planı Oluştur'}
               </button>
               <Link to="/is-takibi" className="btn">
                 İş Takibi Sayfasına Git

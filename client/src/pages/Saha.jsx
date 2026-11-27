@@ -176,7 +176,7 @@ export default function Saha() {
         setData(cached.data);
         setMsg({
           type: 'ok',
-          text: `⚡ Çevrimdışı mod: Proje verileri cihaz önbelleğinden yüklendi (${new Date(cached.cachedAt).toLocaleTimeString('tr-TR')}).`,
+          text: `Çevrimdışı mod: Proje verileri cihaz önbelleğinden yüklendi (${new Date(cached.cachedAt).toLocaleTimeString('tr-TR')}).`,
         });
       } else {
         setData(null);
@@ -275,7 +275,7 @@ export default function Saha() {
           }
         ).addTo(layer);
         line.bindPopup(
-          `<b>${st === 'izinsiz' ? '⛔ İzinsiz Parsel Engeli' : '⚠️ İzin Başvuruda'}</b>` +
+          `<b>${st === 'izinsiz' ? 'İzinsiz Parsel Engeli' : 'İzin Başvuruda'}</b>` +
             `<br>${a.name} → ${b.name}` +
             (par.parcel_no ? `<br>Parsel: <b>${par.parcel_no}</b>` : '') +
             (par.owner_name ? `<br>Malik: ${par.owner_name}` : '')
@@ -296,7 +296,7 @@ export default function Saha() {
           `<b>${p.name}</b><br>${p.tower_type || '—'}` +
             (p.station_text ? ` · ${p.station_text}` : '') +
             `<br>Durum: ${st.label}` +
-            (blk ? `<br><span style="color:${blk.severity === 'izinsiz' ? '#dc2626' : '#d97706'};font-weight:700">⛔ ${blk.summary_text}</span>` : '')
+            (blk ? `<br><span style="color:${blk.severity === 'izinsiz' ? '#dc2626' : '#d97706'};font-weight:700">${blk.summary_text}</span>` : '')
         );
       }
       if (pts.length > 0) map.fitBounds(L.latLngBounds(pts.map((x) => [x[0], x[1]])).pad(0.15));
@@ -600,7 +600,7 @@ export default function Saha() {
         setShowOfflineModal(false);
         setMsg({
           type: 'ok',
-          text: `✓ ${isAuto ? 'Otomatik senkronizasyon: ' : ''}Çevrimdışı kuyruktaki ${okCount} kayıt başarıyla sunucuya aktarıldı.`,
+          text: `${isAuto ? 'Otomatik senkronizasyon: ' : ''}Çevrimdışı kuyruktaki ${okCount} kayıt başarıyla sunucuya aktarıldı.`,
         });
       } else if (failCount > 0 && (!isAuto || okCount > 0)) {
         setMsg({
@@ -654,7 +654,7 @@ export default function Saha() {
         await refreshOfflineQueue();
         setMsg({
           type: 'ok',
-          text: `⚡ Çevrimdışı: ${poleLabel} durumu (${stLabel}) kuyruğa kaydedildi; şebeke geldiğinde gönderilecek.`,
+          text: `Çevrimdışı: ${poleLabel} durumu (${stLabel}) kuyruğa kaydedildi; şebeke geldiğinde gönderilecek.`,
         });
       } else {
         setMsg({ type: 'err', text: e.message });
@@ -721,7 +721,7 @@ export default function Saha() {
       await load();
       setMsg({
         type: 'ok',
-        text: `✓ ${res.transferred_count} adet doğrulanmış direk imalatı "${res.payment?.period_label}" dönemine aktarıldı.`,
+        text: `${res.transferred_count} adet doğrulanmış direk imalatı "${res.payment?.period_label}" dönemine aktarıldı.`,
       });
     } catch (e) {
       setMsg({ type: 'err', text: e.message });
@@ -804,7 +804,7 @@ export default function Saha() {
         await refreshOfflineQueue();
         setMsg({
           type: 'ok',
-          text: `⚡ Çevrimdışı: "${optimisticReq.item_name}" malzeme talebi kuyruğa alındı; internet geldiğinde iletilecek.`,
+          text: `Çevrimdışı: "${optimisticReq.item_name}" malzeme talebi kuyruğa alındı; internet geldiğinde iletilecek.`,
         });
       } else {
         setMsg({ type: 'err', text: err.message });
@@ -1170,7 +1170,7 @@ export default function Saha() {
                                   title="Sil"
                                   onClick={() => deletePhoto(ph.id)}
                                 >
-                                  ✕
+                                  
                                 </button>
                               </span>
                             );
@@ -1674,7 +1674,7 @@ export default function Saha() {
                           cursor: 'pointer',
                         }}
                       >
-                        ✕
+                        
                       </button>
                     </div>
                   ))}

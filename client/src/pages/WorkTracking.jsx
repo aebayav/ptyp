@@ -511,10 +511,10 @@ export default function WorkTracking() {
           {tab === 'plan' && projectId != null && (
             <>
               <button className="btn" onClick={handleSyncSaha} disabled={syncingSaha} title="Saha direk durumlarından iş grubu ilerlemelerini güncelle">
-                {syncingSaha ? 'Eşitleniyor…' : '🔄 Sahadan Güncelle'}
+                {syncingSaha ? 'Eşitleniyor…' : 'Sahadan Güncelle'}
               </button>
               <button className="btn" onClick={openAutoWizard} title="Proje tipi, DTL, gergi kantonları ve geçişlerden otomatik iş planı oluştur">
-                ⚡ Otomatik İş Planı
+                Otomatik İş Planı
               </button>
               <button className="btn btn-accent" onClick={openNewGroup}>
                 + Yeni İş Grubu
@@ -525,7 +525,7 @@ export default function WorkTracking() {
       </div>
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
-        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>PROJE:</span>
+        <span className="muted" style={{ fontSize: 12.5, fontWeight: 600 }}>Proje</span>
         <select value={projectId ?? ''} onChange={(e) => setProjectId(Number(e.target.value))}>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
@@ -610,7 +610,7 @@ export default function WorkTracking() {
               <div>Henüz iş grubu yok.</div>
               <div style={{ marginTop: 10, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
                 <button className="btn btn-accent" onClick={openAutoWizard}>
-                  ⚡ Otomatik İş Planı Oluştur
+                  Otomatik İş Planı Oluştur
                 </button>
                 <button className="btn" onClick={openNewGroup}>
                   + Elle İş Grubu Ekle
@@ -766,7 +766,7 @@ export default function WorkTracking() {
 
       {autoModal && (
         <Modal
-          title="⚡ Otomatik İş Planı Oluşturucu"
+          title="Otomatik İş Planı Oluşturucu"
           onClose={() => setAutoModal(false)}
           wide
         >
@@ -948,7 +948,7 @@ export default function WorkTracking() {
             <div className="modal-actions">
               <button type="button" className="btn" onClick={() => setAutoModal(false)}>Vazgeç</button>
               <button type="submit" className="btn btn-accent" disabled={saving || autoLoading}>
-                {saving ? 'Oluşturuluyor…' : '⚡ İş Planını Oluştur'}
+                {saving ? 'Oluşturuluyor…' : 'İş Planını Oluştur'}
               </button>
             </div>
           </form>

@@ -71,19 +71,16 @@ export default function Portfolyo() {
 
       <div className="grid-cards">
         <div className="stat-card">
+          <div className="stat-label">Toplam proje</div>
           <div className="stat-value">{totals.project_count}</div>
-          <div className="stat-label">Toplam Proje</div>
         </div>
         <div className="stat-card accent">
+          <div className="stat-label">Firma ilerlemesi</div>
           <div className="stat-value">%{totals.firm_progress ?? 0}</div>
-          <div className="progress-track mini" style={{ marginTop: 8, marginBottom: 4 }}>
-            <div className="progress-fill" style={{ width: `${totals.firm_progress ?? 0}%` }} />
-          </div>
-          <div className="stat-label">Firma İlerlemesi</div>
         </div>
         <div className={`stat-card ${totals.projects_with_warnings > 0 ? 'warn' : ''}`}>
+          <div className="stat-label">Uyarılı proje</div>
           <div className="stat-value">{totals.projects_with_warnings}</div>
-          <div className="stat-label">Uyarılı Proje</div>
         </div>
       </div>
 
