@@ -217,7 +217,7 @@ export default function Ihaleler() {
           <ol style={{ paddingLeft: 20, fontSize: 13 }}>
             <li>Yeni sekmede <b>ekapv2.kik.gov.tr</b>'i açın ve <b>firma hesabınızla giriş yapın</b>.</li>
             <li>Sayfada <b>F12</b> → <b>Network</b> sekmesi → listede herhangi bir isteğe tıklayın.</li>
-            <li><b>Request Headers</b> altındaki <b>cookie:</b> satırının <b>tamamını</b> kopyalayın (uzun bir satır).</li>
+            <li><b>Request Headers</b> altındaki <b>cookie</b> değerine <b>SAĞ TIKLAYIP "Copy value"</b> seçin (fareyle seçerseniz Chrome ortasını <code>…</code> ile keser!).</li>
             <li>Aşağıya yapıştırıp kaydedin — ardından "Şimdi Tara" ile test edin.</li>
           </ol>
           <form onSubmit={saveCookies} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

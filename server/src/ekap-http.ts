@@ -136,6 +136,12 @@ export async function runEkapHarvestHttp(
   if (!cleanCookie) {
     throw sessionError(401);
   }
+  if (cleanCookie.includes('\u2026') || /[^\x20-\x7E]/.test(cleanCookie)) {
+    throw new Error(
+      'EKAP oturum çerezi kesik ("…") veya geçersiz karakter içeriyor. ' +
+        'Chrome DevTools → Network → Request Headers → cookie değerine SAĞ TIKLAYIP "Copy value" ile kopyalayıp İhale Kutusu sayfasından yeniden kaydedin.'
+    );
+  }
 
   const all: (EkapRow & { _matchedQuery?: string })[] = [];
   for (let qi = 0; qi < queries.length; qi++) {

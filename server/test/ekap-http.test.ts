@@ -172,5 +172,12 @@ describe('runEkapHarvestHttp', () => {
         sleepImpl: noSleep,
       })
     ).rejects.toThrow('oturum');
+
+    await expect(
+      runEkapHarvestHttp([{ name: 'T', searchText: 'trafo' }], 'TS01=abc…xyz', {
+        fetchImpl: fetchOk as any,
+        sleepImpl: noSleep,
+      })
+    ).rejects.toThrow('Copy value');
   });
 });

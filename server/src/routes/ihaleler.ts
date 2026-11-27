@@ -70,10 +70,20 @@ router.put('/ekap-cookies', async (req: Request, res: Response) => {
     .trim()
     .replace(/^cookie\s*:\s*/i, '')
     .trim()
-    .slice(0, 4000);
+    .slice(0, 8000);
   if (!cookies || cookies.length < 20) {
     return res.status(400).json({
-      error: 'Çerez boş/çok kısa. EKAP sekmesinde F12 → Network → herhangi bir istek → Request Headers → cookie satırının TAMAMINI kopyalayın.',
+      error: 'Çerez boş/çok kısa. EKAP sekmesinde F12 → Network → herhangi bir istek → Request Headers → cookie değerine SAĞ TIKLAYIP "Copy value" seçin.',
+    });
+  }
+  if (cookies.includes('\u2026')) {
+    return res.status(400).json({
+      error: 'Çerez Chrome tarafından kısaltılmış ("…" içeriyor). Metni fareyle seçmek yerine Request Headers altındaki cookie değerine SAĞ TIKLAYIP "Copy value" seçin.',
+    });
+  }
+  if (/[^\x20-\x7E]/.test(cookies)) {
+    return res.status(400).json({
+      error: 'Çerez geçersiz (ASCII dışı) karakter içeriyor. Lütfen cookie değerine sağ tıklayıp "Copy value" ile kopyalayın.',
     });
   }
   await pool.query(
