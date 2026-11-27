@@ -28,7 +28,6 @@ import planningRouter from './routes/planning';
 import fiyatFarkiRouter from './routes/fiyat-farki';
 import isgRouter from './routes/isg';
 import documentsRouter from './routes/documents';
-import ihalelerRouter from './routes/ihaleler';
 
 validateConfig(); // üretimde güvensiz varsayılanlarla açılmayı reddeder
 const app = express();
@@ -40,7 +39,6 @@ app.use('/api/auth', authRouter);
 app.use('/api/public', publicLimiter, quoteUploadRouter); // satıcı teklif dosyası yükleme (herkese açık, IP başına sınırlı)
 
 // ---------- Buradan sonrası kimlik doğrulama ister (route dosyalarında requireAuth) ----------
-app.use('/api/ihaleler', ihalelerRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/materials', materialsRouter);
 app.use('/api/suppliers', suppliersRouter);

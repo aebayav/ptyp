@@ -10,18 +10,13 @@ export default function Portfolyo() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [ihaleStats, setIhaleStats] = useState(null);
 
   async function load() {
     try {
       setError(null);
       setLoading(true);
-      const [d, i] = await Promise.all([
-        api.get('/api/overview/portfolio'),
-        api.get('/api/ihaleler/stats').catch(() => null),
-      ]);
+      const d = await api.get('/api/overview/portfolio');
       setData(d);
-      setIhaleStats(i);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -90,19 +85,6 @@ export default function Portfolyo() {
           <div className="stat-value">{totals.projects_with_warnings}</div>
           <div className="stat-label">Uyarılı Proje</div>
         </div>
-        {ihaleStats && (
-          <Link to="/ihaleler" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <div className={`stat-card ${Number(ihaleStats.unread) > 0 ? 'warn' : ''}`} style={{ cursor: 'pointer' }}>
-              <div className="stat-value">{ihaleStats.unread}</div>
-              <div className="stat-label">
-                Yeni İhale
-                {ihaleStats.is_stale && (
-                  <span className="badge badge-amber" style={{ marginLeft: 6 }}>tarama uyuyor</span>
-                )}
-              </div>
-            </div>
-          </Link>
-        )}
       </div>
 
       {projects.length === 0 ? (
